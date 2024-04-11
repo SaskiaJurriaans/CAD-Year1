@@ -1,0 +1,426 @@
+---
+title: "Bayes_Heron_Yield"
+author: "Sas"
+format: html
+editor: visual
+---
+
+# Preparations
+
+Load the necessary libraries
+
+```{r}
+#| label: libraries
+#| output: false
+#| eval: true
+#| warning: false
+#| message: false
+#| cache: false
+
+library(tidyverse)  #for data wrangling etc
+library(rstanarm)   #for fitting models in STAN
+#library(cmdstanr)   #for cmdstan --> does not work on AIMS computers
+library(brms)       #for fitting models in STAN
+library(standist)   #for exploring distributions
+library(coda)       #for diagnostics
+library(bayesplot)  #for diagnostics
+library(ggmcmc)     #for MCMC diagnostics
+library(DHARMa)     #for residual diagnostics
+library(rstan)      #for interfacing with STAN
+library(emmeans)    #for marginal means etc
+library(broom)      #for tidying outputs
+library(tidybayes)  #for more tidying outputs
+library(HDInterval) #for HPD intervals
+library(ggeffects)  #for partial plots
+library(broom.mixed)#for summarising models
+library(posterior)  #for posterior draws
+library(ggeffects)  #for partial effects plots
+library(patchwork)  #for multi-panel figures
+library(bayestestR) #for ROPE
+library(see)        #for some plots
+library(readxl)     #to load excel documents
+library(easystats)     #framework for stats, modelling and visualisation
+#library(INLA)       #for approximate Bayes
+library(openxlsx)    # to write excel documents
+#library(INLAutils)  #for additional INLA outputs
+theme_set(theme_grey()) #put the default ggplot theme back
+source('helperFunctions.R')
+```
+
+# Read in the data
+
+```{r}
+survival <- read_excel("C:/Users/sjurriaa/Australian Institute of Marine Science/Carly Randall - Randall Lab/CAD/CAD Field Data/2022_Deployment_Saskia_YEAR1/Survival data/R/dataframes/Survival_merged_normalized.xlsx", 
+    col_types = c("text", "text", "text", 
+        "date", "numeric", "date", "numeric", 
+        "text", "text", "text", "numeric", 
+        "skip", "numeric", "numeric", "numeric", 
+        "numeric", "numeric", "numeric", 
+        "numeric", "numeric", "numeric", 
+        "numeric", "numeric", "numeric", 
+        "numeric", "numeric", "numeric", 
+        "numeric", "numeric", "numeric", 
+        "numeric", "numeric"), na = "NA")
+```
+
+# Exploratory data analysis
+
+```{r}
+glimpse(survival)
+head(survival)
+str(survival)
+survival |> datawizard::data_codebook()
+```
+
+We need to make sure that the categorical variables and the random effects are defined as factors:
+
+```{r}
+survival <- survival |> mutate(Reef = factor(Reef),
+                             #  WaveEnergyLevel = factor(WaveEnergyLevel),
+                               ReefDev = factor(ReefDev),
+                               Census = factor(Census))
+```
+
+```{r}
+davies <- survival |> filter(Reef == "Davies", Tab_ID == 1, Census == "t6")
+moore <- survival |> filter (Reef == "Moore", Tab_ID == 1, Census == "t6")
+heron <- survival |> filter (Reef == "Heron", Tab_ID == 1, Census == "t2")
+
+# Remove rows with missing values
+davies_clean <- davies[complete.cases(davies$SurvDev),  ]
+moore_clean <- moore[complete.cases(moore$SurvDev),  ]
+heron_clean <- heron[complete.cases(heron$SurvDev),  ]
+```
+
+```{r}
+ggplot(data=heron, aes(y = SurvDev, x = WaveEnergyLevel)) + 
+  geom_point(position = position_jitter(width = 0.2, height = 0)) +
+ # facet_wrap(~WaveEnergyLevel) + 
+  geom_smooth(method="lm")
+
+ggplot(data=heron, aes(y = SurvDev, x = Ub_avrg)) + 
+  geom_point(position = position_jitter(width = 0.2, height = 0)) +
+ # facet_wrap(~WaveEnergyLevel) + 
+  geom_smooth(method="lm")
+
+ggplot(data=heron, aes(y = SurvDev, x = median_speed)) + 
+  geom_point(position = position_jitter(width = 0.2, height = 0)) +
+ # facet_wrap(~WaveEnergyLevel) + 
+  geom_smooth(method="lm")
+```
+
+# Model - Frequentists
+
+### glm
+
+```{r}
+heron.speed.glm <- glm(SurvDev ~ median_speed, data = heron_clean, family = binomial(link = "logit"))
+
+heron.ub.glm <- glm(SurvDev ~ Ub_avrg, data = heron_clean, family = binomial(link = "logit"))
+
+heron.speed.ub.glm <- glm(SurvDev ~ median_speed + Ub_avrg, data = heron_clean, family = binomial(link = "logit"))
+
+heron.speed.ub.interaction.glm <- glm(SurvDev ~ median_speed * Ub_avrg, data = heron_clean, family = binomial(link = "logit"))
+
+summary(heron.speed.glm)
+summary(heron.ub.glm)
+summary(heron.speed.ub.glm)
+summary(heron.speed.ub.interaction.glm)
+
+
+library(lme4)
+heron.speed.glmer <- glmer(SurvDev ~ median_speed + (1|ReefDev/Site), data = heron_clean, family = binomial(link = "logit"))
+
+heron.ub.glmer <- glmer(SurvDev ~ Ub_avrg + (1|ReefDev/Site), data = heron_clean, family = binomial(link = "logit"))
+
+heron.speed.ub.glmer <- glmer(SurvDev ~ median_speed + Ub_avrg + (1|ReefDev/Site), data = heron_clean, family = binomial(link = "logit"))
+
+heron.speed.ub.interaction.glmer <- glmer(SurvDev ~ median_speed * Ub_avrg + (1|ReefDev/Site), data = heron_clean, family = binomial(link = "logit"))
+
+summary(heron.speed.glmer)
+summary(heron.ub.glmer)
+summary(heron.speed.ub.glmer)
+summary(heron.speed.ub.interaction.glmer)
+
+
+library(glmmTMB)
+#heron.glmmTMB <- glmmTMB(SurvDev ~ median_speed, data = heron_clean, family = binomial())
+#summary(heron.glmmTMB)
+```
+
+### AIC
+
+Get AIC values for each model
+
+```{r}
+# List of models
+model_list <- list(
+  heron.speed.glm,
+  heron.ub.glm,
+  heron.speed.ub.glm,
+  heron.speed.ub.interaction.glm,
+  heron.speed.glmer,
+  heron.ub.glmer,
+  heron.speed.ub.glmer,
+  heron.speed.ub.interaction.glmer
+)
+
+# Iterate over the list of models and print their AIC values
+for (model in model_list) {
+  cat("Model AIC:", AIC(model), "\n")
+}
+
+```
+
+### Figures
+
+Best model is glm with interaction term for median_speed \* Ub_avrg
+
+```{r}
+# Create the sequences
+median_speed_seq <- seq(from = 0, to = 0.22, by = 0.01)
+#Census_values <- rep(c("t0", "t1", "t2", "t3", "t4", "t6"), length.out = length(median_speed_seq))
+Ub_avrg_seq <- seq(from = 0, to = 0.6, length.out = length(median_speed_seq))
+#WaveEnergyLevel_seq <- seq(from = 1, to = 5, length.out = length(median_speed_seq))
+
+# Create a data frame with the sequences
+heron1 <- data.frame(
+  median_speed = median_speed_seq,
+ # Census_values = Census_values,
+  Ub_avrg = Ub_avrg_seq
+#  WaveEnergyLevel = WaveEnergyLevel_seq
+)
+
+Pred_interaction <- predict(heron.speed.ub.interaction.glm, newdata=davies1, type = "response")
+Pred_maineffects <- predict(heron.speed.ub.glm, newdata=davies1, type = "response")
+
+heron_interaction <- ggplot(data=heron_clean, aes(x=median_speed, y=SurvDev, color = Ub_avrg)) + 
+  geom_point() + 
+   geom_line(data=heron1, aes(y=Pred_interaction), color = "red")
+
+
+heron_maineffects <- ggplot(data=heron_clean, aes(x=median_speed, y=SurvDev, color = Ub_avrg)) + 
+  geom_point() + 
+   geom_line(data=heron1, aes(y=Pred_maineffects), color = "red")
+
+plot(heron_maineffects)
+plot(heron_interaction)
+
+```
+
+# Bayesian
+
+### Priors
+
+```{r}
+#to find our priors, we need to take 2.5*sd(REPSONSE)/sd(PREDICTOR))
+2.5 * sd(heron_clean$SurvDev, na.rm = TRUE)/sd(heron_clean$median_speed, na.rm = TRUE)
+```
+
+```{r}
+priors <- prior(student_t(3, 0, 2.5), class="Intercept") +
+  prior(normal(0,30), class = "b") 
+```
+
+### heron.speed.brm
+
+```{r}
+heron.form.speed <- bf(SurvDev ~ median_speed,
+                  family = bernoulli(link='logit'))
+
+#heron.speed.brm <- brm(heron.form.speed,
+#                 data=heron_clean,
+#                 prior = priors,
+#                sample_prior = "yes",
+#                 iter = 5000,
+#                 warmup = 1000,
+#                 chains = 3, cores = 3,
+#                 thin = 5,
+#                 refresh = 0,
+#                backend = "rstan")
+
+# To save the model use >> 
+save(heron.speed.brm, file = "scripts/models/survival_heron.speed.brm.RData")
+
+# To load the model back in workspace >>
+#MAY NEED TO RUN THIS IN CONSOLE TO WROK
+load(file = "scripts/models/survival_heron.speed.brm.RData")
+
+```
+
+### Conditional plot
+
+```{r}
+heron.speed.brm |> ggemmeans(~median_speed) |> plot(add.data = TRUE)
+heron.speed.brm |> conditional_effects() |> plot(points = TRUE)
+#heron.speed.brm |> conditional_effects("median_speed", conditions = list(Census=c("t0", "t1", "t2", "t3", "t4", "t6"))) |> plot(points = TRUE)
+```
+
+# MCMC sampling diagnostics
+
+```{r}
+heron.speed.brm$fit |> stan_trace()
+heron.speed.brm$fit |> stan_ac()
+heron.speed.brm$fit |> stan_rhat()
+heron.speed.brm$fit |> stan_ess()
+```
+
+# Model investigation
+
+### Posterior probability checks
+
+```{r}
+heron.speed.brm |> pp_check(type = 'dens_overlay', ndraws = 100)
+heron.speed.brm |> pp_check (type = "error_scatter_avg")
+heron.speed.brm |> mcmc_plot(type='violin')
+heron.speed.brm |> pp_check(group = 'median_speed', type = 'violin_grouped')
+```
+
+### dHARMA residuals
+
+```{r}
+library(DHARMa)
+heron.resids <- make_brms_dharma_res(heron.speed.brm, integerResponse = FALSE)
+testUniformity(heron.resids)
+```
+
+```{r}
+wrap_elements(~testUniformity(heron.resids))
+wrap_elements(~plotResiduals(heron.resids, form = factor(rep(1,nrow(heron_clean))))) 
+wrap_elements(~plotResiduals(heron.resids, quantreg = TRUE))   # leave the quartile calculations off if you have a small amount of data
+wrap_elements(~testDispersion(heron.resids))
+
+```
+
+# Further analyses
+
+## Visualization
+
+```{r}
+heron.speed.brm |> conditional_effects() |> plot(points=TRUE)
+```
+
+### Figure 1
+
+```{r partialPlot2h1b, results='markdown', eval=TRUE, mhidden=TRUE, fig.width=8, fig.height=5}
+
+ggpredict(heron.speed.brm, terms = ~median_speed) %>%
+   plot(add.data = TRUE)
+ 
+
+Fig1a <- ggemmeans(heron.speed.brm, terms = ~median_speed) %>%
+  plot(add.data = TRUE) 
+
+conditional_effects(heron.speed.brm) |> 
+  plot(points = TRUE)
+
+Fig1b <- heron.speed.brm %>% emmeans(~median_speed , type = 'link') %>%
+    as.data.frame() %>%
+    ggplot(aes(y = emmean, x = median_speed)) +
+   # geom_hline(yintercept = c(5,-5), linetype = 'dashed') +
+    geom_pointrange(aes(ymin = lower.HPD, ymax = upper.HPD)) +
+    geom_point(data = heron_clean, aes(y = SurvDev),
+              # position = position_jitter(width=0.02, height = 0),
+               alpha=0.4, color = 'red') +  
+     labs(title = "heron Reef", x = "Median Speed (m/s)", y = "Estimated marginal mean - Survival (yield)") +  # Axis labels
+  theme_minimal()  # Apply minimal theme
+
+print(Fig1a)
+print(Fig1b)
+
+#ggsave("Fig1a - heron Predicted probabilities SurvDev.jpeg", Fig1a, width = 10, height = 6)
+#ggsave("Fig1b - heron Estimated marginal means SurvDev.jpeg", Fig1b, width = 10, height = 6)
+#saved on 05/04/2024
+
+
+```
+
+### Figure 2
+
+```{r}
+new_data <- data.frame(
+  median_speed = median_speed_seq
+)
+
+# Extract fitted draws for the new data
+#fitted_draws <- add_epred_draws(heron.speed.brm, newdata = new_data, allow_new_levels = TRUE)
+
+fitted_draws <- heron.speed.brm |>
+  add_fitted_draws(newdata = new_data, allow_new_levels = TRUE)
+
+summary_stats <- fitted_draws |>
+    summarise(
+    mean_survival_probability = mean(.value), #calculating the predicted means
+    se = sd(.value) / sqrt(n())  # Calculate standard error
+  ) |>
+  ungroup()
+
+
+# Plotting the results
+Fig2 <- ggplot(summary_stats, aes(x = median_speed_seq, y = mean_survival_probability, group = 1)) +
+  geom_line() +  
+  geom_point() +  
+#  geom_errorbar(aes(ymin = mean_survival_probability - se, ymax = mean_survival_probability + se), 
+#                width = 0.1) +  # Set the width of the error bars  
+  labs( title = "heron Reef", y = "survival probability", x = "median speed (m/s)") +
+  theme_bw() + theme(text = element_text(size = 12)) 
+
+print(Fig2)
+#ggsave("Fig2 - heron Survival probabilities.jpeg", Fig2, width = 10, height = 6)
+#saved on 05/04/2024
+```
+
+# Interpretation
+
+```{r}
+heron.speed.brm |> summary()
+```
+
+intercept: -0.86\
+slope: 12.29\
+CI intercept: -1.84-0.09\
+CI slope: 5.24-19.83 -\> For the slope we do [**not**]{.underline} want to have the CI crossing [**zero**]{.underline}
+
+```{r}
+heron.speed.brm$fit |> tidyMCMC(estimate.method = "median", 
+                            conf.int = TRUE, 
+                            conf.method = "HPDinterval", 
+                            rhat = TRUE, 
+                            ess = TRUE, 
+                            exponential = TRUE)
+```
+
+```{r}
+heron.speed.brm.tidy <- heron.speed.brm |> as_draws_df()  |>
+  dplyr::select(matches("^b_.*")) |>    # a more sophisticated way of selecting (and searching) for pattersn in our column headers
+  mutate(across(everything(), exp)) |>
+  summarise_draws("median",            #  for every column calculate the median
+                 ~HDInterval::hdi(.x), #  highest density intervals come from a specific package and threfore you need to specify the package it comes from, and therefore you need to put a ~ infront of it, and (.x) 
+                  "rhat",               # for every column give me the rhat 
+                  "ess_bulk",           # for every column give me the ess_bulk
+                 P = ~mean(.x <1),    # what is the probability that there is any effect (100%)
+                 P5 = ~mean(.x <0.95),  # what is the probability that there is a 5% decline?
+                 P50= ~mean(.x <0.5)) # what is the probability that there is a 50% decline?
+  
+#RUN IN CONSOLE
+#write.xlsx(heron.speed.brm.tidy, file = "data/Heron survival-speed brm tidy_odds ratio.xlsx") #Saving this data for interpretation in a manuscript
+
+```
+
+[**This table is the easiest to describe as your narrative for the biology/ecology of your data.**]{.underline} Also we have now first done the exponential of each number and then summarized this, instead of first summarizing it and then calculating the exponential of it. Therefore, for the Confidence Interval of b_median_current_speed we are now looking for that this range [**does not exceed 1**]{.underline} (as the exponential of zero is 1). Does the interval of \[0.0000- 0.0001489\] includes 1? NO! Therefore we have evidence that our slope decreases with current
+
+### R2
+
+```{r}
+heron.speed.brm |> 
+  bayes_R2(summary = FALSE) |>
+  median_hdci()
+```
+
+```{r}
+heron.speed.brm |> 
+  as_draws_df() |>
+  dplyr::select(matches("^b_.*")) |>
+  mutate(LD50 = -1*b_Intercept / b_median_speed) |>
+  median_hdci(LD50)
+```

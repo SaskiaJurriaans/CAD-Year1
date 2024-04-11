@@ -1,0 +1,717 @@
+---
+title: "Bayes Moore Survivorship YIELD"
+author: "Sas"
+format: html
+editor: visual
+---
+
+# Preparation
+
+```{r}
+#| label: libraries
+#| output: false
+#| eval: true
+#| warning: false
+#| message: false
+#| cache: false
+
+library(tidyverse)  #for data wrangling etc
+library(rstanarm)   #for fitting models in STAN
+#library(cmdstanr)   #for cmdstan --> does not work on AIMS computers
+library(brms)       #for fitting models in STAN
+library(standist)   #for exploring distributions
+library(coda)       #for diagnostics
+library(bayesplot)  #for diagnostics
+library(ggmcmc)     #for MCMC diagnostics
+library(DHARMa)     #for residual diagnostics
+library(rstan)      #for interfacing with STAN
+library(emmeans)    #for marginal means etc
+library(broom)      #for tidying outputs
+library(tidybayes)  #for more tidying outputs
+library(HDInterval) #for HPD intervals
+library(ggeffects)  #for partial plots
+library(broom.mixed)#for summarising models
+library(posterior)  #for posterior draws
+library(ggeffects)  #for partial effects plots
+library(patchwork)  #for multi-panel figures
+library(bayestestR) #for ROPE
+library(see)        #for some plots
+library(readxl)     #to load excel documents
+library(easystats)     #framework for stats, modelling and visualisation
+#library(INLA)       #for approximate Bayes
+#library(INLAutils)  #for additional INLA outputs
+theme_set(theme_grey()) #put the default ggplot theme back
+source('helperFunctions.R')
+```
+
+# Load data
+
+```{r}
+survival <- read_excel("dataframes/Survival_merged_normalized.xlsx", 
+    col_types = c("text", "text", "text", 
+        "date", "numeric", "date", "text", 
+        "text", "text", "text", "numeric", 
+        "skip", "numeric", "numeric", "numeric", 
+        "numeric", "numeric", "numeric", 
+        "numeric", "numeric", "numeric", 
+        "numeric", "numeric", "numeric", 
+        "numeric", "numeric", "numeric", 
+        "numeric", "numeric", "numeric", 
+        "numeric", "numeric"), na = "NA")
+```
+
+# Explore data
+
+```{r}
+glimpse(survival)
+head(survival)
+str(survival)
+survival |> datawizard::data_codebook()
+```
+
+Create separate datasets for each reef and filter by Tab1 to only keep rows with yield.
+
+```{r}
+survival <- survival |> mutate(Reef = factor(Reef),
+                               WaveEnergyLevel = factor(WaveEnergyLevel),
+                               ReefDev = factor(ReefDev),
+                               Census = factor(Census))
+
+#Davies <- survival |> filter(Reef == "Davies", Tab_ID == 1)
+moore <- survival |> filter (Reef == "Moore", Tab_ID == 1)
+#Heron <- survival |> filter (Reef == "Heron", Tab_ID == 1)
+
+ggplot(data=moore, aes(y = SurvDev, x = WaveEnergyLevel)) + 
+  geom_point(position = position_jitter(width = 0.2, height = 0)) +
+ # facet_wrap(~WaveEnergyLevel) + 
+  geom_smooth(method="lm")
+
+ggplot(data=moore, aes(y = SurvDev, x = median_speed)) + 
+  geom_point(position = position_jitter(width = 0.2, height = 0)) +
+ # facet_wrap(~WaveEnergyLevel) + 
+  geom_smooth(method="lm")
+```
+
+# Set model
+
+### priors
+
+```{r}
+priors <- prior(normal(0, 1.7), class = "Intercept") +
+  prior(normal(0, 1.7), class = 'b') +
+  prior(student_t(3, 0, 1.5), class = 'sd')
+```
+
+### formula
+
+```{r}
+moore.form.WEL <- bf(SurvDev ~ WaveEnergyLevel + (1|ReefDev),
+                  family = bernoulli(link='logit'))
+# trials is the total number of trials for the observations
+```
+
+### brm2
+
+```{r}
+moore.brm2 <- brm(moore.form.WEL,
+                    data = moore,
+                    prior = priors,
+                    sample_prior = 'only',
+                    iter = 5000,
+                    warmup = 2500,
+                    chains = 3, cores = 3,
+                    thin = 5,
+                    refresh = 0,
+                    control = list(adapt_delta = 0.99),
+                    backend = "rstan"
+                    )
+```
+
+Look at the priors to assess if they are good:
+
+```{r}
+moore.brm2 |>
+  conditional_effects() |> plot(points = TRUE)
+```
+
+### brm3
+
+Now run the model with the data:
+
+```{r}
+moore.brm3 <- brm(moore.form.WEL,
+                    data = moore,
+                    prior = priors,
+                    sample_prior = 'yes',
+                    iter = 5000,
+                    warmup = 2500,
+                    chains = 3, cores = 3,
+                    thin = 5,
+                    refresh = 0,
+                    control = list(adapt_delta = 0.99),
+                    backend = "rstan"
+                    )
+
+# To save the model use >> save(moore.brm3, file = "Survival_moorebrm3.RData")
+
+
+```
+
+```{r}
+
+
+moore.brm3 <- brm(moore.form.WEL,
+                    data = moore,
+                    prior = priors,
+                    sample_prior = 'yes',
+                    iter = 5000,
+                    warmup = 2500,
+                    chains = 3, cores = 3,
+                    thin = 5,
+                    refresh = 0,
+                    control = list(adapt_delta = 0.99),
+                    backend = "rstan"
+                    )
+
+```
+
+\# to load the model back in workspace
+
+```{r}
+load(file = "Survival_moorebrm3.RData")
+```
+
+And look at the plot:
+
+```{r}
+moore.brm3 |>
+  conditional_effects() |> plot(points = TRUE)
+```
+
+# MCMC sampling diagnostics
+
+```{r}
+moore.brm3$fit |> stan_trace() 
+```
+
+The first 10 parameters capture the variables that I am interested in. So, I don't need a regular expression here to modify the command.
+
+```{r}
+moore.brm3$fit |> stan_ac()
+```
+
+All below 0.25, all good.
+
+```{r}
+moore.brm3$fit |> stan_rhat()
+```
+
+Rhat below 1.01 so it's good.
+
+```{r}
+moore.brm3$fit |> stan_ess()
+```
+
+ESS 80% efficient.
+
+```{r}
+moore.brm3 |> mcmc_plot(type='violin')
+```
+
+# Model validation
+
+```{r}
+available_ppc()
+moore.brm3 |> pp_check(type = 'dens_overlay', ndraws = 100)
+```
+
+dens_overlay: plots the density distribution of the observed data (black line) overlayed on top of 50 density distributions generated from draws from the model (light blue). Ideally, the 50 realisations should be roughly consistent with the observed data.
+
+```{r}
+moore.brm3 |> pp_check (type = "error_scatter_avg")
+```
+
+This plots the observed values against the average residuals. Similar to a residual plot, we do not want to see any patterns in this plot. Note, this is not really that useful for models that involve a binomial response
+
+We cannot interpet this plot.
+
+```{r}
+moore.brm3 |> pp_check(group = 'WaveEnergyLevel', type = 'violin_grouped') 
+#moore.brm3 |> pp_check(group = 'CensusTrip', type = 'violin_grouped') 
+#moore.brm3 |> pp_check(group = 'DeviceType', type = 'violin_grouped')
+```
+
+### dHARMA residuals
+
+DHARMa residuals provide very useful diagnostics. Unfortunately, we cannot directly use the `simulateResiduals()` function to generate the simulated residuals. However, if we are willing to calculate some of the components yourself, we can still obtain the simulated residuals from the fitted stan model.
+
+We need to supply:
+
+-   simulated (predicted) responses associated with each observation.
+-   observed values
+-   fitted (predicted) responses (averaged) associated with each observation
+
+```{r}
+library(DHARMa)
+moore.resids <- make_brms_dharma_res(moore.brm3, integerResponse = FALSE)
+testUniformity(moore.resids)
+
+wrap_elements(~testUniformity(moore.resids))
+wrap_elements(~plotResiduals(moore.resids, form = factor(rep(1,nrow(moore))))) 
+wrap_elements(~plotResiduals(moore.resids, quantreg = TRUE))   # leave the quartile calculations off if you have a small amount of data
+wrap_elements(~testDispersion(moore.resids))
+
+```
+
+### Conditional plot
+
+```{r}
+
+Fig1 <-  conditional_effects(moore.brm3) |> plot(points=TRUE)
+
+png("Fig1 - brm Moore WaveEnergyGradient.png", width = 800, height = 600) 
+
+#save(Fig1, file = "Fig1 - brm Moore WaveEnergyGradient.jpeg", width = 800, height = 600)  
+```
+
+```{r partialPlot2h1b, results='markdown', eval=TRUE, mhidden=TRUE, fig.width=8, fig.height=5}
+
+#NOTING that was for a different model and you would need to update based on sur2.brm8 formula instead of sur2.brm5 formula
+
+ggpredict(moore.brm3, terms = c("WaveEnergyLevel")) %>%
+   plot(add.data = TRUE)
+ 
+
+ggemmeans(moore.brm3, terms = c("WaveEnergyLevel")) %>%
+  plot(add.data = TRUE) 
+
+conditional_effects(moore.brm3) |> 
+  plot(points = TRUE)
+
+moore.brm3 %>% emmeans(~WaveEnergyLevel , type = 'link') %>%
+    as.data.frame() %>%
+    ggplot(aes(y = emmean, x = WaveEnergyLevel)) +
+    geom_hline(yintercept = c(5,-5), linetype = 'dashed') +
+    geom_pointrange(aes(ymin = lower.HPD, ymax = upper.HPD)) +
+    geom_point(data = moore, aes(y = SurvDev),
+               position = position_jitter(width=0.2, height = 0),
+               alpha=0.4, color = 'red') +  
+    scale_color_manual(values = c("lightsteelblue3", "darkseagreen4")) + 
+     theme_bw(base_size = 11)
+```
+
+**Conclusions:**
+
+-   the simulated residuals do not suggest any issues with the residuals
+-   there is no evidence of a lack of fit. We can now explore the statistics.
+
+# Model investigation
+
+### Model summary
+
+```{r}
+summary(moore.brm3)
+```
+
+```{r summariseModel2b1, results='markdown', eval=TRUE, mhidden=TRUE, fig.width=8, fig.height=5,echo=FALSE}
+brm3.tidy <- tidyMCMC(moore.brm3$fit, 
+                      estimate.method='median',
+                      conf.int=TRUE,  
+                      conf.method='HPDinterval',
+                      rhat=TRUE, 
+                      ess=TRUE)
+head(brm3.tidy)
+
+library(openxlsx)
+write.xlsx(brm3.tidy, file = "Coral Survival moore brm3 tidy_logit scale.xlsx")
+#Saving the data
+
+#NOTE: the coefficients in the above file are presented on a logit scale.  Whilst this is not relevant for the purpose of inference testing, it does make it difficult to interpret. Calculations, back transforming to exponentiate the coefficients odds ratio scale is done below
+
+# Assuming brm8.tidy is your dataframe containing the tidy MCMC results
+
+# Convert estimates to odds ratios
+brm3.tidy$estimate <- exp(brm3.tidy$estimate)
+
+# Convert lower and upper confidence interval bounds to odds ratios
+brm3.tidy$conf.low <- exp(brm3.tidy$conf.low)
+brm3.tidy$conf.high <- exp(brm3.tidy$conf.high)
+
+# Print the first few rows to check
+head(brm3.tidy)
+
+write.xlsx(brm3.tidy, file = "Coral Survival moore brm3 tidy_odds ratio.xlsx")
+#Saving this data for interpretation in a manuscript
+```
+
+\################################
+
+Without mutation (without exponent):
+
+```{r}
+library(knitr)
+
+moore.logit <- moore.brm3 |> as_draws_df() |>
+  dplyr::select(matches("^b_.*|^sd_.*")) |> 
+  summarise_draws(median, 
+                  ~HDInterval::hdi(.x, .width = 0.89), 
+                  ess_bulk, 
+                  ess_tail, 
+                  rhat,     
+                  Pl = ~ mean(.x < 1), 
+                  Pg = ~ mean(.x > 1))
+ 
+library(openxlsx)
+write.xlsx(moore.logit, file = "Coral Survival moore brm3 logit scale.xlsx")
+#Saving the data
+```
+
+The median is in log odd scale, not yet mutated. It's called log odds (or logit).
+
+```{r}
+exp(1.885477)
+```
+
+We get the 6.6 from the table below with mutation. It's called odds. The odds of surviving at wave exposure Level 1 are 6.6 to 1 (6.6:1).
+
+```{r}
+plogis(1.885477)
+```
+
+Plogis does the two conversion: exponentiate + convert to %. It's 0.87 (or 87%). Look at the conditional effect plot and you see that the first point of the first group (Level1 group) are at 0.87 on the y-axis.
+
+But this is valid only for the first line (intercept). All the other lines are a difference of ratio of odds, not a ratio. For the 2nd line (Level2), -1.14 is the ratio of 2 odds, the odds of the Level1 group and the odds from the Level2 group. Because -1.14 is a difference of odds and not an odd, the conversion to % would be done like this:
+
+```{r}
+plogis(1.885477)-plogis(1.885477-1.141115)     # you cannot do directly plogis(-1.49)
+```
+
+Thus the odds of surviving at Level2 is 20%.
+
+Now the table with mutated values: this is the only thing that we can apply to the whole table, we can exponentiat log odds to odds:
+
+```{r}
+moore.odds <- moore.brm3 |> as_draws_df() |>
+  dplyr::select(matches("^b_.*|^sd_.*")) |> 
+  mutate(across(everything(), exp)) |>     # we put the data on the exp scale instead of log because more interpretable
+  summarise_draws(median,
+                  ~HDInterval::hdi(.x, .width = 0.89), 
+                  ess_bulk, 
+                  ess_tail, 
+                  rhat,     
+                  Pl = ~ mean(.x < 1), 
+                  Pg = ~ mean(.x > 1)) 
+
+write.xlsx(moore.odds, file = "Coral Survival moore brm3 odds ratio.xlsx")
+#Saving this data for interpretation in a manuscript
+```
+
+b_Intercept 6.6 - in the LEVEL1 group, the odds of surviving on are 6.6 times higher than the odds of dying. Or, 6.6 times more likely to survive than to die in the LEVEL1 group.
+
+What 6.6 units is in an actual number? We have to go from the formula "pi/(1-pi)" to pi, because the table above gives the results in the form of the ratio pi/(1-pi): If pi/(1-pi)=6.6, what is pi?
+
+```{r}
+plogis(log(6.6))
+```
+
+6.6 times more means pi = 86% more chance of surviving in the Level1 group.
+
+b_WaveEnergyLevel2 = 0.3194628 is a ratio of odds - being at Level2 changes the chance of surviving by 68%
+
+```{r}
+(0.3194628 -1)*100
+```
+
+The 68% decline is the same as below but in change in odds: decline of 68% from 6.6 to 0.32
+
+```{r}
+6.6*0.3194628
+```
+
+b_WaveEnergyLevel3 = 0.2209623
+
+```{r}
+(0.2209623-1)*100
+```
+
+it's a 77% decline, from 6.6 to 0.22:
+
+```{r}
+6.6*0.22
+```
+
+b_WaveEnergyLevel4 = 0.3520847
+
+b_WaveEnergyLevel5 = 0.1667799
+
+```{r}
+(0.3520847-1)*100
+(0.1667799-1)*100
+```
+
+It's a 65% decline from Level1 to Level4 and 83% decline from Level1 to Level5.
+
+```{r}
+6.6*0.3520847
+6.6*0.1667799
+```
+
+it's a 65% decline from 6.6 to 2.32 and it's a 83% decline from 6.6 to 1.1. In terms of ratio, we would write it 2.32:1 (survival:mortality), which means more chances of survival (2.32) than mortality (1) because 2.32\>1.
+
+The ratio can be written in two different ways:
+
+```{r}
+1/2.323759
+```
+
+2.3 : 1 (survival:mortality)
+
+1:0.43 (survival : mortality)
+
+The two ways show the same: higher chance of survival.
+
+\# Here is how to create a function, here called blaked:
+
+```{r}
+blaked <- function(x) {     # the function has one argument called x
+return(x/(x+1))             # we write the formula of the function to calculate something, here it's doing the same as plogis
+} 
+```
+
+Now use the function:
+
+```{r}
+blaked(6.6)
+```
+
+# Further analyses
+
+### pairwise comparisons
+
+Do several comparisons. For this, define contrasts: columns are the comparisons rows are the groups
+
+crab vs shrimp both vs none both vs crab/shrimp none vs symbionts
+
+none 0 -1 0 1 crabs 1 0 -1/2 -1/3 shrimp -1 0 -1/2 -1/3 both 0 1 1 -1/3
+
+```{r}
+moore.brm3 |>
+    emmeans(~WaveEnergyLevel, type='response') |>
+    pairs()
+```
+
+### **On a fractional scale**
+
+```{r}
+## On the fractional scale
+moore.em <- moore.brm3 |>
+    emmeans(~WaveEnergyLevel, type='link') |>
+    pairs() %>%
+    gather_emmeans_draws() |>
+    mutate(Eff=exp(.value),
+           PEff=100*(Eff-1))#,
+             #Prob = plogis(.value))
+
+moore.em |> head()
+```
+
+```{r}
+moore.em |>
+  group_by(contrast) |>
+  dplyr::select(contrast, Eff) |>
+  median_hdi()
+
+```
+
+```{r}
+moore.em |>
+  group_by(contrast) |>
+  summarize(Prob=sum(Eff>1)/n())
+```
+
+### On a probabilty scale
+
+```{r}
+## On a probability scale
+moore.em <- moore.brm3 |>
+    emmeans(~WaveEnergyLevel, type='link') |>
+    regrid() |>
+    pairs() |>
+    gather_emmeans_draws() |>
+    mutate(Eff=.value)
+
+moore.em |> head()
+
+
+```
+
+```{r}
+moore.em |>
+  group_by(contrast) |>
+  dplyr::select(contrast, Eff) |>
+  median_hdi()
+
+```
+
+Cell means
+
+```{r}
+# Cell means
+moore.em = emmeans(moore.brm3, ~WaveEnergyLevel, type='link') |>
+      gather_emmeans_draws()
+
+moore.em |> 
+  mutate(P=plogis(.value)) |>
+  median_hdci(P)
+```
+
+### Specific contrasts
+
+```{r}
+comparison_resultL1_L2 <- hypothesis(moore.brm3$fit, "b_Intercept - b_WaveEnergyLevel2 > 0")
+comparison_resultL1_L3 <- hypothesis(moore.brm3$fit, "b_Intercept - b_WaveEnergyLevel3 > 0")
+comparison_resultL1_L4 <- hypothesis(moore.brm3$fit, "b_Intercept - b_WaveEnergyLevel4 > 0")
+comparison_resultL1_L5 <- hypothesis(moore.brm3$fit, "b_Intercept - b_WaveEnergyLevel5 > 0")
+
+comparison_resultL2_L3 <- hypothesis(moore.brm3$fit, "b_WaveEnergyLevel2 - b_WaveEnergyLevel3 > 0")
+comparison_resultL2_L4 <- hypothesis(moore.brm3$fit, "b_WaveEnergyLevel2 - b_WaveEnergyLevel4 > 0")
+comparison_resultL2_L5 <- hypothesis(moore.brm3$fit, "b_WaveEnergyLevel2 - b_WaveEnergyLevel5 > 0")
+
+comparison_resultL3_L4 <- hypothesis(moore.brm3$fit, "b_WaveEnergyLevel3 - b_WaveEnergyLevel4 > 0")
+comparison_resultL3_L5 <- hypothesis(moore.brm3$fit, "b_WaveEnergyLevel3 - b_WaveEnergyLevel5 > 0")
+
+comparison_resultL4_L5 <- hypothesis(moore.brm3$fit, "b_WaveEnergyLevel4 - b_WaveEnergyLevel5 > 0")
+
+
+
+```
+
+```{r}
+#saving those planned comparisons: log odds OR in the preferred odds ratio 
+
+# Compile the results into a data frame
+results_list <- list(comparison_resultL1_L2, 
+                     comparison_resultL1_L3, 
+                     comparison_resultL1_L4,
+                     comparison_resultL1_L5,
+                     comparison_resultL2_L3, 
+                     comparison_resultL2_L4,
+                     comparison_resultL2_L5,
+                     comparison_resultL3_L4,
+                     comparison_resultL3_L5,
+                     comparison_resultL4_L5)
+
+# Initialize an empty data frame to store the compiled results
+compiled_results <- data.frame(Hypothesis = character(), 
+                               Estimate = numeric(), 
+                               Est.Error = numeric(), 
+                               CI.Lower = numeric(), 
+                               CI.Upper = numeric(), 
+                               Evid.Ratio = numeric(), 
+                               Post.Prob = numeric(), 
+                               stringsAsFactors = FALSE)
+
+# Loop through each item in the results list and bind the rows to the compiled_results data frame
+for (i in seq_along(results_list)) {
+  current_result <- results_list[[i]][[1]] # Assuming the first element of each list item is the data frame with results
+  compiled_results <- rbind(compiled_results, current_result)
+}
+
+#write.xlsx(compiled_results, file = "Planned Comparisons_SurvivalResult_brm8_log odds scale.xlsx")
+
+# converting to odds ratio
+compiled_results$Estimate <- exp(compiled_results$Estimate) # Convert estimates to odds ratios
+compiled_results$CI.Lower <- exp(compiled_results$CI.Lower) # Convert lower CI to odds ratio
+compiled_results$CI.Upper <- exp(compiled_results$CI.Upper) # Convert upper CI to odds ratio
+
+
+# Save the results to an Excel file
+write.xlsx(compiled_results, file = "Planned Comparisons_Testing_SurvivalResult_moorebrm3_odds ratio.xlsx")  #Noting I've Saved this one only because its recommended to describe using odds ratio
+```
+
+### R\^2
+
+```{r}
+moore.brm3 %>% bayes_R2(re.form=NA)
+
+```
+
+This is what can be explained by the fixed effect only = the Wave Energy Level. 6%
+
+```{r}
+moore.brm3 %>% bayes_R2(re.form=NA, summary=FALSE) %>% median_hdci()
+
+
+## for random intercept/slope model
+#moore.brm4 %>% bayes_R2(re.form=~(SYMBIONT|BLOCK), summary=FALSE) %>% median_hdci()
+```
+
+```{r}
+
+moore.brm3 %>% bayes_R2(re.form=~(1|ReefDev), summary=FALSE) %>% median_hdci()
+```
+
+17% can be explained by device ID. So, there still is 80% left of unexplained variability that cannot be attributed to WaveEnergyLevel or Device ID.
+
+17% is explained by the variability between devices, and has nothing to do with the treatment.
+
+# Visualization
+
+### Density ridges plot
+
+```{r}
+library(brms)
+library(tidyr)
+library(ggplot2)
+library(ggridges)
+
+moore.brm3 |>
+  gather_draws(`^b_.*`, regex=TRUE) |>
+  filter(.variable != 'b_Intercept') |>
+  ggplot() + 
+  geom_density_ridges(aes(x = .value,
+                          y = .variable),
+                      alpha = 0.4, color = 'white',
+                      quantile_lines = TRUE,
+                      quantiles = c(0.025, 0.975)) +
+  geom_vline(xintercept = 0, linetype = 'dashed') +
+  scale_x_continuous() +
+  theme_ridges()  # Adding theme_ridges() to ensure proper theme settings for ridge plots
+
+
+#ggsave("density_ridges_plot_brm8.svg", width = 20, height =15)
+```
+
+*Example code for final figure from Taylor;*
+
+```{r}
+#moore1 <- data.frame(WaveEnergyLevel = seq(from = 0, to = 5, by = 1))
+#Pred <- predict(moore.brm3, newdata=moore1, type = "response")
+
+fitted_draws1 <- moore.brm3 %>% 
+  add_epred_draws(newdata = moore1, allow_new_levels = TRUE)
+
+
+summary_stats1 <- fitted_draws1 %>%
+  group_by(WaveEnergyLevel) %>%
+  summarise(
+    mean_survival_probability = mean(.value), #calculating the predicted means
+    se = sd(.value) / sqrt(n())  # Calculate standard error
+  ) %>%
+  ungroup()
+
+# FOR sur2. brms8
+ggplot(summary_stats1, aes(x = WaveEnergyLevel, y = mean_survival_probability)) +
+  geom_line() +  
+  geom_point() +  
+  geom_errorbar(aes(ymin = mean_survival_probability - se, ymax = mean_survival_probability + se), width = 0.2) +  
+  labs(y = "Survival probability", x = "Census Trip") +
+  theme_bw() + theme(text = element_text(size = 20)) +
+  scale_color_viridis_d(option = "viridis", begin = 1, end = 0, direction = 1) 
+#ggsave("Final Survival_ interaction model plot_flipped colour scale.svg", width = 20, height = 15)
+#saved on 15/3/2024
+```
+
+```{r}
+report_model(moore.brm3)
+```

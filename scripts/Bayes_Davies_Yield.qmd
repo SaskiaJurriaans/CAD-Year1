@@ -1,0 +1,900 @@
+---
+title: "Survival YR1 davies t6 TEST"
+author: "Sas"
+date: today
+date-format: "DD/MM/YYYY"
+format: 
+  html:
+    ## Format
+    ## Table of contents
+    ## Numbering
+    ## Layout
+    ## Code
+    ## Execution
+    ## Rendering
+    theme: spacelab
+    css: ../resources/ws_style.css
+    html-math-method: mathjax
+    toc: true
+    toc-float: true
+    number-sections: true
+    number-depth: 3
+    fig-caption-location: "bottom"
+    fig-align: "center"
+    fig-width: 4
+    fig-height: 4
+    fig-dpi: 72
+    tbl-cap-location: top
+    code-fold: false
+    code-tools: true
+    code-summary: "Show the code"
+    code-line-numbers: true
+    code-block-border-left: "#ccc"
+    highlight-style: zenburn
+    execute:
+      echo: true
+      cache: true
+    embed-resources: true
+crossref:
+  fig-title: '**Figure**'
+  fig-labels: arabic
+  tbl-title: '**Table**'
+  tbl-labels: arabic
+engine: knitr
+output_dir: "docs"
+documentclass: article
+fontsize: 12pt
+mainfont: Arial
+mathfont: LiberationMono
+monofont: DejaVu Sans Mono
+classoption: a4paper
+editor: 
+  markdown: 
+    wrap: 72
+---
+
+# Preparations
+
+Load the necessary libraries
+
+```{r}
+#| label: libraries
+#| output: false
+#| eval: true
+#| warning: false
+#| message: false
+#| cache: false
+
+library(tidyverse)  #for data wrangling etc
+library(rstanarm)   #for fitting models in STAN
+#library(cmdstanr)   #for cmdstan --> does not work on AIMS computers
+library(brms)       #for fitting models in STAN
+library(standist)   #for exploring distributions
+library(coda)       #for diagnostics
+library(bayesplot)  #for diagnostics
+library(ggmcmc)     #for MCMC diagnostics
+library(DHARMa)     #for residual diagnostics
+library(rstan)      #for interfacing with STAN
+library(emmeans)    #for marginal means etc
+library(broom)      #for tidying outputs
+library(tidybayes)  #for more tidying outputs
+library(HDInterval) #for HPD intervals
+library(ggeffects)  #for partial plots
+library(broom.mixed)#for summarising models
+library(posterior)  #for posterior draws
+library(ggeffects)  #for partial effects plots
+library(patchwork)  #for multi-panel figures
+library(bayestestR) #for ROPE
+library(see)        #for some plots
+library(readxl)     #to load excel documents
+library(easystats)     #framework for stats, modelling and visualisation
+#library(INLA)       #for approximate Bayes
+#library(INLAutils)  #for additional INLA outputs
+theme_set(theme_grey()) #put the default ggplot theme back
+source('helperFunctions.R')
+```
+
+# Read in the data
+
+```{r}
+survival <- read_excel("C:/Users/sjurriaa/Australian Institute of Marine Science/Carly Randall - Randall Lab/CAD/CAD Field Data/2022_Deployment_Saskia_YEAR1/Survival data/R/dataframes/Survival_merged_normalized.xlsx", 
+    col_types = c("text", "text", "text", 
+        "date", "numeric", "date", "numeric", 
+        "text", "text", "text", "numeric", 
+        "skip", "numeric", "numeric", "numeric", 
+        "numeric", "numeric", "numeric", 
+        "numeric", "numeric", "numeric", 
+        "numeric", "numeric", "numeric", 
+        "numeric", "numeric", "numeric", 
+        "numeric", "numeric", "numeric", 
+        "numeric", "numeric"), na = "NA")
+```
+
+# Exploratory data analysis
+
+```{r}
+glimpse(survival)
+head(survival)
+str(survival)
+survival |> datawizard::data_codebook()
+```
+
+Coral survival was scored binomial (live/dead - 1/0) at three reefs
+(Moore, Davies, Heron). For species (Spp), at Moore Reef, we deployed A.
+millepora; at Davies Reef, we deployed A. hyacinthus; at Heron Reef, we
+deployed A. tenuis and A.hyacinthus. At each reef there were 10 sites
+across five Wave Energy Levels (2 sites per level). We censused survival
+at 6 timepoints. At each site, 25 devices were deployed, and each device
+holds 3 tabs with corals.
+
+We will seperate the data for each reef, because these were censused at
+different time points, and most importantly, have different species of
+corals.
+
+-   Survival is the response variable (binomial, 1 or 0) which follows a
+    Bernoulli distribution.
+
+-   WaveEnergy (5 levels) and Census (6 levels) are fixed effects
+
+-   Site is a random effect (1 \| Site)
+
+-   Device is a random effect nested within site (1 \| Site : Device)
+
+-   Tab_ID is a random effect nested within site nested within device (1
+    \| Site : Device : Tab_ID)
+
+    \-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\--
+
+We need to make sure that the categorical variables and the random
+effects are defined as factors:
+
+```{r}
+survival <- survival |> mutate(Reef = factor(Reef),
+                             #  WaveEnergyLevel = factor(WaveEnergyLevel),
+                               ReefDev = factor(ReefDev),
+                               Census = factor(Census))
+```
+
+```{r}
+davies <- survival |> filter(Reef == "Davies", Tab_ID == 1, Census == "t6")
+moore <- survival |> filter (Reef == "Moore", Tab_ID == 1, Census == "t6")
+heron <- survival |> filter (Reef == "Heron", Tab_ID == 1, Census == "t2")
+
+davies |> datawizard::data_codebook()
+
+```
+
+```{r}
+ggplot(data=davies, aes(y = SurvDev, x = WaveEnergyLevel)) + 
+  geom_point(position = position_jitter(width = 0.2, height = 0)) +
+ # facet_wrap(~WaveEnergyLevel) + 
+  geom_smooth(method="lm")
+
+ggplot(data=davies, aes(y = SurvDev, x = Ub_avrg)) + 
+  geom_point(position = position_jitter(width = 0.2, height = 0)) +
+ # facet_wrap(~WaveEnergyLevel) + 
+  geom_smooth(method="lm")
+
+ggplot(data=davies, aes(y = SurvDev, x = median_speed)) + 
+  geom_point(position = position_jitter(width = 0.2, height = 0)) +
+ # facet_wrap(~WaveEnergyLevel) + 
+  geom_smooth(method="lm")
+```
+
+# Frequentist
+
+FREQUENTIST fits a similar model as the Baysian but you do not need to
+set priors, so we will first explore the frequentist model. GLM (build
+in pacakge in R) does not fit in random effects. We need a different
+tool to use mixed effect models: glmmTMB (can fit a much broader range
+of models, which can handle issues with spatial and temporal
+correlation.
+
+```{r}
+# Remove rows with missing values
+davies_clean <- davies[complete.cases(davies$SurvDev),  ]
+```
+
+```{r, cache=TRUE}
+davies.glm <- glm(SurvDev ~ median_speed, data = davies_clean, family = binomial(link = "logit"))
+
+#davies.glm2 <- glm(SurvDev ~ median_speed + Census, data = davies_clean, family = binomial(link = "logit"))
+
+davies.glm4 <- glm(SurvDev ~ median_speed * Ub_avrg, data = davies_clean, family = binomial(link = "logit"))
+
+summary(davies.glm)
+#summary(davies.glm2)
+summary(davies.glm4)
+
+
+library(lme4)
+#davies.glmer <- glmer(SurvDev ~ median_speed + (1|ReefDev/Site), data = davies_clean, family = binomial(link = "logit"))
+#summary(davies.glmer)
+
+library(glmmTMB)
+#davies.glmmTMB <- glmmTMB(SurvDev ~ median_speed, data = davies_clean, family = binomial())
+#summary(davies.glmmTMB)
+```
+
+If we only look at the estimates of this output, we can tell that the
+estimated intercept and slope are 1.8098 and -13.4470, and both are
+significant. This means that the probability that a coral survives (or
+is alive?) at median_speed(*i*) is given by:
+
+pi(*i*) = exp \[( 1.8098-13.4470\*median_speed(*i)\] /* \[1+exp(
+1.8098-13.4470\*median_speed(*i)*\]
+
+Use predict to graph this:
+
+```{r}
+# Create the sequences
+median_speed_seq <- seq(from = 0, to = 0.22, by = 0.01)
+#Census_values <- rep(c("t0", "t1", "t2", "t3", "t4", "t6"), length.out = length(median_speed_seq))
+Ub_avrg_seq <- seq(from = 0, to = 0.6, length.out = length(median_speed_seq))
+#WaveEnergyLevel_seq <- seq(from = 1, to = 5, length.out = length(median_speed_seq))
+
+# Create a data frame with the sequences
+davies1 <- data.frame(
+  median_speed = median_speed_seq,
+ # Census_values = Census_values,
+  Ub_avrg = Ub_avrg_seq
+#  WaveEnergyLevel = WaveEnergyLevel_seq
+)
+
+Pred <- predict(davies.glm4, newdata=davies1, type = "response")
+
+ggplot(data=davies_clean, aes(x=median_speed, y=SurvDev, color = Ub_avrg)) + 
+  geom_point() + 
+   geom_line(data=davies1, aes(y=Pred), color = "red")
+
+```
+
+# Bayesian
+
+### davies.speed.brm
+
+```{r}
+#to find our priors, need to take 2.5*sd(REPSONSE)/sd(PREDICTOR))
+2.5 * sd(davies_clean$SurvDev, na.rm = TRUE)/sd(davies_clean$median_speed, na.rm = TRUE)
+
+
+priors <- 
+  prior(student_t(3, 0, 2.5), class="Intercept") +
+  prior(normal(0,40), class = "b") 
+
+davies.form.speed <- bf(SurvDev ~ median_speed,
+                  family = bernoulli(link='logit'))
+
+davies.speed.brm <- brm(davies.form.speed,
+                 data=davies_clean,
+                 prior = priors,
+                sample_prior = "yes",
+                 iter = 5000,
+                 warmup = 1000,
+                 chains = 3, cores = 3,
+                 thin = 5,
+                 refresh = 0,
+                backend = "rstan")
+
+# To save the model use >> 
+save(davies.speed.brm, file = "Survival_davies.speed.brm.RData")
+# to load the model back in workspace >> load(file = "Survival_davies.speed.brm.RData")
+
+```
+
+Have a look at the conditional plot:
+
+```{r}
+davies.speed.brm |> ggemmeans(~median_speed) |> plot(add.data = TRUE)
+davies.speed.brm |> conditional_effects() |> plot(points = TRUE)
+#davies.speed.brm |> conditional_effects("median_speed", conditions = list(Census=c("t0", "t1", "t2", "t3", "t4", "t6"))) |> plot(points = TRUE)
+```
+
+This looks much more reasonable!! There is a marginal trend but we can
+be sure that this is not driven by our priors. This is the data talking.
+
+```{r}
+davies.speed.brm |> get_variables()
+```
+
+```{r}
+#davies.speed.brm  |> SUYR_prior_and_posterior()
+```
+
+# MCMC sampling diagnostics
+
+```{r}
+davies.speed.brm$fit |> stan_trace()
+davies.speed.brm$fit |> stan_ac()
+davies.speed.brm$fit |> stan_rhat()
+davies.speed.brm$fit |> stan_ess()
+```
+
+This looks good - there is consistent noise across our three chains for
+our posteriors. We want to see this. Now look at autocorrolatoin.
+
+The draws are not correlated which is good.It should be below 0.2
+
+Now look at the history of our hat values. We want them to be less than
+1.01
+
+All our Rhat values were less than 1.01 which means that all our chains
+converged. If more than 1.01 is means that the chains did not converge.
+
+Lastly: our effective sample sizes.
+
+It shows that our priors did not drift off too far. It looks like our
+priors are fine, they are not too low. If this plots becomes below 0.5
+it means that they are only half effective, it means our priors are
+wrong and they are only half effective at predicting our true data.
+
+# Model investigation
+
+### Posterior probability checks
+
+```{r}
+available_ppc()
+davies.speed.brm |> pp_check(type = 'dens_overlay', ndraws = 100)
+```
+
+It shows that our data (in thick line) and samples/simulations of our
+model (in thin lines) are pretty similar. The model is not producing
+data inconsistent with our actual data. Thus our model is a good fit.
+
+```{r}
+davies.speed.brm |> pp_check (type = "error_scatter_avg")
+```
+
+This not a plot that we produce for binomial data because it does not
+show anything useful.
+
+```{r}
+davies.speed.brm |> mcmc_plot(type='violin')
+```
+
+```{r}
+davies.speed.brm |> pp_check(group = 'median_speed', type = 'violin_grouped') 
+#davies.speed.brm |> pp_check(group = 'CensusTrip', type = 'violin_grouped') 
+#davies.speed.brm |> pp_check(group = 'DeviceType', type = 'violin_grouped')
+```
+
+### dHARMA residuals
+
+What is important is the diagnostics: the dHARMA residuals
+
+```{r}
+library(DHARMa)
+davies.resids <- make_brms_dharma_res(davies.brm3, integerResponse = FALSE)
+testUniformity(davies.resids)
+```
+
+```{r}
+wrap_elements(~testUniformity(davies.resids))
+wrap_elements(~plotResiduals(davies.resids, form = factor(rep(1,nrow(davies_clean))))) 
+wrap_elements(~plotResiduals(davies.resids, quantreg = TRUE))   # leave the quartile calculations off if you have a small amount of data
+wrap_elements(~testDispersion(davies.resids))
+
+```
+
+The first two graphs show that there is no issue with normality, the
+points are exactly where they are supposed to be. Third graph we are
+looking for an absence of pattern. We are looking for are the points
+roughly the same height and spread around 0.5 and are more or less
+symmetrical. It shows that there is no issue with homogeneity. Fourth
+graph shows the dispersion of our data. Think of dispersion as variance.
+The variance is assumed to be part of our whole model, and is not
+specifically measured or estimated as in our previous model (see
+bglm.example1.qmd). So this graph shows us the dispersion of our model
+in black and the dispersion of our data in red. If the red line is
+inside the general dispersion, it means that the model estimated the
+dispersion as it should. It did not find more dispersion than what there
+actually is in our data.
+
+# Further analyses
+
+## Visualization
+
+Look at the [results]{.underline} by making an partial plot:
+
+```{r}
+davies.speed.brm |> conditional_effects() |> plot(points=TRUE)
+```
+
+### Figure 1
+
+```{r partialPlot2h1b, results='markdown', eval=TRUE, mhidden=TRUE, fig.width=8, fig.height=5}
+
+ggpredict(davies.speed.brm, terms = ~median_speed) %>%
+   plot(add.data = TRUE)
+ 
+
+Fig1a <- ggemmeans(davies.speed.brm, terms = ~median_speed) %>%
+  plot(add.data = TRUE) 
+
+conditional_effects(davies.speed.brm) |> 
+  plot(points = TRUE)
+
+Fig1b <- davies.speed.brm %>% emmeans(~median_speed , type = 'link') %>%
+    as.data.frame() %>%
+    ggplot(aes(y = emmean, x = median_speed)) +
+   # geom_hline(yintercept = c(5,-5), linetype = 'dashed') +
+    geom_pointrange(aes(ymin = lower.HPD, ymax = upper.HPD)) +
+    geom_point(data = davies_clean, aes(y = SurvDev),
+              # position = position_jitter(width=0.02, height = 0),
+               alpha=0.4, color = 'red') +  
+     labs(title = "Davies Reef", x = "Median Speed (m/s)", y = "Estimated marginal mean - Survival (yield)") +  # Axis labels
+  theme_minimal()  # Apply minimal theme
+
+print(Fig1a)
+print(Fig1b)
+
+#ggsave("Fig1a - Davies Predicted probabilities SurvDev.jpeg", Fig1a, width = 10, height = 6)
+#ggsave("Fig1b - Davies Estimated marginal means SurvDev.jpeg", Fig1b, width = 10, height = 6)
+#saved on 05/04/2024
+```
+
+### Figure 2
+
+```{r}
+new_data <- data.frame(
+  median_speed = median_speed_seq
+)
+
+# Extract fitted draws for the new data
+#fitted_draws <- add_epred_draws(davies.speed.brm, newdata = new_data, allow_new_levels = TRUE)
+
+fitted_draws <- davies.speed.brm |>
+  add_fitted_draws(newdata = new_data, allow_new_levels = TRUE)
+
+summary_stats <- fitted_draws |>
+    summarise(
+    mean_survival_probability = mean(.value), #calculating the predicted means
+    se = sd(.value) / sqrt(n())  # Calculate standard error
+  ) |>
+  ungroup()
+
+
+# Plotting the results
+Fig2 <- ggplot(summary_stats, aes(x = median_speed_seq, y = mean_survival_probability, group = 1)) +
+  geom_line() +  
+  geom_point() +  
+#  geom_errorbar(aes(ymin = mean_survival_probability - se, ymax = mean_survival_probability + se), 
+#                width = 0.1) +  # Set the width of the error bars  
+  labs( title = "Davies Reef", y = "survival probability", x = "median speed (m/s)") +
+  theme_bw() + theme(text = element_text(size = 12)) 
+
+print(Fig2)
+#ggsave("Fig2 - davies Survival probabilities.jpeg", Fig2, width = 10, height = 6)
+#saved on 05/04/2024
+```
+
+### Intercept
+
+```{r}
+davies.brm3 |> summary()
+```
+
+We have an intercept: 1.8 (remember that we did not center our data, but
+it is centered for us in the model, but it is giving us the results back
+as if our data was not centered). The value of 1.8 is on the logit
+scale, which is not very useful. The intercept can be converted by \[log
+(Presence / (1-Presence))\], therefore we need to take the exponent of
+this first:
+
+```{r}
+exp(1.8)
+```
+
+This means that wh[en the current is zero, the probability of corals
+being alive is 6 times higher than it being dead. Or, for a one-unit
+change, the odds of the outcome will change by a factor of
+6.]{.underline}
+
+This is called an Odds-ratio (presence over absence: P/1-P)
+
+We can further express this as the probability of being alive by only
+calculating the P (and not the ratio of presence:absence).
+
+```{r}
+#plogis(2.49)
+6.049647/(1+6.049647)
+
+inv_logit(1.8)
+
+```
+
+This value is the probability of the corals being alive, which is 0.858.
+
+The probability of the coral being alive is 0.9, so the odds of corals
+being alive is 0.9/(1-0.9) = 9
+
+Remember **that this number is useful (probabality = 0.9) and the
+odd-ratio value is useful (odds = 9).**
+
+The number that comes out of our summary table (1.8) IS NOT USEFUL!
+
+### Slope
+
+Now let's move to the slope:
+
+```{r}
+davies.brm3 |> summary()
+```
+
+The slope is -7.28 in our summary table. Again, we cannot work with this
+number on this scale. Instead, we can take the exponential of this
+value:
+
+```{r}
+exp(-13.40)
+```
+
+Now we have a ratio. For every one unit change in our
+median_current_speed, the odds of being alive changes by 1.5\*10-6!
+("for every one unit change in X, the odds of being alive of our unit Y,
+changes by \>200"). This means that our survival is marginally
+decreasing with every increase at current_speed.
+
+This also means that for every increase of the median_current_speed, the
+odds of corals being alive decreases by xx?%. In other words, we started
+with the odds of 9:1 and then we multiply this with 1.5\*10-6 to get to
+the odds at our next median_current_speed(increased by one unit).
+
+### Confidence intervals
+
+```{r}
+davies.brm3 |> summary()
+```
+
+Now let's look at our CI intervals. For the slope we do
+[**not**]{.underline} want to have the CI crossing
+[**zero**]{.underline}:
+
+```         
+-19.07    -7.67
+```
+
+--\> which shows there is evidence that our slope is **TRUE**.
+
+Let's first convert the table to more sensible numbers as we cannot
+interpert these numbers as it stands right now on the logit link scale:
+
+```{r}
+davies.brm3$fit |> tidyMCMC(estimate.method = "median", 
+                            conf.int = TRUE, 
+                            conf.method = "HPDinterval", 
+                            rhat = TRUE, 
+                            ess = TRUE, 
+                            exponential = TRUE)
+```
+
+```{r}
+davies.brm3 |> 
+  as_draws_df()  |>                    # take all the draws of the data and put 
+#                                        this in a dataframe
+  dplyr::select(b_Intercept, b_median_speed)  # we take only the first two columns of our #                                       dataframe (could also write this as 
+#                                       "dplyr::select(starts_with("b_)))
+```
+
+```{r}
+davies.brm3 |> 
+  as_draws_df()  |>                                     
+  dplyr::select(matches("^b_.*")) |>    
+  # a more sophisticated way of selecting (and searching) for pattersn in our column headers
+  mutate(across(everything(), exp)) |>
+  summarise_draws("median",            #  for every column calculate the median
+                 ~HDInterval::hdi(.x), #  highest density intervals come from a 
+#                                         specific package and threfore you need to #                                         specify the package it comes from, and
+#                                         therefore you need to put a ~ infront of 
+#                                         it, and (.x) 
+                  "rhat",               # for every column give me the rhat 
+                  "ess_bulk",           # for every column give me the ess_bulk
+                 P = ~mean(.x <1))|>    # what is the probability that there is any #                                         effect (100%)
+  knitr::kable()
+
+```
+
+[**This table is the easiest to describe as your narrative for the
+biology/ecology of your data.**]{.underline} Also we have now first done
+the exponential of each number and then summarized this, instead of
+first summarizing it and then calculating the exponential of it.
+Therefore, for the Confidence Interval of b_median_current_speed we are
+now looking for that this range [**does not exceed 1**]{.underline} (as
+the exponential of zero is 1). Does the interval of \[0.0000-
+0.0001489\] includes 1? NO! Therefore we have evidence that our slope
+decreases with current
+
+What about 5% decline, and 50% decline?
+
+```{r}
+davies.brm3.tidy <- davies.brm3 |> 
+  as_draws_df()  |>                                     
+  dplyr::select(matches("^b_.*")) |>    
+  # a more sophisticated way of selecting (and searching) for pattersn in our column headers
+  mutate(across(everything(), exp)) |>
+  summarise_draws("median",            #  for every column calculate the median
+                 ~HDInterval::hdi(.x), #  highest density intervals come from a 
+#                                         specific package and threfore you need to #                                         specify the package it comes from, and
+#                                         therefore you need to put a ~ infront of 
+#                                         it, and (.x) 
+                  "rhat",               # for every column give me the rhat 
+                  "ess_bulk",           # for every column give me the ess_bulk
+                 P = ~mean(.x<1),
+                 P5 = ~mean(.x <0.95),  # what is the probability that there is a                                            5% decline?
+                 P50= ~mean(.x <0.5)) # what is the probability that there is a                                            50% decline?
+  
+write.xlsx(davies.brm3.tidy, file = "Coral Survival davies Median Speed brm3 tidy_odds ratio.xlsx") #Saving this data for interpretation in a manuscript
+```
+
+### R2 value
+
+Now let's have a look at the R2 values
+
+```{r}
+davies.speed.brm |> 
+  bayes_R2(summary = FALSE) |>
+  median_hdci()
+```
+
+We can only explain about 0.017% of our variance *\[look at y\]*, thus
+there is 99.98% that we cannot explain with our parameters!! Thus our
+0.017% means that there are other drivers that drive the survival of
+corals as well, not just the median_current_speed!!!
+
+### LD50
+
+Last thing we are interested in is the [point of change:]{.underline}
+[where does the likelihood of corals dying changes to being more likely
+for corals surviving? Called the LD50.]{.underline}
+
+LD50 is simply the negative intercept divided by the slope:
+
+```{r}
+davies.speed.brm |> 
+  as_draws_df() |>
+  dplyr::select(matches("^b_.*")) |>
+  mutate(LD50 = -1*b_Intercept / b_median_speed) |>
+  median_hdci(LD50)
+```
+
+This tells is that at a median_current of 0.134 *\[look at LD50\]* it
+becomes more likely that the corals are surviving. And we are 95% sure
+that if the current is 0.115 *\[look at .lower\]* than the corals will
+be alive. And if the current is larger than 0.171 *\[look at
+.upper\]* than we are also 95% sure that the corals are definitely
+dying. Actually we can say that we are 50% confident that the corals are
+surviving at 0.134 median_current.
+
+# Report
+
+### report()
+
+```{r}
+davies.brm3 |> report::report()     # can use this to build your report!!!
+```
+
+### report_text()
+
+```{r}
+davies.brm3 |> report::report_text() 
+```
+
+### report_priors()
+
+```{r}
+davies.brm3 |> report::report_priors()
+```
+
+### report_system()
+
+```{r}
+report::report_system()    # this can be useful is you would put the whole Quarto document as a supplementary document, and you can show what your operating system was.
+```
+
+### report(sessionInfo)
+
+```{r}
+report::report(sessionInfo())    
+```
+
+From this, the only ones that are important to report are **brms**
+(version 2.20.4; Burkner P, 2017) and **DHARMa** (version 0.4.6; Hartig
+F, 2022) to report (as well as the **R version** you have used).
+
+# Model - Ub
+
+```{r}
+davies.glm <- glm(SurvDev ~ Ub_avrg, data = davies_clean, family = binomial(link = "logit"))
+summary(davies.glm)
+```
+
+```{r}
+davies2 <- data.frame(Ub_avrg = seq(from = 0, to = 0.7, by = 0.01))
+Pred <- predict(davies.glm, newdata=davies2, type = "response")
+
+ggplot(data=davies_clean, aes(x=Ub_avrg, y=SurvDev)) + 
+  geom_point() + 
+  geom_line(data=davies2, aes(y=Pred), color = "red")
+```
+
+```{r}
+davies.Ub.brm3 <- brm(bf(SurvDev ~ Ub_avrg, family = bernoulli(link="logit")),
+                 data=davies_clean,
+                 prior = priors,
+                 sample_prior = "yes",
+                 iter = 5000,
+                 warmup = 1000,
+                 chains = 3, cores = 3,
+                 thin = 5,
+                 refresh = 0,
+                 backend = "rstan")
+#save the model and define a file for it
+save(davies.Ub.brm3, file = "davies.Ub.brm3.RData")
+
+# to load the model back in workspace >> load(file = "davies.Ub.brm3.RData")
+```
+
+```{r}
+davies.Ub.brm3 |> ggemmeans(~Ub_avrg) |> plot(add.data = TRUE)
+davies.Ub.brm3 |> conditional_effects() |> plot(points = TRUE)
+```
+
+```{r}
+davies.Ub.brm3$fit |> stan_trace()
+davies.Ub.brm3$fit |> stan_ac()
+davies.Ub.brm3$fit |> stan_rhat()
+davies.Ub.brm3$fit |> stan_ess()
+
+davies.Ub.brm3 |> pp_check(type = 'dens_overlay', ndraws = 100)
+davies.Ub.brm3 |> mcmc_plot(type='violin')
+```
+
+```{r}
+davies.Ub.resids <- make_brms_dharma_res(davies.Ub.brm3, integerResponse = FALSE)
+
+wrap_elements(~testUniformity(davies.Ub.resids))
+wrap_elements(~plotResiduals(davies.Ub.resids, form = factor(rep(1,nrow(davies_clean))))) 
+wrap_elements(~plotResiduals(davies.Ub.resids, quantreg = TRUE))   # leave the quartile calculations off if you have a small amount of data
+wrap_elements(~testDispersion(davies.Ub.resids))
+```
+
+```{r}
+davies.Ub.brm3 |> conditional_effects() |> plot(points=TRUE)
+```
+
+```{r}
+davies.Ub.brm3 |> summary()
+```
+
+```{r}
+davies.Ub.brm3$fit |> tidyMCMC(estimate.method = "median", 
+                            conf.int = TRUE, 
+                            conf.method = "HPDinterval", 
+                            rhat = TRUE, 
+                            ess = TRUE, 
+                            exponential = TRUE)
+```
+
+```{r}
+davies.Ub.brm3.tidy<- davies.Ub.brm3 |> 
+  as_draws_df()  |>                                     
+  dplyr::select(matches("^b_.*")) |>    
+  # a more sophisticated way of selecting (and searching) for pattersn in our column headers
+  mutate(across(everything(), exp)) |>
+  summarise_draws("median",            #  for every column calculate the median
+                 ~HDInterval::hdi(.x), #  highest density intervals come from a 
+#                                         specific package and threfore you need to #                                         specify the package it comes from, and
+#                                         therefore you need to put a ~ infront of 
+#                                         it, and (.x) 
+                  "rhat",               # for every column give me the rhat 
+                  "ess_bulk",           # for every column give me the ess_bulk
+                 P = ~mean(.x<1),
+                 P5 = ~mean(.x <0.95),  # what is the probability that there is a                                            5% decline?
+                 P50= ~mean(.x <0.5)) # what is the probability that there is a                                            50% decline?
+ 
+write.xlsx(davies.Ub.brm3.tidy, file = "Coral Survival davies UB brm3 tidy_odds ratio.xlsx")
+#Saving this data for interpretation in a manuscript
+```
+
+```{r}
+davies.Ub.brm3 |> 
+  bayes_R2(summary = FALSE) |>
+  median_hdci()
+```
+
+We can only explain about 0.013% of our variance *\[look at y\]*, thus
+there is 99.97% that we cannot explain with our parameters!!
+
+# Model - WaveEnergyLevel
+
+```{r}
+davies.glm <- glm(SurvDev ~ WaveEnergyLevel, data = davies_clean, family = binomial(link = "logit")) 
+
+summary(davies.glm)
+```
+
+```{r}
+davies3 <- data.frame(WaveEnergyLevel = seq(from = 0, to = 5, by = 0.5)) 
+Pred <- predict(davies.glm, newdata=davies3, type = "response")  
+
+ggplot(data=davies_clean, aes(x=WaveEnergyLevel, y=SurvDev)) +    
+  geom_point() +    
+  geom_line(data=davies3, aes(y=Pred), color = "red")
+```
+
+```{r}
+davies.WEL.brm3 <- brm(bf(SurvDev ~ WaveEnergyLevel, family = bernoulli(link="logit")),                  
+                      data=davies_clean,                  
+                      prior = priors,                  
+                      sample_prior = "yes",                  
+                      iter = 5000,                  
+                      warmup = 1000,                  
+                      chains = 3, cores = 3,                  
+                      thin = 5,                  
+                      refresh = 0,                  
+                      backend = "rstan") 
+
+#save the model and define a file for it 
+save(davies.WEL.brm3, file = "davies.WEL.brm3.RData")  
+# to load the model back in workspace >> load(file = "davies.WEL.brm3.RData")
+```
+
+```{r}
+davies.WEL.brm3 |> ggemmeans(~WaveEnergyLevel) |> plot(add.data = TRUE) 
+davies.WEL.brm3 |> conditional_effects() |> plot(points = TRUE)
+```
+
+```{r}
+davies.WEL.brm3$fit |> stan_trace() 
+davies.WEL.brm3$fit |> stan_ac() 
+davies.WEL.brm3$fit |> stan_rhat() 
+davies.WEL.brm3$fit |> stan_ess()  
+davies.WEL.brm3 |> pp_check(type = 'dens_overlay', ndraws = 100) 
+davies.WEL.brm3 |> mcmc_plot(type='violin')
+```
+
+```{r}
+davies.WEL.resids <- make_brms_dharma_res(davies.WEL.brm3, integerResponse = FALSE)  
+wrap_elements(~testUniformity(davies.WEL.resids)) 
+wrap_elements(~plotResiduals(davies.WEL.resids, form = factor(rep(1,nrow(davies_clean)))))  
+wrap_elements(~plotResiduals(davies.WEL.resids, quantreg = TRUE))   # leave the quartile calculations off if you have a small amount of data wrap_elements(~testDispersion(davies.Ub.resids))
+```
+
+```{r}
+davies.WEL.brm3 |> conditional_effects() |> plot(points=TRUE)
+```
+
+```{r}
+davies.WEL.brm3 |> summary()
+```
+
+```{r}
+davies.WEL.brm3$fit |> tidyMCMC(estimate.method = "median",                              
+                              conf.int = TRUE,                              
+                              conf.method = "HPDinterval",                              
+                              rhat = TRUE,                              
+                              ess = TRUE,                              
+                              exponential = TRUE)
+```
+
+```{r}
+davies.WEL.brm3.tidy <- davies.Ub.brm3 |>    as_draws_df()  |>                                        
+  dplyr::select(matches("^b_.*")) |>       # a more sophisticated way of selecting (and searching) for pattersn in our column headers   
+  mutate(across(everything(), exp)) |>   
+  summarise_draws("median",            #  for every column calculate the median                  
+                  ~HDInterval::hdi(.x), 
+                  "rhat",               # for every column give me the rhat                   
+                  "ess_bulk",           # for every column give me the ess_bulk                 
+                  P = ~mean(.x<1),                  
+                  P5 = ~mean(.x <0.95),  # what is the probability that there is a 5% decline?                  
+                  P50= ~mean(.x <0.5)) # what is the probability that there is a50% decline?   
+
+write.xlsx(davies.WEL.brm3.tidy, file = "Coral Survival davies WaveEnergyLevel brm3 tidy_odds ratio.xlsx") #Saving this data for interpretation in a manuscript
+```
+
+```{r}
+davies.WEL.brm3 |>    bayes_R2(summary = FALSE) |>   median_hdci()
+```
+
+We can only explain about 0.03% of our variance *\[look at y\]*, thus
+there is 99.7% that we cannot explain with our parameters!!
