@@ -1,0 +1,1072 @@
+---
+title: "Benthic Community Composition --> following the multivariate example of Murray"
+author: "Katie, edits Sas"
+format: html
+editor: visual
+---
+
+# Preparations
+
+Load the necessary libraries
+
+```{r}
+library (tidyverse)
+library(ggplot2)
+library(readxl)
+library(dplyr)
+library(readxl)
+library(vegan)
+library(GGally)
+library(corrplot)
+library(car)
+library(mvabund)
+library(scales)
+library(ggrepel)
+library(readxl)
+library(FactoMineR)
+library(factoextra)
+library(Hmisc)
+library(corrplot)
+library(stats)
+#install.packages("corrr")
+library(corrr)
+library(ggcorrplot)
+library(dplyr)
+library(tidyr)
+library(RColorBrewer)
+library(readxl)
+library(ggfortify)
+```
+
+# Load the data
+
+### Upload benthic and survival dataset
+
+```{r}
+#benthic dataset
+Y1Benthic <- read_excel("C:/Users/sjurriaa/Australian Institute of Marine Science/Carly Randall - Randall Lab/CAD/CAD Field Data/2022_Deployment_Saskia_YEAR1/Benthic/Quadrats_t0/Data/Benthic data xlsx.xlsx", 
+           na = "na")
+
+#survival dataset
+survival_master <- read_excel("C:/Users/sjurriaa/Australian Institute of Marine Science/Carly Randall - Randall Lab/CAD/CAD Field Data/2022_Deployment_Saskia_YEAR1/Survival data/2022_Deployment_Saskia_MasterData.xlsx", 
+                              sheet = "Survival", na = "NA")
+
+#environmental dataset
+Y1Environment <- read_excel("C:/Users/sjurriaa/Australian Institute of Marine Science/Carly Randall - Randall Lab/CAD/CAD Year1/data/YEAR1 Environmental Data Devices.xlsx", 
+    na = "NA")
+```
+
+### Create subset of the survival with final census
+
+```{r}
+#select final census timepoint which is t2 for Heron and t6 for Davies and Moore
+survival_master_H <- survival_master |>
+  filter(Reef == "Heron",
+         Census == "t2",
+         Tab_ID == 1)
+survival_master_MD <- survival_master |>
+  filter(Census == "t6",
+         !Reef == "Heron",
+         Tab_ID ==1)
+
+#combine t2 Heron and t6 Moore&Davies in one dataframe that is named Y1Survival and select only columns ReefDev and SurvDev which is renamed Survival 
+survival_t6<-rbind(survival_master_MD,survival_master_H)
+Y1Survival <- survival_t6 |>
+  select(Reef, Site, ReefDev, SurvDev) |>
+  rename(Survival = SurvDev)
+
+#free up space
+remove(survival_master, survival_master_H, survival_master_MD, survival_t6)
+  
+
+#Mutate data to indicate if factor or numeric
+Y1Survival <- Y1Survival %>%
+  mutate(ReefDev=factor(ReefDev),
+         Reef=factor(Reef),
+         Site=factor(Site),
+         Survival=as.numeric(Survival))
+
+Y1Benthic <- Y1Benthic %>%
+  mutate(ReefDev=factor(ReefDev),
+         Reef=factor(Reef),
+         Site=factor(Site))
+```
+
+### Group benthic variables
+
+Group all Acro growth forms together and all Hard Coral growth forms
+
+```{r}
+Y1Benthic.grouped <- Y1Benthic |>
+     mutate(Acro = Acro_br+Acro_dig+Acro_cor+Acro_tab+Acro_bot,
+            HC = HC_en  +HC_br +HC_fol +HC_mas  +HC_sm +HC_free) |>
+  select(-c(Acro_br,Acro_dig,Acro_cor,Acro_tab,Acro_bot,HC_en,HC_br,HC_fol,HC_mas,HC_sm,HC_free))
+```
+
+# \-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\--
+
+# Davies
+
+### Prep data
+
+```{r}
+davies.benthic <- Y1Benthic.grouped |>
+  filter((Reef == "Davies")) 
+
+davies.benthic.clean <- Y1Benthic.grouped |>
+  filter((Reef == "Davies")) |>
+  select(-c(Reef, ReefDev))
+```
+
+### Explore data
+
+```{r}
+davies.benthic.clean[,-1] |> 
+    ggpairs(lower = list(continuous = "smooth"),
+    diag = list(continuous = "density"),
+    axisLabels = "show")
+```
+
+### Fourth-root transformation
+
+```{r}
+davies.benthic.clean[,-1]^0.25 |>     #fourthroot transformation
+   ggpairs(lower = list(continuous = "smooth"),
+    diag = list(continuous = "density"),
+    axisLabels = "show")
+
+## maybe slightly better??
+```
+
+Cyano and CCA are strongly correlated thus will be grouped together - OR better to choose just one? Let's go with CCA
+
+```{r}
+davies.benthic.CCACyano <- davies.benthic.clean |>
+     mutate(CCACyano = CCA + Cyano) |>
+  select(-c(Cyano,CCA))
+
+davies.benthic.CCA <- davies.benthic.clean |>
+      select(-c(Cyano))
+```
+
+```{r}
+davies.benthic.CCACyano[,-1]^0.25 |>     #fourthroot transformation
+    ggpairs(lower = list(continuous = "smooth"),
+    diag = list(continuous = "density"),
+    axisLabels = "show")
+
+davies.benthic.CCA[,-1]^0.25 |>     #fourthroot transformation
+    ggpairs(lower = list(continuous = "smooth"),
+    diag = list(continuous = "density"),
+    axisLabels = "show")
+
+## MAKES NO DIFFERENCE BETWEEN GROUPING CCA AND CYANO OR ONLY KEEPING ONE VARIABLE 
+## KEEPING DATAFRAME WITH ONLY CCA MOVING FORWARD
+```
+
+Free up space
+
+```{r}
+#free up space
+remove(davies.benthic.CCACyano)
+remove(davies.benthic.clean)
+```
+
+### Standardize
+
+```{r}
+davies.std <- (davies.benthic.CCA[,-1]^0.25) |>  
+  wisconsin()
+davies.std
+```
+
+### PCA
+
+```{r}
+davies.rda <- rda(davies.std, scale=FALSE)   #rda and the name of your standardized data
+# scale is TRUE - to run on correlation
+summary(davies.rda, display=NULL)
+```
+
+Points to look for:
+
+1.  keep as many axis/Principal components as necessary to get explain around **80% of variability**:
+
+```{r}
+#PC1:PC6
+(0.01413 +0.01331 +0.008434 +0.007008 + 0.006643 + 0.006103 ) /0.07006     
+```
+
+```{r}
+screeplot(davies.rda)
+abline(a=1,b=0)
+```
+
+Scree plot: leveling off/change in pattern after PC4?
+
+```{r}
+biplot(davies.rda)
+ordiplot(davies.rda, display = "species", type = "text") 
+ordiplot(davies.rda, display = "sites", type = "points" ) 
+
+#plot(spider.rda) + theme_bw() 
+#auplot(spider.rda, geom='text') + theme_bw()   #most informative
+```
+
+### Extract axes values
+
+```{r}
+# Extract site scores from the RDA object
+davies_sites <- scores(davies.rda, display = "sites")
+
+# Extract species scores from the RDA object
+davies_species <- scores(davies.rda, display = "species")
+
+# Create a dataframe for site scores
+davies_site_df <- data.frame(
+  PC1 = davies_sites[, 1],
+  PC2 = davies_sites[, 2],
+  label = rownames(davies_sites)  # Device ID are rows
+)
+
+# Create a dataframe for species scores
+davies_species_df <- data.frame(
+  PC1 = davies_species[, 1],
+  PC2 = davies_species[, 2],
+  label = rownames(davies_species)  # Benthic groups are rownames
+)
+
+remove(davies_sites,davies_species)
+```
+
+### Figures
+
+```{r}
+davies_plot <- ggplot() +
+  geom_hline(yintercept = 0, linetype = 'dotted') +
+  geom_vline(xintercept = 0, linetype = 'dotted') +
+  geom_point(data = davies_site_df, aes(x = PC1, y = PC2)) +
+  geom_segment(data = davies_species_df, aes(x = 0, y = 0, xend = PC1, yend = PC2),
+               arrow = arrow(length = unit(0.3, 'lines')), color = 'red') +
+  geom_text(data = davies_species_df, aes(x = PC1 * 1.1, y = PC2 * 1.1, label = label), color = 'red')
+davies_plot 
+```
+
+### Eigenvalues
+
+```{r}
+eig <- eigenvals(davies.rda)
+
+sprintf('(%0.1f%% explained var.)', 100 * eig[2]/sum(eig))   #round it to one decimal place and substitue to f
+
+paste(names(eig[2]), sprintf('(%0.1f%% explained var.)', 100 * eig[2]/sum(eig)))
+```
+
+Combine eigenvalues with plot
+
+```{r}
+davies_plot  <- davies_plot  +
+  scale_y_continuous(paste(names(eig[2]), sprintf('(%0.1f%% explained var.)',
+    100 * eig[2]/sum(eig))))+
+  scale_x_continuous(paste(names(eig[1]), sprintf('(%0.1f%% explained var.)',
+    100 * eig[1]/sum(eig))))
+
+davies_plot 
+```
+
+Draw circle
+
+```{r}
+circle.prob <- 0.68     #typical this is one standard error, and the rest below is code about how to turn this into a circle
+r <- sqrt(qchisq(circle.prob, df = 2)) * prod(colMeans(davies.rda$CA$u[,1:2]^2))^(1/4)
+theta <- c(seq(-pi, pi, length = 50), seq(pi, -pi, length = 50))
+circle <- data.frame(PC1 = r * cos(theta), PC2 = r * sin(theta))
+
+davies_plot  <- davies_plot  +  geom_path(data = circle, aes(y = PC2, x = PC1), color = "black", size = 1, alpha = 1/3)
+
+davies_plot 
+```
+
+### Environmental data
+
+```{r}
+# load the data and filter on Davies Reef
+davies.env <- Y1Environment |>
+  filter(Reef == "Davies") |>
+  select(-c(Reef, Site))
+```
+
+Correlation plot to see which variables are correlated
+
+```{r}
+davies.env |>
+  cor() |> 
+  corrplot(type = 'upper',
+    order = 'FPC',
+    diag = FALSE)
+```
+
+Remove strong correlated paramaters such as percentile and range for median speed, and re-run correlation plot
+
+```{r}
+davies.env<- davies.env |>
+  select(-c(percentile_10, range, percentile_90))
+
+davies.env |>
+  cor() |> 
+  corrplot(type = 'upper',
+    order = 'FPC',
+    diag = FALSE)
+```
+
+Optional - Check for correlation through scatter matrix (same thing as correlation plot)
+
+```{r}
+davies.env |> 
+  ggpairs(lower = list(continuous = "smooth"),
+    diag = list(continuous = "density"),
+    axisLabels = "show")
+```
+
+### Permutation test
+
+First check benthic data for missing rows
+
+```{r}
+davies.benthic |>
+  group_by(Site) |>
+  summarise(count = n())
+```
+
+One observation is missing for site D1a - thus will need to remove one row from rows 1-15
+
+```{r}
+# Remove one row from davies.env because of missing observation in davies.rda
+davies.env <- davies.env[-1,]
+```
+
+```{r}
+library(vegan)
+davies.envfit <- envfit(davies.rda, env = davies.env)
+
+davies.envfit
+```
+
+Envfit function - The output show that the community is impacted by every aspect of the environmental variables. However, bare in mind that these environmental variables are correlated to each other so we cannot say that they impact the community by themselves. We can also see the r2 value which shows us the correlation. Sediment (concrete) at t2 has the highest R2 of 17% so it is most likely that this is a strong driver of the community.
+
+Now we will overlay the patterns to our graph. FORTIFY SCRIPT DOES NOT WORK
+
+```{r}
+## SCRIPT DOES NOT WORK! --> fortify??
+#davies.env.scores <- davies.envfit |> fortify()
+
+# Extract vectors from davies.envfit
+arrows <- davies.envfit$vectors$arrows
+r_values <- davies.envfit$vectors$r
+p_values <- davies.envfit$vectors$pvals
+
+# Create a dataframe
+envfit_df <- data.frame(
+  Variable = rownames(arrows),
+  PC1 = arrows[, 1],
+  PC2 = arrows[, 2],
+  R_Value = r_values,
+  P_Value = p_values,
+  stringsAsFactors = FALSE
+)
+
+# Optionally, you can set rownames as a separate column
+envfit_df$Variable <- rownames(arrows)
+
+davies_env_plot <- davies_plot + 
+  geom_segment(data=envfit_df,
+    aes(y=0, x=0, yend=PC2, xend=PC1),
+    arrow=arrow(length=unit(0.3,'lines')), color='blue') +
+  geom_text(data=envfit_df,
+    aes(y=PC2*1.1, x=PC1*1.1, label=Variable), color='blue')
+davies_env_plot
+
+```
+
+All the sediment variables point into a different direction than the other environmental variables. Ub_avrg and Median_speed are perhaps the same thing?
+
+What is driving this community??
+
+### VIF - multicollinearity
+
+```{r}
+lm(1:nrow(davies.env) ~ Ub_avrg + median_speed + mean_temp + sedturf_t2 + sedconcrete_t2  +sedturf_t5      + sedconcrete_t5, data=davies.env) |> 
+  vif()
+```
+
+Values above 5 on a variance inflation scale are indicative of correlation. Thus only **median_speed**, **mean_temp** and **sedturf_t2** can go in a model with each other. The other variables have a value greater than 5 so we cannot put them in a model together because they are too highly correlated and we would not be able to distinguish them.
+
+```{r}
+lm(1:nrow(davies.env) ~ median_speed + mean_temp+ sedturf_t2 , data=davies.env) |> 
+  vif()
+```
+
+Is there any evidence that the community is influenced by any of the environmental variables?
+
+```{r}
+lm(davies_site_df$PC1 ~ median_speed + mean_temp + sedturf_t2, data=davies.env) |>
+  summary()
+```
+
+Yes for median_speed and mean temperature, but not for sedimentation.
+
+And now for PC2:
+
+```{r}
+lm(davies_site_df$PC2 ~ median_speed +  sedturf_t2, data=davies.env) |>
+  summary()
+```
+
+No significant values for PC2 (that explains 19% of variability).
+
+# \-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\--
+
+# Heron
+
+### Prep data
+
+```{r}
+heron.benthic <- Y1Benthic.grouped |>   
+  filter((Reef == "Heron"))  
+
+heron.benthic.clean <- Y1Benthic.grouped |>   
+  filter((Reef == "Heron")) |>   
+  select(-c(Reef, ReefDev))
+```
+
+### Explore data
+
+```{r}
+heron.benthic.clean[,-1] |>      
+  ggpairs(lower = list(continuous = "smooth"),     
+          diag = list(continuous = "density"),     
+          axisLabels = "show")
+```
+
+### Fourth-root transformation
+
+```{r}
+heron.benthic.clean[,-1]^0.25 |>     #fourthroot transformation    
+  ggpairs(lower = list(continuous = "smooth"),     
+          diag = list(continuous = "density"),     
+          axisLabels = "show")  ## maybe slightly better??
+```
+
+Cyano and CCA are strongly correlated just like with Davies reef thus will take only CCA going forward
+
+```{r}
+heron.benthic.CCA <- heron.benthic.clean |>       
+  select(-c(Cyano))
+
+heron.benthic.CCA[,-1]^0.25 |>     #fourthroot transformation     
+  ggpairs(lower = list(continuous = "smooth"),     
+          diag = list(continuous = "density"),     
+          axisLabels = "show") 
+
+remove(heron.benthic.clean)
+```
+
+### Standardize
+
+```{r}
+heron.std <- (heron.benthic.CCA[,-1]^0.25) |>    
+  wisconsin() 
+
+heron.std
+```
+
+### PCA
+
+```{r}
+heron.rda <- rda(heron.std, scale=FALSE)   
+#rda and the name of your standardized data 
+# scale is TRUE - to run on correlation 
+
+summary(heron.rda, display=NULL)
+```
+
+Points to look for:
+
+1.  keep as many axis/Principal components as necessary to get explain around **80% of variability**:
+
+```{r}
+#PC1:PC5
+(0.04019  +0.01382  +0.01108  +0.009916  + 0.00694  ) /0.101     
+```
+
+```{r}
+screeplot(heron.rda) 
+abline(a=1,b=0)
+```
+
+Scree plot: leveling off/change in pattern after PC4?
+
+```{r}
+biplot(heron.rda) 
+ordiplot(heron.rda, display = "species", type = "text")  
+ordiplot(heron.rda, display = "sites", type = "points" )   
+
+#plot(spider.rda) + theme_bw() 
+#auplot(spider.rda, geom='text') + theme_bw()   #most informative
+```
+
+### Extract axes values
+
+```{r}
+# Extract site scores from the RDA object 
+heron_sites <- scores(heron.rda, display = "sites")  
+
+# Extract species scores from the RDA object 
+heron_species <- scores(heron.rda, display = "species")  
+
+# Create a dataframe for site scores 
+heron_site_df <- data.frame(PC1 = heron_sites[, 1],   
+                            PC2 = heron_sites[, 2],   
+                            label = rownames(heron_sites))  
+# Device ID are rows )  
+                            
+ # Create a dataframe for species scores 
+heron_species_df <- data.frame(PC1 = heron_species[, 1],   
+                               PC2 = heron_species[, 2],   
+                               label = rownames(heron_species))  
+# Benthic groups are rownames 
+
+remove(heron_sites,heron_species)
+```
+
+### Figures
+
+```{r}
+heron_plot <- ggplot() +   
+  geom_hline(yintercept = 0, linetype = 'dotted') +   
+  geom_vline(xintercept = 0, linetype = 'dotted') +   
+  geom_point(data = heron_site_df, aes(x = PC1, y = PC2)) +   
+  geom_segment(data = heron_species_df, 
+               aes(x = 0, y = 0, xend = PC1, yend = PC2),                
+               arrow = arrow(length = unit(0.3, 'lines')), 
+               color = 'red') +   
+  geom_text(data = heron_species_df, 
+            aes(x = PC1 * 1.1, y = PC2 * 1.1, label = label), 
+            color = 'red') 
+heron_plot
+```
+
+### Eigenvalues
+
+```{r}
+eig <- eigenvals(heron.rda)  
+sprintf('(%0.1f%% explained var.)', 100 * eig[2]/sum(eig))   #round it to one decimal place and substitue to f 
+
+paste(names(eig[2]), sprintf('(%0.1f%% explained var.)', 100 * eig[2]/sum(eig)))
+```
+
+Combine eigenvalues with plot
+
+```{r}
+heron_plot <- heron_plot + scale_y_continuous(paste(names(eig[2]), sprintf('(%0.1f%% explained var.)',     100 * eig[2]/sum(eig))))+   scale_x_continuous(paste(names(eig[1]), sprintf('(%0.1f%% explained var.)',     100 * eig[1]/sum(eig)))) 
+
+heron_plot
+```
+
+Draw circle
+
+```{r}
+circle.prob <- 0.68     #typical this is one standard error, and the rest below is code about how to turn this into a circle 
+ 
+r <- sqrt(qchisq(circle.prob, df = 2)) * prod(colMeans(heron.rda$CA$u[,1:2]^2))^(1/4) 
+theta <- c(seq(-pi, pi, length = 50), seq(pi, -pi, length = 50)) 
+circle <- data.frame(PC1 = r * cos(theta), PC2 = r * sin(theta))  
+
+heron_plot <- heron_plot +  geom_path(data = circle, aes(y = PC2, x = PC1), color = "black", size = 1, alpha = 1/3)  
+
+heron_plot
+```
+
+### Environmental data
+
+```{r}
+# load the data and filter on Heron Reef 
+heron.env <- Y1Environment |>   
+  filter(Reef == "Heron") |>   
+  select(-c(Reef, Site, sedturf_t5,sedconcrete_t5))
+```
+
+Correlation plot to see which variables are correlated
+
+```{r}
+heron.env |>   
+  cor() |>    
+  corrplot(type = 'upper',     
+           order = 'FPC',     
+           diag = FALSE)
+```
+
+Remove strong correlated paramaters such as percentiles and range for median speed, and re-run correlation plot
+
+```{r}
+heron.env<- heron.env |>   
+  select(-c(percentile_10, range, percentile_90))  
+
+heron.env |>   
+  cor() |>    
+  corrplot(type = 'upper',     
+           order = 'FPC',     
+           diag = FALSE)
+```
+
+Optional - Check for correlation through scatter matrix (same thing as correlation plot)
+
+```{r}
+heron.env |>    
+  ggpairs(lower = list(continuous = "smooth"),     
+          diag = list(continuous = "density"),     
+          axisLabels = "show")
+```
+
+### Permutation test
+
+First check benthic data for missing observations
+
+```{r}
+heron.benthic |>
+  group_by(Site) |>
+  summarise(count = n())
+```
+
+We have 21 observations at site H1B and 24 observations at site H4A. Thus will need to remove 4 rows from row 26-50 and 1 row from row 151-175
+
+```{r}
+# Remove five rows from heron.env because of missing observation in heron.rda 
+heron.env <- heron.env[-c(26:29, 151),]  
+```
+
+Now run envfit function
+
+```{r}
+library(vegan) 
+heron.envfit <- envfit(heron.rda, env = heron.env)  
+
+heron.envfit
+```
+
+The output show that the community is impacted by every aspect of the environmental variables. However, these environmental variables are correlated to each other so we cannot say that they impact the community by themselves. We can also see the r2 value which shows us the correlation. Sediment (concrete) at t2 has the highest R2 of 29% so it is most likely that this is a strong driver of the community.
+
+Now we will overlay the patterns to our graph. FORTIFY SCRIPT DOES NOT WORK
+
+```{r}
+## SCRIPT DOES NOT WORK! --> fortify?? 
+#heron.env.scores <- heron.envfit |> fortify()  
+
+# Extract vectors from heron.envfit 
+arrows <- heron.envfit$vectors$arrows 
+r_values <- heron.envfit$vectors$r 
+p_values <- heron.envfit$vectors$pvals  
+
+# Create a dataframe 
+envfit_df <- data.frame(Variable = rownames(arrows),   
+                        PC1 = arrows[, 1],   
+                        PC2 = arrows[, 2],   
+                        R_Value = r_values,   
+                        P_Value = p_values,   
+                        stringsAsFactors = FALSE )  
+
+# Optionally, you can set rownames as a separate column 
+envfit_df$Variable <- rownames(arrows)  
+
+heron_env_plot <- heron_plot +    
+  geom_segment(data=envfit_df,aes(y=0, x=0, yend=PC2, xend=PC1),
+               arrow=arrow(length=unit(0.3,'lines')), 
+               color='blue') +   
+  geom_text(data=envfit_df,aes(y=PC2*1.1, x=PC1*1.1, label=Variable), 
+            color='blue') 
+
+heron_env_plot 
+```
+
+All the sediment variables point into a different direction than the other environmental variables. Ub_avrg and Median_speed are perhaps the same thing?
+
+What is driving this community??
+
+### VIF - multicollinearity
+
+```{r}
+lm(1:nrow(heron.env) ~ Ub_avrg + median_speed + mean_temp + sedturf_t2 + sedconcrete_t2, data=heron.env) |>    
+  vif()
+```
+
+Values above 5 on a variance inflation scale are indicative of correlation but these are all below 5 thus can remain in the model with each other. Although Ub_avrg shows moderate collinearity, so perhaps can be removed, and the same for sediment concrete.
+
+```{r}
+lm(1:nrow(heron.env) ~ median_speed + mean_temp+ sedturf_t2 , data=heron.env) |>   
+  vif()
+```
+
+Is there any evidence that the community is influenced by any of the environmental variables?
+
+```{r}
+lm(heron_site_df$PC1 ~ median_speed + mean_temp + sedturf_t2, data=heron.env) |>   
+  summary()
+```
+
+Yes for median_speed and mean temperature, but not for sedimentation.
+
+And now for PC2:
+
+```{r}
+lm(heron_site_df$PC2 ~ median_speed +  mean_temp+ sedturf_t2, data=heron.env) |>   
+  summary()
+```
+
+Only median_speed is significant for PC2 (that explains 13.7% of variability).
+
+# \-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\--
+
+# Moore
+
+### Prep data
+
+```{r}
+moore.benthic <- Y1Benthic.grouped |>      
+  filter((Reef == "Moore"))    
+
+moore.benthic.clean <- Y1Benthic.grouped |>      
+  filter((Reef == "Moore")) |>      
+  select(-c(Reef, ReefDev))
+```
+
+### Explore data
+
+```{r}
+moore.benthic.clean[,-1] |>         
+  ggpairs(lower = list(continuous = "smooth"),                
+          diag = list(continuous = "density"),                
+          axisLabels = "show")
+```
+
+### Fourth-root transformation
+
+```{r}
+moore.benthic.clean[,-1]^0.25 |>     #fourthroot transformation       
+  ggpairs(lower = list(continuous = "smooth"),                
+          diag = list(continuous = "density"),                
+          axisLabels = "show")  ## maybe slightly better??
+```
+
+Cyano and CCA are strongly correlated just like with Davies and Heron thus will take only CCA going forward
+
+```{r}
+moore.benthic.CCA <- moore.benthic.clean |>          
+  select(-c(Cyano))  
+
+moore.benthic.CCA[,-1]^0.25 |>     #fourthroot transformation        
+  ggpairs(lower = list(continuous = "smooth"),                
+          diag = list(continuous = "density"),                
+          axisLabels = "show")   
+
+remove(moore.benthic.clean)
+```
+
+### Standardize
+
+```{r}
+moore.std <- (moore.benthic.CCA[,-1]^0.25) |>       
+  wisconsin()   
+
+moore.std
+```
+
+### PCA
+
+```{r}
+moore.rda <- rda(moore.std, scale=FALSE)    
+#rda and the name of your standardized data  
+# scale is TRUE - to run on correlation   
+
+summary(moore.rda, display=NULL)
+```
+
+Points to look for:
+
+1.  keep as many axis/Principal components as necessary to get explain around **80% of variability**:
+
+```{r}
+#PC1:PC6
+(0.02646 + 0.01426 + 0.01098 + 0.008061 + 0.007601 + 0.006489  ) /0.08844               
+```
+
+```{r}
+screeplot(moore.rda)  
+abline(a=1,b=0)
+```
+
+Scree plot: leveling off/change in pattern after PC4?
+
+```{r}
+
+biplot(moore.rda)  
+ordiplot(moore.rda, display = "species", type = "text")   
+ordiplot(moore.rda, display = "sites", type = "points" )    
+#plot(spider.rda) + theme_bw()  
+#auplot(spider.rda, geom='text') + theme_bw()   #most informative
+```
+
+### Extract axes values
+
+```{r}
+# Extract site scores from the RDA object  
+moore_sites <- scores(moore.rda, display = "sites")    
+
+# Extract species scores from the RDA object  
+moore_species <- scores(moore.rda, display = "species")    
+
+# Create a dataframe for site scores  
+moore_site_df <- data.frame(PC1 = moore_sites[, 1],
+                            PC2 = moore_sites[, 2],
+                            label = rownames(moore_sites))   
+# Device ID are rows )                                
+
+# Create a dataframe for species scores  
+moore_species_df <- data.frame(PC1 = moore_species[, 1],
+                               PC2 = moore_species[, 2],
+                               label = rownames(moore_species))   
+# Benthic groups are rownames   
+
+remove(moore_sites,moore_species)
+```
+
+### Figures
+
+```{r}
+moore_plot <- ggplot() +      
+  geom_hline(yintercept = 0, linetype = 'dotted') +      
+  geom_vline(xintercept = 0, linetype = 'dotted') +      
+  geom_point(data = moore_site_df, aes(x = PC1, y = PC2)) +      
+  geom_segment(data = moore_species_df,
+               aes(x = 0, y = 0, xend = PC1, yend = PC2),
+               arrow = arrow(length = unit(0.3, 'lines')),
+               color = 'red') +    
+  geom_text(data = moore_species_df,
+            aes(x = PC1 * 1.1, y = PC2 * 1.1, 
+                label = label),
+            color = 'red')  
+
+moore_plot
+```
+
+### Eigenvalues
+
+```{r}
+eig <- eigenvals(moore.rda)   
+sprintf('(%0.1f%% explained var.)', 100 * eig[2]/sum(eig))   #round it to one decimal place and substitue to f   
+paste(names(eig[2]), sprintf('(%0.1f%% explained var.)', 100 * eig[2]/sum(eig)))
+```
+
+Combine eigenvalues with plot
+
+```{r}
+moore_plot <- moore_plot + scale_y_continuous(paste(names(eig[2]), sprintf('(%0.1f%% explained var.)',     100 * eig[2]/sum(eig))))+   scale_x_continuous(paste(names(eig[1]), sprintf('(%0.1f%% explained var.)',     100 * eig[1]/sum(eig))))   
+
+moore_plot
+```
+
+Draw circle
+
+```{r}
+circle.prob <- 0.68     #typical this is one standard error, and the rest below is code about how to turn this into a circle
+
+r <- sqrt(qchisq(circle.prob, df = 2)) * prod(colMeans(moore.rda$CA$u[,1:2]^2))^(1/4) 
+
+theta <- c(seq(-pi, pi, length = 50), seq(pi, -pi, length = 50))  
+
+circle <- data.frame(PC1 = r * cos(theta), PC2 = r * sin(theta))    
+
+moore_plot <- moore_plot +  
+  geom_path(data = circle, aes(y = PC2, x = PC1), color = "black", size = 1, alpha = 1/3)    
+
+moore_plot
+```
+
+### Environmental data
+
+```{r}
+# load the data and filter on Moore Reef  
+moore.env <- Y1Environment |>      
+  filter(Reef == "Moore") |>      
+  select(-c(Reef, Site, sedturf_t2, sedconcrete_t2))
+```
+
+Correlation plot to see which variables are correlated
+
+```{r}
+moore.env |>      
+  cor() |>       
+  corrplot(type = 'upper',                 
+           order = 'FPC',                 
+           diag = FALSE)
+```
+
+Remove strong correlated paramaters such as percentile_90 and range for median speed, and re-run correlation plot
+
+```{r}
+moore.env<- moore.env |>      
+  select(-c(range, percentile_90))    
+
+moore.env |>      
+  cor() |>       
+  corrplot(type = 'upper',                 
+           order = 'FPC',                 
+           diag = FALSE)
+```
+
+Optional - Check for correlation through scatter matrix (same thing as correlation plot)
+
+```{r}
+moore.env |>       
+  ggpairs(lower = list(continuous = "smooth"),                
+          diag = list(continuous = "density"),                
+          axisLabels = "show")
+```
+
+### Permutation test
+
+First check benthic data for missing observations
+
+```{r}
+moore.benthic |>
+  group_by(Site) |>
+  summarise(count = n())
+```
+
+Sites M3A and M4B have missing observations: 2 missing at M3A and one missing at M4B. Thus row 101-125 and row 176-200
+
+```{r}
+# Remove five rows from heron.env because of missing observation in heron.rda 
+moore.env <- moore.env[-c(101:102, 176),]  
+```
+
+Now fit envfit function
+
+```{r}
+library(vegan)  
+
+moore.envfit <- envfit(moore.rda, env = moore.env)    
+moore.envfit
+```
+
+The output show that the community is impacted by every aspect of the environmental variables. However, these environmental variables are correlated to each other so we cannot say that they impact the community by themselves. We can also see the r2 value which shows us the correlation. Ub_avrg has the highest r2 valua of 46% so it is most likely that this is a strong driver of the community. However, sediment (concrete) has a high r2 as well at 43%, so togther these might be strong drivers of the community.
+
+Now we will overlay the patterns to our graph. FORTIFY SCRIPT DOES NOT WORK
+
+```{r}
+## SCRIPT DOES NOT WORK! --> fortify??  
+#moore.env.scores <- moore.envfit |> fortify()    
+
+# Extract vectors from moore.envfit  
+arrows <- moore.envfit$vectors$arrows  
+r_values <- moore.envfit$vectors$r  
+p_values <- moore.envfit$vectors$pvals    
+
+# Create a dataframe  
+envfit_df <- data.frame(Variable = rownames(arrows),
+                        PC1 = arrows[, 1],
+                        PC2 = arrows[, 2],
+                        R_Value = r_values,
+                        P_Value = p_values,
+                        stringsAsFactors = FALSE )    
+
+# Optionally, you can set rownames as a separate column  
+envfit_df$Variable <- rownames(arrows)    
+
+moore_env_plot <- moore_plot +
+  geom_segment(data=envfit_df,aes(y=0, x=0, yend=PC2, xend=PC1),
+               arrow=arrow(length=unit(0.3,'lines')),
+               color='blue') +  
+  geom_text(data=envfit_df,aes(y=PC2*1.1, x=PC1*1.1, label=Variable),
+            color='blue')   
+
+moore_env_plot 
+```
+
+Sediment variables point into a different direction than the other environmental variables and EAM and Sand_sed of the community fall in that same space as well. Ub_avrg, median_speed, mean_temp and Percentile_10 all point towards the opposite direction, together with CCA, bunch of macro algaes. Acro and HC stand out?
+
+What is driving this community??
+
+### VIF - multicollinearity
+
+```{r}
+lm(1:nrow(moore.env) ~ Ub_avrg + median_speed + percentile_10 + mean_temp + sedturf_t5 + sedconcrete_t5 , data=moore.env) |>
+  vif()
+```
+
+Values above 5 on a variance inflation scale are indicative of correlation, but these variables are all below 5 thus can remain in the model. Ub_avrg has moderate collinearity thus could be removed?
+
+```{r}
+lm(1:nrow(moore.env) ~ median_speed +percentile_10 + mean_temp+ sedturf_t5 + sedconcrete_t5 , data=moore.env) |>
+  vif()
+```
+
+Is there any evidence that the community is influenced by any of the environmental variables?
+
+```{r}
+lm(moore_site_df$PC1 ~ Ub_avrg + median_speed + percentile_10 + mean_temp + sedturf_t5 + sedconcrete_t5, data=moore.env) |>    
+  summary()
+```
+
+Ub_avrg, median_speed, mean_temp and sedconcrete_t5 are significant, but percentile_10 and sedturf_t5 are not.
+
+And now for PC2:
+
+```{r}
+lm(moore_site_df$PC2 ~ Ub_avrg + median_speed + percentile_10 + mean_temp + sedturf_t5 + sedconcrete_t5, data=moore.env) |>   
+  summary()
+```
+
+Median speed and percentile_10 are significant values for PC2 (that explains 16% of variability).
+
+# \-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\--
+
+# Save dataframes
+
+All saved on 19/04/2024
+
+```{r}
+library(openxlsx)
+write.xlsx(moore_site_df, "C:/Users/sjurriaa/Australian Institute of Marine Science/Carly Randall - Randall Lab/CAD/CAD Field Data/2022_Deployment_Saskia_YEAR1/Benthic/Quadrats_t0/Output/April2024/RDA sites Moore.xlsx", rowName = FALSE)
+write.xlsx(moore_species_df, "C:/Users/sjurriaa/Australian Institute of Marine Science/Carly Randall - Randall Lab/CAD/CAD Field Data/2022_Deployment_Saskia_YEAR1/Benthic/Quadrats_t0/Output//April2024/RDA benthic groups Moore.xlsx", rowName = FALSE)
+write.xlsx(moore.env, "C:/Users/sjurriaa/Australian Institute of Marine Science/Carly Randall - Randall Lab/CAD/CAD Field Data/2022_Deployment_Saskia_YEAR1/Benthic/Quadrats_t0/Output//April2024/Envfit Moore Environmental variables.xlsx", rowName = FALSE)
+
+
+write.xlsx(heron_site_df, "C:/Users/sjurriaa/Australian Institute of Marine Science/Carly Randall - Randall Lab/CAD/CAD Field Data/2022_Deployment_Saskia_YEAR1/Benthic/Quadrats_t0/Output//April2024/RDA sites Heron.xlsx", rowName = FALSE)
+write.xlsx(heron_species_df, "C:/Users/sjurriaa/Australian Institute of Marine Science/Carly Randall - Randall Lab/CAD/CAD Field Data/2022_Deployment_Saskia_YEAR1/Benthic/Quadrats_t0/Output//April2024/RDA benthic groups Heron.xlsx", rowName = FALSE)
+write.xlsx(heron.env, "C:/Users/sjurriaa/Australian Institute of Marine Science/Carly Randall - Randall Lab/CAD/CAD Field Data/2022_Deployment_Saskia_YEAR1/Benthic/Quadrats_t0/Output//April2024/Envfit Heron Environmental variables.xlsx", rowName = FALSE)
+
+write.xlsx(davies_site_df, "C:/Users/sjurriaa/Australian Institute of Marine Science/Carly Randall - Randall Lab/CAD/CAD Field Data/2022_Deployment_Saskia_YEAR1/Benthic/Quadrats_t0/Output//April2024/RDA sites Davies.xlsx", rowName = FALSE)
+write.xlsx(davies_species_df, "C:/Users/sjurriaa/Australian Institute of Marine Science/Carly Randall - Randall Lab/CAD/CAD Field Data/2022_Deployment_Saskia_YEAR1/Benthic/Quadrats_t0/Output//April2024/RDA benthic groups Davies.xlsx", rowName = FALSE)
+write.xlsx(davies.env, "C:/Users/sjurriaa/Australian Institute of Marine Science/Carly Randall - Randall Lab/CAD/CAD Field Data/2022_Deployment_Saskia_YEAR1/Benthic/Quadrats_t0/Output//April2024/Envfit Davies Environmental variables.xlsx", rowName = FALSE)
+
+#All saved on 19/04/2024
+```
+
+# Save figures
+
+All saved on 19/04/2024
+
+```{r}
+ggsave("C:/Users/sjurriaa/Australian Institute of Marine Science/Carly Randall - Randall Lab/CAD/CAD Field Data/2022_Deployment_Saskia_YEAR1/Benthic/Quadrats_t0/Output/April2024/RDA Moore.jpeg", moore_plot, width = 10, height = 10, dpi=600)
+ggsave("C:/Users/sjurriaa/Australian Institute of Marine Science/Carly Randall - Randall Lab/CAD/CAD Field Data/2022_Deployment_Saskia_YEAR1/Benthic/Quadrats_t0/Output/April2024/RDA Moore Environment.jpeg", moore_env_plot, width = 10, height = 10, dpi = 600)
+
+ggsave("C:/Users/sjurriaa/Australian Institute of Marine Science/Carly Randall - Randall Lab/CAD/CAD Field Data/2022_Deployment_Saskia_YEAR1/Benthic/Quadrats_t0/Output/April2024/RDA Heron.jpeg", heron_plot, width = 10, height = 10, dpi=600)
+ggsave("C:/Users/sjurriaa/Australian Institute of Marine Science/Carly Randall - Randall Lab/CAD/CAD Field Data/2022_Deployment_Saskia_YEAR1/Benthic/Quadrats_t0/Output/April2024/RDA Heron Environment.jpeg", heron_env_plot, width = 10, height = 10, dpi = 600)
+
+ggsave("C:/Users/sjurriaa/Australian Institute of Marine Science/Carly Randall - Randall Lab/CAD/CAD Field Data/2022_Deployment_Saskia_YEAR1/Benthic/Quadrats_t0/Output/April2024/RDA Davies.jpeg", davies_plot, width = 10, height = 10, dpi=600)
+ggsave("C:/Users/sjurriaa/Australian Institute of Marine Science/Carly Randall - Randall Lab/CAD/CAD Field Data/2022_Deployment_Saskia_YEAR1/Benthic/Quadrats_t0/Output/April2024/RDA Davies Environment.jpeg", davies_env_plot, width = 10, height = 10, dpi = 600)
+
+#All saved on 19/04/2024
+```
+
+# 
