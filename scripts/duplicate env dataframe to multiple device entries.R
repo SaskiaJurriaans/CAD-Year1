@@ -1,7 +1,13 @@
 ## This script is to create a dataframe with duplicate rows of the environmental data so that each row will match with a device. Current dataframe has only one row/entry per site and this script will multiply that entry 25 times to have it for each device. 
 
-#load data --> FinalMetrics_Summary.xlsx 
+#load data --> FinalMetrics_Summary.xlsx
+#Y1Environment<-FinalMetrics_Summary <- read_excel("data/FinalMetrics_Summary.xlsx")
 #name df: Y1Environment
+
+#load data --> YEAR1Benthic.xlsx
+#Y1Benthic <- read_excel("data/YEAR1_Benthic_data.xlsx")
+#name df: Y1Benthic
+
 
 davies.env<- Y1Environment|> filter(Reef=="Davies") |> select(-Reef)
 
