@@ -56,9 +56,7 @@ survival <- read_excel("data/YEAR1_Survival.xlsx", na ="")
 environment <- read_excel ("data/YEAR1 Benthic Environment ReefDev.xlsx", na="")
 ```
 
-# Survival 
-
-### Exploratory data 
+# Exploratory data
 
 ```{r}
 glimpse(survival)
@@ -79,12 +77,14 @@ survival <- survival |>
   select(-c(ID, Observer, CensusT, DeploymentDate, CensusDate, Device_ID, NoRecruits))
 ```
 
-### Subset data: Heron
+# Heron Spp
+
+### Subset data: Heron Spp
 
 Focus on Heron Reef only
 
 ```{r}
-heron <- survival |> filter (Reef == "Heron")
+heron_surv <- survival |> filter (Reef == "Heron")
 
 #heron_clean <- heron[complete.cases(heron$SurvDev),  ]
 ```
@@ -93,7 +93,7 @@ Create a dataframe that groups to device level (not tab level) and then gives a 
 
 ```{r}
 # first for A tenuis
-heron_Aten <- heron |> 
+heron_Aten <- heron_surv |> 
   filter(Spp == "A_tenuis") |>
   group_by(Census, ReefDev) |>
   mutate(SurvDev_Spp = ifelse(any(SurvTab == 1), 1, 0),
@@ -112,7 +112,7 @@ heron_Aten2 <- heron_Aten |>
   ungroup()
 
 # now for Ahyacinthus
-heron_Ahya <- heron |> 
+heron_Ahya <- heron_surv |> 
   filter(Spp == "A_hyacinthus") |>
   group_by(Census, ReefDev) |>
   mutate(SurvDev_Spp = ifelse(any(SurvTab == 1), 1, 0),
@@ -146,38 +146,145 @@ heron_Spp_t2 <- heron_Spp |>
   filter(Census == "t2")
 
 heron_env <- environment |>
-  filter(Reef == "Heron")
+  filter(Reef == "Heron") |>
+  select(-c(Reef1, Device_ID))
+```
 
-heron <- merge(heron_env, heron_Spp_t2, by = c("Reef", "Site", "ReefDev"), all = TRUE)
+```{r}
+heron_Spp_t2 <- merge(heron_env, heron_Spp_t2, by = c("Reef", "Site", "ReefDev"), all = TRUE)
 
+#free up space
+remove(heron_surv, heron_env, heron_Spp)
+```
+
+```{r}
+# Remove rows with missing values
+heron_Spp_t2$SurvDev_Spp <- as.numeric(heron_Spp_t2$SurvDev_Spp)
+heron_Spp_t2 <- heron_Spp_t2[complete.cases(heron_Spp_t2$SurvDev_Spp),  ]
 ```
 
 ### Visualize data
 
 ```{r}
-ggplot(data=heron_Spp, aes(y = SurvDev_Spp, x = WaveEnergyLevel)) + 
+ggplot(data=heron_Spp_t2, aes(y = SurvDev_Spp, x = WaveEnergyLevel)) + 
   geom_point(position = position_jitter(width = 0.2, height = 0)) +
   facet_wrap(~Spp) + 
   geom_smooth(method="lm")
 ```
 
 ```{r}
-ggplot(data=heron, aes(y = SurvDev_Spp, x = Ub_avrg)) + 
+ggplot(data=heron_Spp_t2, aes(y = SurvDev_Spp, x = Ub_avrg)) + 
   geom_point(position = position_jitter(width = 0.2, height = 0)) +
   facet_wrap(~Spp) + 
   geom_smooth(method="lm")
 
-ggplot(data=heron, aes(y = SurvDev_Spp, x = median_speed)) + 
+ggplot(data=heron_Spp_t2, aes(y = SurvDev_Spp, x = median_speed)) + 
   geom_point(position = position_jitter(width = 0.2, height = 0)) +
   facet_wrap(~Spp) + 
   geom_smooth(method="lm")
 ```
-
-# Model - Frequentists
 
 ### glm
 
 ```{r}
+library(lme4)
+heron_Spp_t2$Site <- as.factor(heron_Spp_t2$Site)
+heron_Spp_t2$ReefDev<- as.factor(heron_Spp_t2$ReefDev)
+heron_Spp_t2$Spp<- as.factor(heron_Spp_t2$Spp)
+
+heronSpp_glmer1<- glmer(SurvDev_Spp ~ (1|Site) + (1|ReefDev), data=heron_Spp_t2, family = binomial(link = "logit"))
+
+heronSpp_glmer2<- glmer(SurvDev_Spp ~ (1|Site) + (Spp|ReefDev), data=heron_Spp_t2, family = binomial(link = "logit"))
+
+heronSpp_glmer3<- glmer(SurvDev_Spp ~ Spp + (1|Site) + (1|ReefDev), data=heron_Spp_t2, family = binomial(link = "logit"))
+
+heronSpp_glmer4<- glmer(SurvDev_Spp ~ Spp + (1|Site) + (Spp|ReefDev), data=heron_Spp_t2, family = binomial(link = "logit"))
+
+summary(heronSpp_glmer1)
+summary(heronSpp_glmer2)
+summary(heronSpp_glmer3)
+summary(heronSpp_glmer4)
+AIC(heronSpp_glmer1, heronSpp_glmer2, heronSpp_glmer3, heronSpp_glmer4)
+```
+
+# Heron Yield
+
+### Subset data: Heron yield (device level)
+
+```{r}
+heron_surv <- survival |> filter (Reef == "Heron",
+                             Census == "t2",
+                             Tab_ID == 1) |>
+  select(-c(Tab_ID, SurvTab, Spp))
+
+heron_env <- environment |> 
+  filter (Reef == "Heron") |>
+  select(-c(Reef1, Device_ID))
+```
+
+### Merge survival and environment
+
+```{r}
+heron_t2 <- merge(heron_env, heron_surv, by = c("Reef", "Site", "ReefDev"), all = TRUE)
+
+#free up space
+remove(heron_surv, heron_env)
+
+# Remove rows with missing values
+heron_t2$SurvDev <- as.numeric(heron_t2$SurvDev)
+heron_t2 <- heron_t2[complete.cases(heron_t2$SurvDev),  ]
+```
+
+### Visualize data
+
+```{r}
+ggplot(data=heron_t2, aes(y = SurvDev, x = WaveEnergyLevel)) + 
+  geom_point(position = position_jitter(width = 0.2, height = 0)) +
+  geom_smooth(method="lm")
+
+ggplot(data=heron_t2, aes(y = SurvDev, x = WaveEnergyLevel)) + 
+  geom_point(position = position_jitter(width = 0.2, height = 0)) +
+  facet_wrap(~Site) +
+  geom_smooth(method="lm")
+```
+
+```{r}
+ggplot(data=heron_t2, aes(y = SurvDev, x = median_speed)) + 
+  geom_point(position = position_jitter(width = 0.2, height = 0)) +
+  geom_smooth(method="lm")
+
+ggplot(data=heron_t2, aes(y = SurvDev, x = Ub_avrg)) + 
+  geom_point(position = position_jitter(width = 0.2, height = 0)) +
+  geom_smooth(method="lm")
+
+ggplot(data=heron_t2, aes(y = SurvDev, x = PC1)) + 
+  geom_point(position = position_jitter(width = 0.2, height = 0)) +
+  geom_smooth(method="lm")
+
+ggplot(data=heron_t2, aes(y = SurvDev, x = sedconcrete_t2)) + 
+  geom_point(position = position_jitter(width = 0.2, height = 0)) +
+  geom_smooth(method="lm")
+```
+
+### glm
+
+```{r}
+heron_t2$Site <- as.factor(heron_t2$Site)
+heron_t2$ReefDev<- as.factor(heron_t2$ReefDev)
+
+
+heron_glmer1<- glmer(SurvDev ~ (1|Site) + (1|ReefDev), data=heron_t2, family = binomial(link = "logit"))
+
+summary(heron_glmer1)
+
+AIC(heron_glmer1, heronSpp_glmer1)
+```
+
+```{r}
+
+
+
+
 heron.speed.glm <- glm(SurvDev ~ median_speed, data = heron_clean, family = binomial(link = "logit"))
 
 heron.ub.glm <- glm(SurvDev ~ Ub_avrg, data = heron_clean, family = binomial(link = "logit"))
