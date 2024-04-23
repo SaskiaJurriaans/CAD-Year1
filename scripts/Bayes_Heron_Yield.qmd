@@ -65,13 +65,9 @@ str(survival)
 survival |> datawizard::data_codebook()
 ```
 
-We need to make sure that the categorical variables and the random effects are defined as factors:
+Remove some unnecessary columns
 
 ```{r}
-survival <- survival |> mutate(Reef = factor(Reef),
-                             #  WaveEnergyLevel = factor(WaveEnergyLevel),
-                               ReefDev = factor(ReefDev),
-                               Census = factor(Census))
 
 survival <- survival |>
   select(-c(ID, Observer, CensusT, DeploymentDate, CensusDate, Device_ID, NoRecruits))
@@ -161,6 +157,32 @@ remove(heron_surv, heron_env, heron_Spp)
 # Remove rows with missing values
 heron_Spp_t2$SurvDev_Spp <- as.numeric(heron_Spp_t2$SurvDev_Spp)
 heron_Spp_t2 <- heron_Spp_t2[complete.cases(heron_Spp_t2$SurvDev_Spp),  ]
+heron_Spp_t2 <- heron_t2 |> select(-c(sedturf_t5, sedconcrete_t5))
+```
+
+### GLM
+
+```{r}
+library(lme4)
+heron_Spp_t2$Site <- as.factor(heron_Spp_t2$Site)
+heron_Spp_t2$ReefDev<- as.factor(heron_Spp_t2$ReefDev)
+heron_Spp_t2$Spp<- as.factor(heron_Spp_t2$Spp)
+
+heronSpp_glmer1<- glmer(SurvDev_Spp ~ (1|Site) + (1|ReefDev), data=heron_Spp_t2, family = binomial(link = "logit"))
+heronSpp_glmer2<- glmer(SurvDev_Spp ~ (1|Site) + (Spp|ReefDev), data=heron_Spp_t2, family = binomial(link = "logit"))
+heronSpp_glmer3<- glmer(SurvDev_Spp ~ Spp + (1|Site) + (1|ReefDev), data=heron_Spp_t2, family = binomial(link = "logit"))
+heronSpp_glmer4<- glmer(SurvDev_Spp ~ Spp + (1|Site) + (Spp|ReefDev), data=heron_Spp_t2, family = binomial(link = "logit"))
+
+heronSpp_glmer5<- glmer(SurvDev_Spp ~ Ub_avrg + (1|Site) + (1|ReefDev), data=heron_Spp_t2, family = binomial(link = "logit"))
+heronSpp_glmer6<- glmer(SurvDev_Spp ~ WaveEnergyLevel + (1|Site) + (1|ReefDev), data=heron_Spp_t2, family = binomial(link = "logit"))
+heronSpp_glmer7<- glmer(SurvDev_Spp ~ median_speed + (1|Site) + (1|ReefDev), data=heron_Spp_t2, family = binomial(link = "logit"))
+heronSpp_glmer8<- glmer(SurvDev_Spp ~ sedturf_t2 + (1|Site) + (1|ReefDev), data=heron_Spp_t2, family = binomial(link = "logit"))
+
+summary(heronSpp_glmer1)
+summary(heronSpp_glmer2)
+summary(heronSpp_glmer3)
+summary(heronSpp_glmer4)
+AIC(heronSpp_glmer1, heronSpp_glmer2, heronSpp_glmer3, heronSpp_glmer4, heronSpp_glmer5, heronSpp_glmer6, heronSpp_glmer7, heronSpp_glmer8)
 ```
 
 ### Visualize data
@@ -182,29 +204,6 @@ ggplot(data=heron_Spp_t2, aes(y = SurvDev_Spp, x = median_speed)) +
   geom_point(position = position_jitter(width = 0.2, height = 0)) +
   facet_wrap(~Spp) + 
   geom_smooth(method="lm")
-```
-
-### glm
-
-```{r}
-library(lme4)
-heron_Spp_t2$Site <- as.factor(heron_Spp_t2$Site)
-heron_Spp_t2$ReefDev<- as.factor(heron_Spp_t2$ReefDev)
-heron_Spp_t2$Spp<- as.factor(heron_Spp_t2$Spp)
-
-heronSpp_glmer1<- glmer(SurvDev_Spp ~ (1|Site) + (1|ReefDev), data=heron_Spp_t2, family = binomial(link = "logit"))
-
-heronSpp_glmer2<- glmer(SurvDev_Spp ~ (1|Site) + (Spp|ReefDev), data=heron_Spp_t2, family = binomial(link = "logit"))
-
-heronSpp_glmer3<- glmer(SurvDev_Spp ~ Spp + (1|Site) + (1|ReefDev), data=heron_Spp_t2, family = binomial(link = "logit"))
-
-heronSpp_glmer4<- glmer(SurvDev_Spp ~ Spp + (1|Site) + (Spp|ReefDev), data=heron_Spp_t2, family = binomial(link = "logit"))
-
-summary(heronSpp_glmer1)
-summary(heronSpp_glmer2)
-summary(heronSpp_glmer3)
-summary(heronSpp_glmer4)
-AIC(heronSpp_glmer1, heronSpp_glmer2, heronSpp_glmer3, heronSpp_glmer4)
 ```
 
 # Heron Yield
@@ -233,235 +232,173 @@ remove(heron_surv, heron_env)
 # Remove rows with missing values
 heron_t2$SurvDev <- as.numeric(heron_t2$SurvDev)
 heron_t2 <- heron_t2[complete.cases(heron_t2$SurvDev),  ]
+heron_t2 <- heron_t2 |> select(-c(sedturf_t5, sedconcrete_t5))
 ```
 
-### Visualize data
-
-```{r}
-ggplot(data=heron_t2, aes(y = SurvDev, x = WaveEnergyLevel)) + 
-  geom_point(position = position_jitter(width = 0.2, height = 0)) +
-  geom_smooth(method="lm")
-
-ggplot(data=heron_t2, aes(y = SurvDev, x = WaveEnergyLevel)) + 
-  geom_point(position = position_jitter(width = 0.2, height = 0)) +
-  facet_wrap(~Site) +
-  geom_smooth(method="lm")
-```
-
-```{r}
-ggplot(data=heron_t2, aes(y = SurvDev, x = median_speed)) + 
-  geom_point(position = position_jitter(width = 0.2, height = 0)) +
-  geom_smooth(method="lm")
-
-ggplot(data=heron_t2, aes(y = SurvDev, x = Ub_avrg)) + 
-  geom_point(position = position_jitter(width = 0.2, height = 0)) +
-  geom_smooth(method="lm")
-
-ggplot(data=heron_t2, aes(y = SurvDev, x = PC1)) + 
-  geom_point(position = position_jitter(width = 0.2, height = 0)) +
-  geom_smooth(method="lm")
-
-ggplot(data=heron_t2, aes(y = SurvDev, x = sedconcrete_t2)) + 
-  geom_point(position = position_jitter(width = 0.2, height = 0)) +
-  geom_smooth(method="lm")
-```
-
-### glm
+### GLM
 
 ```{r}
 heron_t2$Site <- as.factor(heron_t2$Site)
 heron_t2$ReefDev<- as.factor(heron_t2$ReefDev)
 
 
-heron_glmer1<- glmer(SurvDev ~ (1|Site) + (1|ReefDev), data=heron_t2, family = binomial(link = "logit"))
+heron_glmer1<- glmer(SurvDev ~ (1|Site) + (1|ReefDev), data=heron_t2, family = binomial(link = "logit")) #allowing for random intercepts but not random slopes --> accounting for potential variability in survival beteeen different sites and devices, but assuming that the effect of device on  survival is constant across different sites.
+
+heron_glmer2<- glmer(SurvDev ~ Ub_avrg + (1|Site) + (1|ReefDev), data=heron_t2, family = binomial(link = "logit")) 
+heron_glmer3<- glmer(SurvDev ~ WaveEnergyLevel + (1|Site) + (1|ReefDev), data=heron_t2, family = binomial(link = "logit")) 
+heron_glmer4<- glmer(SurvDev ~ median_speed + (1|Site) + (1|ReefDev), data=heron_t2, family = binomial(link = "logit")) 
+heron_glmer5<- glmer(SurvDev ~ sedturf_t2 + (1|Site) + (1|ReefDev), data=heron_t2, family = binomial(link = "logit")) 
 
 summary(heron_glmer1)
+summary(heron_glmer2)
+summary(heron_glmer3)
+summary(heron_glmer4)
+summary(heron_glmer5)
 
-AIC(heron_glmer1, heronSpp_glmer1)
+
+AIC(heronSpp_glmer1, heron_glmer1, heron_glmer2, heron_glmer3, heron_glmer4, heron_glmer5)
 ```
+
+Check model: plot_grid
 
 ```{r}
-
-
-
-
-heron.speed.glm <- glm(SurvDev ~ median_speed, data = heron_clean, family = binomial(link = "logit"))
-
-heron.ub.glm <- glm(SurvDev ~ Ub_avrg, data = heron_clean, family = binomial(link = "logit"))
-
-heron.speed.ub.glm <- glm(SurvDev ~ median_speed + Ub_avrg, data = heron_clean, family = binomial(link = "logit"))
-
-heron.speed.ub.interaction.glm <- glm(SurvDev ~ median_speed * Ub_avrg, data = heron_clean, family = binomial(link = "logit"))
-
-summary(heron.speed.glm)
-summary(heron.ub.glm)
-summary(heron.speed.ub.glm)
-summary(heron.speed.ub.interaction.glm)
-
-
-library(lme4)
-heron.speed.glmer <- glmer(SurvDev ~ median_speed + (1|ReefDev/Site), data = heron_clean, family = binomial(link = "logit"))
-
-heron.ub.glmer <- glmer(SurvDev ~ Ub_avrg + (1|ReefDev/Site), data = heron_clean, family = binomial(link = "logit"))
-
-heron.speed.ub.glmer <- glmer(SurvDev ~ median_speed + Ub_avrg + (1|ReefDev/Site), data = heron_clean, family = binomial(link = "logit"))
-
-heron.speed.ub.interaction.glmer <- glmer(SurvDev ~ median_speed * Ub_avrg + (1|ReefDev/Site), data = heron_clean, family = binomial(link = "logit"))
-
-summary(heron.speed.glmer)
-summary(heron.ub.glmer)
-summary(heron.speed.ub.glmer)
-summary(heron.speed.ub.interaction.glmer)
-
-
-library(glmmTMB)
-#heron.glmmTMB <- glmmTMB(SurvDev ~ median_speed, data = heron_clean, family = binomial())
-#summary(heron.glmmTMB)
+heron_glmer1 %>% plot_model(type='diag') %>% plot_grid()
 ```
 
-### AIC
-
-Get AIC values for each model
+Performance model checking
 
 ```{r}
-# List of models
-model_list <- list(
-  heron.speed.glm,
-  heron.ub.glm,
-  heron.speed.ub.glm,
-  heron.speed.ub.interaction.glm,
-  heron.speed.glmer,
-  heron.ub.glmer,
-  heron.speed.ub.glmer,
-  heron.speed.ub.interaction.glmer
-)
-
-# Iterate over the list of models and print their AIC values
-for (model in model_list) {
-  cat("Model AIC:", AIC(model), "\n")
-}
-
+heron_glmer1 %>% performance::check_model()
 ```
 
-### Figures
+### Visualize data
 
-Best model is glm with interaction term for median_speed \* Ub_avrg
+Best model is glm with median_speed
 
 ```{r}
-# Create the sequences
-median_speed_seq <- seq(from = 0, to = 0.22, by = 0.01)
-#Census_values <- rep(c("t0", "t1", "t2", "t3", "t4", "t6"), length.out = length(median_speed_seq))
-Ub_avrg_seq <- seq(from = 0, to = 0.6, length.out = length(median_speed_seq))
-#WaveEnergyLevel_seq <- seq(from = 1, to = 5, length.out = length(median_speed_seq))
+ggplot(data=heron_t2, aes(y = SurvDev, x = median_speed)) + 
+  geom_point(position = position_jitter(width = 0.2, height = 0)) +
+  geom_smooth(method="lm")
 
-# Create a data frame with the sequences
-heron1 <- data.frame(
-  median_speed = median_speed_seq,
- # Census_values = Census_values,
-  Ub_avrg = Ub_avrg_seq
-#  WaveEnergyLevel = WaveEnergyLevel_seq
-)
-
-Pred_interaction <- predict(heron.speed.ub.interaction.glm, newdata=davies1, type = "response")
-Pred_maineffects <- predict(heron.speed.ub.glm, newdata=davies1, type = "response")
-
-heron_interaction <- ggplot(data=heron_clean, aes(x=median_speed, y=SurvDev, color = Ub_avrg)) + 
-  geom_point() + 
-   geom_line(data=heron1, aes(y=Pred_interaction), color = "red")
-
-
-heron_maineffects <- ggplot(data=heron_clean, aes(x=median_speed, y=SurvDev, color = Ub_avrg)) + 
-  geom_point() + 
-   geom_line(data=heron1, aes(y=Pred_maineffects), color = "red")
-
-plot(heron_maineffects)
-plot(heron_interaction)
-
+#with facetwrap by site
+ggplot(data=heron_t2, aes(y = SurvDev, x = median_speed)) + 
+  geom_point(position = position_jitter(width = 0.2, height = 0)) +
+  facet_wrap(~Site) +
+  geom_smooth(method="lm")
 ```
 
-# Bayesian
+# Brm1
+
+We need to make sure that the categorical variables and the random effects are defined as factors:
+
+```{r}
+heron_t2 <- heron_t2 |> mutate(Site = factor(Site),
+                               ReefDev = factor(ReefDev))
+```
+
+### Formula
+
+Logistic mixed-effects regression model with random intercepts for Site and Device:
+
+```{r}
+heron_form <- bf(SurvDev ~ (1|Site) + (1|ReefDev), family = bernoulli(link='logit'))
+heron_form_speed <- bf(SurvDev ~ median_speed + (1|Site) + (1|ReefDev), family = bernoulli(link='logit'))
+```
 
 ### Priors
 
+class "Intercept" -\> for random effects
+
+class "b" -\> for regression coefficent (slope, we do not have)
+
+class "sd" -\> for standard deviations of random effects
+
 ```{r}
-#to find our priors, we need to take 2.5*sd(REPSONSE)/sd(PREDICTOR))
-2.5 * sd(heron_clean$SurvDev, na.rm = TRUE)/sd(heron_clean$median_speed, na.rm = TRUE)
+priors1 <- prior(normal(0, 1.7), class = "Intercept") +
+   prior(student_t(3, 0, 1.5), class = 'sd')
+
+priors2 <- prior(normal(0, 1.7), class = "Intercept") +
+  prior(normal(0,30), class = "b")  +
+   prior(student_t(3, 0, 1.5), class = 'sd')
 ```
 
 ```{r}
-priors <- prior(student_t(3, 0, 2.5), class="Intercept") +
-  prior(normal(0,30), class = "b") 
-```
-
-### heron.speed.brm
-
-```{r}
-heron.form.speed <- bf(SurvDev ~ median_speed,
-                  family = bernoulli(link='logit'))
-
-#heron.speed.brm <- brm(heron.form.speed,
-#                 data=heron_clean,
-#                 prior = priors,
-#                sample_prior = "yes",
-#                 iter = 5000,
-#                 warmup = 1000,
-#                 chains = 3, cores = 3,
-#                 thin = 5,
-#                 refresh = 0,
-#                backend = "rstan")
+heron_brm1 <- brm(heron_form,
+                 data=heron_t2,
+                 prior = priors1,
+                 sample_prior = 'yes',
+                 iter = 5000,
+                 warmup = 1000,
+                 chains = 3, cores = 3,
+                 thin = 5,
+                 refresh = 0,
+                backend = "rstan")
 
 # To save the model use >> 
-save(heron.speed.brm, file = "scripts/models/survival_heron.speed.brm.RData")
+#save(heron.brm1, file = "scripts/models/survival_heron.speed.brm.RData")
 
 # To load the model back in workspace >>
 #MAY NEED TO RUN THIS IN CONSOLE TO WROK
-load(file = "scripts/models/survival_heron.speed.brm.RData")
+#load(file = "scripts/models/survival_heron.speed.brm.RData")
 
 ```
-
-### Conditional plot
 
 ```{r}
-heron.speed.brm |> ggemmeans(~median_speed) |> plot(add.data = TRUE)
-heron.speed.brm |> conditional_effects() |> plot(points = TRUE)
-#heron.speed.brm |> conditional_effects("median_speed", conditions = list(Census=c("t0", "t1", "t2", "t3", "t4", "t6"))) |> plot(points = TRUE)
+heron_brm2 <- brm(heron_form_speed,
+                 data=heron_t2,
+                 prior = priors2,
+                 sample_prior = 'yes',
+                 iter = 5000,
+                 warmup = 1000,
+                 chains = 3, cores = 3,
+                 thin = 5,
+                 refresh = 0,
+                backend = "rstan")
+
+# To save the model use >> 
+#save(heron.brm1, file = "scripts/models/survival_heron.speed.brm.RData")
+
+# To load the model back in workspace >>
+#MAY NEED TO RUN THIS IN CONSOLE TO WROK
+#load(file = "scripts/models/survival_heron.speed.brm.RData")
 ```
 
-# MCMC sampling diagnostics
+### Diagnostics
+
+MCMC
 
 ```{r}
-heron.speed.brm$fit |> stan_trace()
-heron.speed.brm$fit |> stan_ac()
-heron.speed.brm$fit |> stan_rhat()
-heron.speed.brm$fit |> stan_ess()
+heron_brm1$fit |> stan_trace()
+heron_brm1$fit |> stan_ac()
+heron_brm1$fit |> stan_rhat()
+heron_brm1$fit |> stan_ess()
 ```
 
-# Model investigation
-
-### Posterior probability checks
+Posterior probability checks
 
 ```{r}
-heron.speed.brm |> pp_check(type = 'dens_overlay', ndraws = 100)
-heron.speed.brm |> pp_check (type = "error_scatter_avg")
-heron.speed.brm |> mcmc_plot(type='violin')
-heron.speed.brm |> pp_check(group = 'median_speed', type = 'violin_grouped')
+heron_brm1 |> pp_check(type = 'dens_overlay', ndraws = 100)
+heron_brm1 |> pp_check (type = "error_scatter_avg")
+heron_brm1 |> mcmc_plot(type='violin')
 ```
 
-### dHARMA residuals
+dHARMA residuals
 
 ```{r}
 library(DHARMa)
-heron.resids <- make_brms_dharma_res(heron.speed.brm, integerResponse = FALSE)
+heron.resids <- make_brms_dharma_res(heron_brm1, integerResponse = FALSE)
 testUniformity(heron.resids)
 ```
 
 ```{r}
 wrap_elements(~testUniformity(heron.resids))
-wrap_elements(~plotResiduals(heron.resids, form = factor(rep(1,nrow(heron_clean))))) 
+wrap_elements(~plotResiduals(heron.resids, form = factor(rep(1,nrow(heron_t2))))) 
 wrap_elements(~plotResiduals(heron.resids, quantreg = TRUE))   # leave the quartile calculations off if you have a small amount of data
 wrap_elements(~testDispersion(heron.resids))
 
 ```
+
+# Brm2
 
 # Further analyses
 

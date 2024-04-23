@@ -61,7 +61,7 @@ options(tinytex.engine = "xelatex")
 # Visualising models
 
 | Package     | Function                   | Type              | Notes             |
-|----------------|-----------------------|----------------|----------------|
+|-------------|----------------------------|-------------------|-------------------|
 | `sjPlot`    | `plot_model(type = 'eff')` | Marginal means    |                   |
 | `effects`   | `allEffects()`             | Marginal means    |                   |
 | `ggeffects` | `ggeffects()`              | Marginal means    | calls `effects()` |
@@ -72,7 +72,7 @@ options(tinytex.engine = "xelatex")
 # R²
 
 | Model             | Appropriate $R^2$ | Formula                         | Interpreted as | Function                        |
-|--------------|--------------|-----------------|--------------|--------------|
+|-------------------|-------------------|---------------------------------|----------------|---------------------------------|
 | Logisitic         | Tjur's R2         | $\dagger$                       |                | `performace::r2_tjur()`         |
 | Multinomial Logit | McFadden's R2     | $\ddagger$                      | 1 & 2          | `performace::r2_mcfadden()`     |
 | GLM               | Nagelkerke's R2   | $\S$                            | 2              | `performace::r2_nagelkerke()`   |

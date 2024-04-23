@@ -69,7 +69,7 @@ options(tinytex.engine = "xelatex")
 -   http://svmiller.com/blog/2021/02/thinking-about-your-priors-bayesian-analysis/
 
 | Family            | Parameter                            | Default brms                    | Defautl rstanarm            |
-|-----------------|---------------------|------------------|-----------------|
+|-------------------|--------------------------------------|---------------------------------|-----------------------------|
 | Gaussian          | Intercept                            | `student_t(3,median(y),mad(y))` | `normal(mean(y),2.5*sd(y))` |
 |                   | 'Population effects' (slopes, betas) | flat, improper priors           | `normal(0,2.5*sd(y)/sd(x))` |
 |                   | Sigma                                | `student_t(3,0,mad(y))`         | `exponential(1/sd(y))`      |
@@ -113,7 +113,7 @@ http://mc-stan.org/rstanarm/articles/priors.html
 `available_mcmc()`
 
 | Package   | Description       | function               | rstanarm                         | brms                               |
-|--------------|--------------|--------------|---------------|----------------|
+|-----------|-------------------|------------------------|----------------------------------|------------------------------------|
 | bayesplot | Traceplot         | `mcmc_trace`           | `plot(mod, plotfun='trace')`     | `mcmc_plot(mod, type='trace')`     |
 |           | Density plot      | `mcmc_dens`            | `plot(mod, plotfun='dens')`      | `mcmc_plot(mod, type='dens')`      |
 |           | Density & Trace   | `mcmc_combo`           | `plot(mod, plotfun='combo')`     | `mcmc_plot(mod, type='combo')`     |
@@ -136,7 +136,7 @@ http://mc-stan.org/rstanarm/articles/priors.html
 # Posteriors
 
 | Property          | Description                                                                                  |
-|----------------|--------------------------------------------------------|
+|-------------------|----------------------------------------------------------------------------------------------|
 | linear predictors | values predicted on the link scale                                                           |
 | expected values   | predictions (on response scale) without residual error (predicting expected mean outcome(s)) |
 | predicted values  | predictions (on response scale) that incorporate residual error                              |
@@ -144,7 +144,7 @@ http://mc-stan.org/rstanarm/articles/priors.html
 | fitted values     | predictions on the response scale                                                            |
 
 | Function                        | Values            | Description                                                                                                                                          |
-|--------------------|-----------------|-----------------------------------|
+|---------------------------------|-------------------|------------------------------------------------------------------------------------------------------------------------------------------------------|
 | `__::as.matrix()`               | Parameters        | Returns $n\times p$ matrix                                                                                                                           |
 | `__::as.data.frame()`           | Parameters        | Returns $n\times p$ data.frame                                                                                                                       |
 | `__::as_tibble()`               | Parameters        | Returns $n\times p$ tibble                                                                                                                           |
@@ -174,7 +174,7 @@ second. These alternatives facilitate pipings with different starting
 objects.
 
 | Function      | Description                                                                    |
-|----------------|--------------------------------------------------------|
+|---------------|--------------------------------------------------------------------------------|
 | `median_qi`   | Median and quantiles of specific columns                                       |
 | `median_hdi`  | Median and Highest Probability Density Interval of specific columns            |
 | `median_hdci` | Median and continuous Highest Probability Density Interval of specific columns |
@@ -183,7 +183,7 @@ objects.
 # Predictions
 
 | Package         | Function              | Description                                                                                                | Summarise with  |
-|----------------|----------------|--------------------------|----------------|
+|-----------------|-----------------------|------------------------------------------------------------------------------------------------------------|-----------------|
 | `rstantools`    | `posterior_predict`   | Draw from the posterior of a prediction (includes sigma) - *predicts single observations*                  | `tidyMCMC()`    |
 | `rstantools`    | `posterior_linpred`   | Draw from the posterior of the fitted values (**on the link scale**) - *predicts average observations*     | `tidyMCMC()`    |
 | `rstantools`    | `posterior_epred`     | Draw from the posterior of the fitted values (**on the response scale**) - *predicts average observations* | `tidyMCMC()`    |
