@@ -238,9 +238,9 @@ heron_t2 <- heron_t2 |> select(-c(sedturf_t5, sedconcrete_t5))
 ### GLM
 
 ```{r}
+library(lme4)
 heron_t2$Site <- as.factor(heron_t2$Site)
 heron_t2$ReefDev<- as.factor(heron_t2$ReefDev)
-
 
 heron_glmer1<- glmer(SurvDev ~ (1|Site) + (1|ReefDev), data=heron_t2, family = binomial(link = "logit")) #allowing for random intercepts but not random slopes --> accounting for potential variability in survival beteeen different sites and devices, but assuming that the effect of device on  survival is constant across different sites.
 
@@ -255,33 +255,44 @@ summary(heron_glmer3)
 summary(heron_glmer4)
 summary(heron_glmer5)
 
-
 AIC(heronSpp_glmer1, heron_glmer1, heron_glmer2, heron_glmer3, heron_glmer4, heron_glmer5)
 ```
 
-Check model: plot_grid
-
-```{r}
-heron_glmer1 %>% plot_model(type='diag') %>% plot_grid()
-```
-
-Performance model checking
-
-```{r}
-heron_glmer1 %>% performance::check_model()
-```
+OUTPUT: all models behave very similar and are better than a model with species in it
 
 ### Visualize data
 
-Best model is glm with median_speed
+**median_speed**
 
 ```{r}
 ggplot(data=heron_t2, aes(y = SurvDev, x = median_speed)) + 
   geom_point(position = position_jitter(width = 0.2, height = 0)) +
   geom_smooth(method="lm")
 
+ggplot(data=heron_t2, aes(y = SurvDev, x = median_speed)) + 
+  geom_point(position = position_jitter(width = 0.2, height = 0)) +
+  geom_smooth(method="lm", formula = y~poly(x,3), se = FALSE)
+
 #with facetwrap by site
 ggplot(data=heron_t2, aes(y = SurvDev, x = median_speed)) + 
+  geom_point(position = position_jitter(width = 0.2, height = 0)) +
+  facet_wrap(~Site) +
+  geom_smooth(method="lm")
+```
+
+Wave Energy Level
+
+```{r}
+ggplot(data=heron_t2, aes(y = SurvDev, x = WaveEnergyLevel)) + 
+  geom_point(position = position_jitter(width = 0.2, height = 0)) +
+  geom_smooth(method="lm")
+
+ggplot(data=heron_t2, aes(y = SurvDev, x = WaveEnergyLevel)) + 
+  geom_point(position = position_jitter(width = 0.2, height = 0)) +
+  geom_smooth(method="lm", formula = y~poly(x,3), se = FALSE)
+
+#with facetwrap by site
+ggplot(data=heron_t2, aes(y = SurvDev, x = WaveEnergyLevel)) + 
   geom_point(position = position_jitter(width = 0.2, height = 0)) +
   facet_wrap(~Site) +
   geom_smooth(method="lm")
@@ -302,12 +313,23 @@ Logistic mixed-effects regression model with random intercepts for Site and Devi
 
 ```{r}
 heron_form <- bf(SurvDev ~ (1|Site) + (1|ReefDev), family = bernoulli(link='logit'))
-heron_form_speed <- bf(SurvDev ~ median_speed + (1|Site) + (1|ReefDev), family = bernoulli(link='logit'))
-heron_form_Ub <- bf(SurvDev ~ Ub_avrg + (1|Site) + (1|ReefDev), family = bernoulli(link='logit'))
-heron_form_sed <- bf(SurvDev ~ sedturf_t2 + median_speed + (1|Site) + (1|ReefDev), family = bernoulli(link='logit'))
-heron_form_Wave <- bf(SurvDev ~ WaveEnergyLevel + median_speed + (1|Site) + (1|ReefDev), family = bernoulli(link='logit'))
-heron_form_PC1 <- bf(SurvDev ~ PC1 + (1|Site) + (1|ReefDev), family = bernoulli(link='logit'))
+heron_form_speed <- bf(SurvDev ~ median_speed +    (1|Site) + (1|ReefDev), family = bernoulli(link='logit'))
+heron_form_Ub <-    bf(SurvDev ~ Ub_avrg +         (1|Site) + (1|ReefDev), family = bernoulli(link='logit'))
+heron_form_turf <-   bf(SurvDev ~ sedturf_t2 +     (1|Site) + (1|ReefDev), family = bernoulli(link='logit'))
+heron_form_concrete <-bf(SurvDev ~ sedconcrete_t2 +(1|Site) + (1|ReefDev), family = bernoulli(link='logit'))
+heron_form_Wave <-  bf(SurvDev ~ WaveEnergyLevel + (1|Site) + (1|ReefDev), family = bernoulli(link='logit'))
+heron_form_PC1 <-   bf(SurvDev ~ PC1 +             (1|Site) + (1|ReefDev), family = bernoulli(link='logit'))
+```
 
+Now with polynomial terms:
+
+```{r}
+heron_form <- bf(SurvDev ~ (1|Site) + (1|ReefDev), family = bernoulli(link='logit'))
+heron_form_speed_poly <- bf(SurvDev ~ poly(median_speed,3) +    (1|Site) + (1|ReefDev), family = bernoulli(link='logit'))
+heron_form_Ub_poly <-    bf(SurvDev ~ poly(Ub_avrg,3) +         (1|Site) + (1|ReefDev), family = bernoulli(link='logit'))
+heron_form_turf_poly <-   bf(SurvDev ~ poly(sedturf_t2,3) +      (1|Site) + (1|ReefDev), family = bernoulli(link='logit'))
+heron_form_Wave_poly <-  bf(SurvDev ~ poly(WaveEnergyLevel,3) + (1|Site) + (1|ReefDev), family = bernoulli(link='logit'))
+heron_form_PC1_poly <-   bf(SurvDev ~ poly(PC1,3) +             (1|Site) + (1|ReefDev), family = bernoulli(link='logit'))
 ```
 
 ### Priors
@@ -319,33 +341,65 @@ class "b" -\> for regression coefficent
 class "sd" -\> for standard deviations of random effects
 
 ```{r}
-2.5 * sd(heron_t2$SurvDev, na.rm = TRUE)/sd(heron_t2$median_speed, na.rm = TRUE)
-2.5 * sd(heron_t2$SurvDev, na.rm = TRUE)/sd(heron_t2$Ub_avrg, na.rm = TRUE)
-2.5 * sd(heron_t2$SurvDev, na.rm = TRUE)/sd(heron_t2$sedturf_t2, na.rm = TRUE)
-2.5 * sd(heron_t2$SurvDev, na.rm = TRUE)/sd(heron_t2$WaveEnergyLevel, na.rm = TRUE)
-2.5 * sd(heron_t2$SurvDev, na.rm = TRUE)/sd(heron_t2$PC1, na.rm = TRUE)
-
-```
-
-```{r}
 priors <- prior(normal(0, 1.7), class = "Intercept") +
    prior(student_t(3, 0, 1.5), class = 'sd')
+```
+
+**median speed**
+
+```{r}
+2.5 * sd(heron_t2$SurvDev, na.rm = TRUE)/sd(heron_t2$median_speed, na.rm = TRUE)
 
 priors_speed <- prior(normal(0, 1.7), class = "Intercept") +
   prior(normal(0,30), class = "b")  +
    prior(student_t(3, 0, 1.5), class = 'sd')
+```
+
+**Ub**
+
+```{r}
+2.5 * sd(heron_t2$SurvDev, na.rm = TRUE)/sd(heron_t2$Ub_avrg, na.rm = TRUE)
 
 priors_Ub <- prior(normal(0, 1.7), class = "Intercept") +
   prior(normal(0,6), class = "b")  +
    prior(student_t(3, 0, 1.5), class = 'sd')
+```
 
-priors_sed <- prior(normal(0, 1.7), class = "Intercept") +
+**turf**
+
+```{r}
+2.5 * sd(heron_t2$SurvDev, na.rm = TRUE)/sd(heron_t2$sedturf_t2, na.rm = TRUE)
+
+priors_turf <- prior(normal(0, 1.7), class = "Intercept") +
   prior(normal(0,0.25), class = "b")  +
    prior(student_t(3, 0, 1.5), class = 'sd')
+```
 
-priors_Wave <- prior(normal(0, 1.7), class = "Intercept") +
+**concrete**
+
+```{r}
+2.5 * sd(heron_t2$SurvDev, na.rm = TRUE)/sd(heron_t2$sedconcrete_t2, na.rm = TRUE)
+
+priors_concrete <- prior(normal(0, 1.7), class = "Intercept") +
+  prior(normal(0,1.2), class = "b")  +
+   prior(student_t(3, 0, 1.5), class = 'sd')
+```
+
+**WaveEnergyLevel**
+
+```{r}
+2.5 * sd(heron_t2$SurvDev, na.rm = TRUE)/sd(heron_t2$WaveEnergyLevel, na.rm = TRUE)
+
+priors_wave <- prior(normal(0, 1.7), class = "Intercept") +
   prior(normal(0,1), class = "b")  +
    prior(student_t(3, 0, 1.5), class = 'sd')
+
+```
+
+**PC1**
+
+```{r}
+2.5 * sd(heron_t2$SurvDev, na.rm = TRUE)/sd(heron_t2$PC1, na.rm = TRUE)
 
 priors_PC1 <- prior(normal(0, 1.7), class = "Intercept") +
   prior(normal(0,8), class = "b")  +
@@ -364,18 +418,14 @@ heron_brm <- brm(heron_form,
                  chains = 3, cores = 3,
                  thin = 5,
                  refresh = 0,
+                 control = list(adapt_delta = 0.9),
                 backend = "rstan")
 
 # To save the model use >> 
 #save(heron_brm, file = "scripts/models/heron_brm.RData")
-
-# To load the model back in workspace >>
-#MAY NEED TO RUN THIS IN CONSOLE TO WROK
-#load(file = "scripts/models/heron_brm.RData")
-
 ```
 
-### brm- Speed
+### brm- speed
 
 ```{r}
 heron_brm_speed <- brm(heron_form_speed,
@@ -387,14 +437,11 @@ heron_brm_speed <- brm(heron_form_speed,
                  chains = 3, cores = 3,
                  thin = 5,
                  refresh = 0,
-                backend = "rstan")
+                 control = list(adapt_delta = 0.9),
+                 backend = "rstan")
 
 # Save the model
 #save(heron_brm_speed, file = "scripts/models/heron_brm_speed.RData")
-
-# To load the model back in workspace
-# MAY NEED TO RUN THIS IN CONSOLE TO WORK
-#load(file = "scripts/models/heron_brm_speed.RData")
 ```
 
 ### brm- Ub
@@ -409,61 +456,68 @@ heron_brm_Ub <- brm(heron_form_Ub,
                  chains = 3, cores = 3,
                  thin = 5,
                  refresh = 0,
+                 control = list(adapt_delta = 0.9),
                 backend = "rstan")
 
 # Save the model
 #save(heron_brm_Ub, file = "scripts/models/heron_brm_Ub.RData")
-
-# To load the model back in workspace
-#MAY NEED TO RUN THIS IN CONSOLE TO WORK
-#load(file = "scripts/models/scripts/models/heron_brm_Ub.RData")
-
 ```
 
-### brm- Wave
+### brm- wave
 
 ```{r}
 heron_brm_wave <- brm(heron_form_Wave,
                  data=heron_t2,
-                 prior = priors_Wave,
+                 prior = priors_wave,
                  sample_prior = 'yes',
                  iter = 5000,
                  warmup = 1000,
                  chains = 3, cores = 3,
                  thin = 5,
                  refresh = 0,
+                 control = list(adapt_delta = 0.9),
                 backend = "rstan")
 
 # Save the model
 #save(heron_brm_wave, file = "scripts/models/heron_brm_wave.RData")
-
-# To load the model back in workspace
-#MAY NEED TO RUN THIS IN CONSOLE TO WORK
-#load(file = "scripts/models/heron_brm_wave.RData")
-
 ```
 
-### brm- Sediment
+### brm- turf
 
 ```{r}
-heron_brm_sed <- brm(heron_form_sed,
+heron_brm_turf <- brm(heron_form_turf,
                  data=heron_t2,
-                 prior = priors_sed,
+                 prior = priors_turf,
                  sample_prior = 'yes',
                  iter = 5000,
                  warmup = 1000,
                  chains = 3, cores = 3,
                  thin = 5,
                  refresh = 0,
+                 control = list(adapt_delta = 0.9),
                 backend = "rstan")
 
 # Save the model 
-#save(heron_brm_sed, file = "scripts/models/heron_brm_sed.RData")
+#save(heron_brm_turf, file = "scripts/models/heron_brm_turf.RData")
+```
 
-# To load the model back in workspace
-#MAY NEED TO RUN THIS IN CONSOLE TO WROK
-#load(file = "scripts/models/heron_brm_sed.RData")
+### brm- concrete
 
+```{r}
+heron_brm_concrete <- brm(heron_form_concrete,
+                 data=heron_t2,
+                 prior = priors_concrete,
+                 sample_prior = 'yes',
+                 iter = 5000,
+                 warmup = 1000,
+                 chains = 3, cores = 3,
+                 thin = 5,
+                 refresh = 0,
+                 control = list(adapt_delta = 0.9),
+                backend = "rstan")
+
+# Save the model 
+#save(heron_brm_concrete, file = "scripts/models/heron_brm_concrete.RData")
 ```
 
 ### brm- PC1
@@ -478,41 +532,81 @@ heron_brm_PC1 <- brm(heron_form_PC1,
                  chains = 3, cores = 3,
                  thin = 5,
                  refresh = 0,
+                 control = list(adapt_delta = 0.9),
                 backend = "rstan")
 
 # Save the model 
 #save(heron_brm_PC1, file = "scripts/models/heron_brm_PC1.RData")
-
-# To load the model back in workspace 
-#MAY NEED TO RUN THIS IN CONSOLE TO WORK
-#load(file = "scripts/models/heron_brm_PC1.RData")
-
 ```
 
-### Diagnostics
-
-MCMC
+### Load models
 
 ```{r}
-heron_brm$fit |> stan_trace()
-heron_brm$fit |> stan_ac()
+load(file = "scripts/models/heron_brm.RData")
+load(file = "scripts/models/heron_brm_speed.RData")
+load(file = "scripts/models/heron_brm_Ub.RData")
+load(file = "scripts/models/heron_brm_wave.RData")
+load(file = "scripts/models/heron_brm_turf.RData")
+load(file = "scripts/models/heron_brm_concrete.RData")
+load(file = "scripts/models/heron_brm_PC1.RData")
+```
+
+### loo
+
+```{r}
+#Using loo compare, lower value is better
+l_brm <- heron_brm |> loo()
+l_speed <- heron_brm_speed|> loo()
+l_Ub <- heron_brm_Ub |> loo()
+l_wave <- heron_brm_wave |> loo()
+l_turf <- heron_brm_turf|> loo()
+l_concrete <- heron_brm_concrete|> loo()
+l_PC1 <- heron_brm_PC1|> loo()
+
+loo_compare(l_brm, l_speed, l_Ub, l_wave, l_turf, l_concrete, l_PC1)
+```
+
+NOTES ON THIS: Prefer the model with the lower LOOIC, as it suggests better expected out-of-sample predictive performance. However, consider the uncertainty (SE) around these estimates. Significance of Differences: Look at the differences in LOOIC and their standard errors. A rule of thumb is that a difference greater than twice its standard error might be considered substantial, but this is not a strict threshold. If two models have similar LOOIC values, the simpler model (the one with fewer parameters) is typically preferred due to the principle of parsimony. This is not directly shown in the loo_compare() output but is an important consideration when interpreting results.
+
+# Diagnostics
+
+### brm
+
+#### **MCMC**
+
+```{r}
+#pars <- heron_brm |> get_variables()  #capture the list of variables
+pars <- str_extract(pars, "^b_.*|^sd.*") |> na.omit()
+pars
+
+heron_brm $fit |> stan_trace(pars = pars)
+heron_brm $fit |> stan_ac(pars = pars)
 heron_brm$fit |> stan_rhat()
-heron_brm$fit |> stan_ess()
+heron_brm$fit |> stan_ess()  # the closer to 1, the more chains have converged
+heron_brm |> mcmc_plot(type='violin')  # assess convergence and mixing of MCMC samples and skewness of the distribution
 ```
 
-Posterior probability checks
+-   **stan_ac**: All below 0.25, all good.
+-   **rhat_hist**: Rhat is a **scale reduction factor** measure of convergence between the chains. The closer the values are to 1, the more the chains have converged. Values greater than 1.05 indicate a lack of convergence. There will be an Rhat value for each parameter estimated.
+-   **stan_ess:** effective sample size not very efficient, most below 50%.
+
+#### **Posterior probability checks**
 
 ```{r}
-heron_brm1 |> pp_check(type = 'dens_overlay', ndraws = 100)
-heron_brm1 |> pp_check (type = "error_scatter_avg")
-heron_brm1 |> mcmc_plot(type='violin')
+heron_brm |> pp_check(type = 'dens_overlay', ndraws = 100)
+heron_brm |> pp_check (type = "error_scatter_avg")
+heron_brm  |> pp_check(group = 'Site', type = 'violin_grouped')
 ```
 
-dHARMA residuals
+-   **dens_overlay**: plots the density distribution of the observed data (black line) overlayed ontop of 50 density distributions generated from draws from the model (light blue). Ideally, the 50 realisations should be roughly consistent with the observed data.
+-   **error_scatter_avg**: this plots the observed values against the average residuals. Similar to a residual plot, we do not want to see any patterns in this plot. Note, this is not really that useful for models that involve a binomial response
+-   **intervals**: plots the observed data overlayed ontop of posterior predictions associated with each level of the predictor. Ideally, the observed data should all fall within the predictive intervals.
+
+#### **dHARMA residuals**
 
 ```{r}
 library(DHARMa)
-heron.resids <- make_brms_dharma_res(heron_brm1, integerResponse = FALSE)
+heron.resids <- make_brms_dharma_res(heron_brm, integerResponse = FALSE)
 testUniformity(heron.resids)
 ```
 
@@ -521,39 +615,242 @@ wrap_elements(~testUniformity(heron.resids))
 wrap_elements(~plotResiduals(heron.resids, form = factor(rep(1,nrow(heron_t2))))) 
 wrap_elements(~plotResiduals(heron.resids, quantreg = TRUE))   # leave the quartile calculations off if you have a small amount of data
 wrap_elements(~testDispersion(heron.resids))
-
 ```
 
-# Brm2
+**Conclusions:**
+
+-   the simulated residuals do not suggest any issues with the residuals
+-   there is no evidence of a lack of fit.
+
+### brm- Speed
+
+#### **MCMC**
+
+```{r}
+pars <- heron_brm_speed |> get_variables()  #capture the list of variables
+pars <- str_extract(pars, "^b_.*|^sd.*") |> na.omit()
+pars
+
+heron_brm_speed$fit |> stan_trace(pars = pars)
+heron_brm_speed$fit |> stan_ac(pars = pars)
+heron_brm_speed$fit |> stan_rhat()
+heron_brm_speed$fit |> stan_ess()
+```
+
+-   **stan_ac**: All below 0.25, all good.
+-   **rhat_hist**: Rhat is a **scale reduction factor** measure of convergence between the chains. The closer the values are to 1, the more the chains have converged. Values greater than 1.05 indicate a lack of convergence. There will be an Rhat value for each parameter estimated.
+-   **stan_ess:** effective sample size better than previous model, more around 70%
+
+#### **Posterior probability checks**
+
+```{r}
+heron_brm_speed |> pp_check(type = 'dens_overlay', ndraws = 100)
+heron_brm_speed |> pp_check (type = "error_scatter_avg")
+heron_brm_speed |> mcmc_plot(type='violin')
+```
+
+#### **dHARMA residuals**
+
+```{r}
+library(DHARMa)
+heron.resids <- make_brms_dharma_res(heron_brm_speed, integerResponse = TRUE)
+testUniformity(heron.resids)
+```
+
+```{r}
+#remove NA values of predictor variable
+heron_t2 <- heron_t2[complete.cases(heron_t2$median_speed),  ]
+
+wrap_elements(~testUniformity(heron.resids))
+wrap_elements(~plotResiduals(heron.resids, form = factor(rep(1,nrow(heron_t2))))) 
+wrap_elements(~plotResiduals(heron.resids, quantreg = TRUE))   # leave the quartile calculations off if you have a small amount of data
+wrap_elements(~testDispersion(heron.resids))
+```
+
+### brm- Ub
+
+#### **MCMC**
+
+```{r}
+pars <- heron_brm_Ub |> get_variables()  #capture the list of variables
+pars <- str_extract(pars, "^b_.*|^sd.*") |> na.omit()
+pars
+
+heron_brm_Ub$fit |> stan_trace(pars = pars)
+heron_brm_Ub$fit |> stan_ac(pars = pars)
+heron_brm_Ub$fit |> stan_rhat()
+heron_brm_Ub$fit |> stan_ess()
+```
+
+#### **Posterior probability checks**
+
+```{r}
+heron_brm_Ub |> pp_check(type = 'dens_overlay', ndraws = 100)
+heron_brm_Ub |> pp_check (type = "error_scatter_avg")
+heron_brm_Ub |> mcmc_plot(type='violin')
+```
+
+#### **dHARMA residuals**
+
+```{r}
+library(DHARMa)
+heron.resids <- make_brms_dharma_res(heron_brm_Ub, integerResponse = TRUE)
+testUniformity(heron.resids)
+```
+
+```{r}
+wrap_elements(~testUniformity(heron.resids))
+wrap_elements(~plotResiduals(heron.resids, form = factor(rep(1,nrow(heron_t2))))) 
+wrap_elements(~plotResiduals(heron.resids, quantreg = TRUE))   # leave the quartile calculations off if you have a small amount of data
+wrap_elements(~testDispersion(heron.resids))
+```
+
+### brm- Wave
+
+#### **MCMC**
+
+```{r}
+pars <- heron_brm_wave |> get_variables()  #capture the list of variables
+pars <- str_extract(pars, "^b_.*|^sd.*") |> na.omit()
+pars
+
+heron_brm_wave$fit |> stan_trace(pars = pars)
+heron_brm_wave$fit |> stan_ac(pars = pars)
+heron_brm_wave$fit |> stan_rhat()
+heron_brm_wave$fit |> stan_ess()
+```
+
+#### **Posterior probability checks**
+
+```{r}
+heron_brm_wave |> pp_check(type = 'dens_overlay', ndraws = 100)
+heron_brm_wave |> pp_check (type = "error_scatter_avg")
+heron_brm_wave |> mcmc_plot(type='violin')
+```
+
+#### **dHARMA residuals**
+
+```{r}
+library(DHARMa)
+heron.resids <- make_brms_dharma_res(heron_brm_wave, integerResponse = FALSE)
+testUniformity(heron.resids)
+```
+
+```{r}
+wrap_elements(~testUniformity(heron.resids))
+wrap_elements(~plotResiduals(heron.resids, form = factor(rep(1,nrow(heron_t2))))) 
+wrap_elements(~plotResiduals(heron.resids, quantreg = TRUE))   # leave the quartile calculations off if you have a small amount of data
+wrap_elements(~testDispersion(heron.resids))
+```
+
+### brm - turf
+
+#### **MCMC**
+
+```{r}
+pars <- heron_brm_turf |> get_variables()  #capture the list of variables
+pars <- str_extract(pars, "^b_.*|^sd.*") |> na.omit()
+
+heron_brm_turf$fit |> stan_trace(pars = pars)
+heron_brm_turf$fit |> stan_ac(pars = pars)
+heron_brm_turf$fit |> stan_rhat()
+heron_brm_turf$fit |> stan_ess()
+```
+
+#### **Posterior probability checks**
+
+```{r}
+heron_brm_turf |> pp_check(type = 'dens_overlay', ndraws = 100)
+heron_brm_turf |> pp_check (type = "error_scatter_avg")
+heron_brm_turf |> mcmc_plot(type='violin')
+```
+
+#### **dHARMA residuals**
+
+```{r}
+library(DHARMa)
+heron.resids <- make_brms_dharma_res(heron_brm_turf, integerResponse = FALSE)
+testUniformity(heron.resids)
+```
+
+```{r}
+wrap_elements(~testUniformity(heron.resids))
+wrap_elements(~plotResiduals(heron.resids, form = factor(rep(1,nrow(heron_t2))))) 
+wrap_elements(~plotResiduals(heron.resids, quantreg = TRUE))   # leave the quartile calculations off if you have a small amount of data
+wrap_elements(~testDispersion(heron.resids))
+```
+
+### brm- PC1
+
+#### **MCMC**
+
+```{r}
+pars <- heron_brm_PC1 |> get_variables()  #capture the list of variables
+pars <- str_extract(pars, "^b_.*|^sd.*") |> na.omit()
+
+
+heron_brm_PC1$fit |> stan_trace(pars = pars)
+heron_brm_PC1$fit |> stan_ac(pars = pars)
+heron_brm_PC1$fit |> stan_rhat()
+heron_brm_PC1$fit |> stan_ess()
+```
+
+#### **Posterior probability checks**
+
+```{r}
+heron_brm_PC1 |> pp_check(type = 'dens_overlay', ndraws = 100)
+heron_brm_PC1 |> pp_check (type = "error_scatter_avg")
+heron_brm_PC1 |> mcmc_plot(type='violin')
+```
+
+#### **dHARMA residuals**
+
+```{r}
+library(DHARMa)
+heron.resids <- make_brms_dharma_res(heron_brm_PC1, integerResponse = FALSE)
+testUniformity(heron.resids)
+```
+
+```{r}
+wrap_elements(~testUniformity(heron.resids))
+wrap_elements(~plotResiduals(heron.resids, form = factor(rep(1,nrow(heron_t2))))) 
+wrap_elements(~plotResiduals(heron.resids, quantreg = TRUE))   # leave the quartile calculations off if you have a small amount of data
+wrap_elements(~testDispersion(heron.resids))
+```
 
 # Further analyses
 
 ## Visualization
 
 ```{r}
-heron.speed.brm |> conditional_effects() |> plot(points=TRUE)
+#heron_brm |> conditional_effects() |> plot(points=TRUE)
+heron_brm_speed |> conditional_effects() |> plot(points=TRUE)
+heron_brm_Ub |> conditional_effects() |> plot(points=TRUE)
+heron_brm_turf |> conditional_effects() |> plot(points=TRUE)
+heron_brm_wave |> conditional_effects() |> plot(points=TRUE)
+heron_brm_PC1 |> conditional_effects() |> plot(points=TRUE)
 ```
 
 ### Figure 1
 
 ```{r partialPlot2h1b, results='markdown', eval=TRUE, mhidden=TRUE, fig.width=8, fig.height=5}
 
-ggpredict(heron.speed.brm, terms = ~median_speed) %>%
+ggpredict(heron_brm_speed, terms = ~median_speed) %>%
    plot(add.data = TRUE)
  
 
-Fig1a <- ggemmeans(heron.speed.brm, terms = ~median_speed) %>%
+Fig1a <- ggemmeans(heron_brm_speed, terms = ~median_speed) %>%
   plot(add.data = TRUE) 
 
-conditional_effects(heron.speed.brm) |> 
+conditional_effects(heron_brm_speed) |> 
   plot(points = TRUE)
 
-Fig1b <- heron.speed.brm %>% emmeans(~median_speed , type = 'link') %>%
+Fig1b <- heron_brm_speed %>% emmeans(~median_speed , type = 'link') %>%
     as.data.frame() %>%
     ggplot(aes(y = emmean, x = median_speed)) +
    # geom_hline(yintercept = c(5,-5), linetype = 'dashed') +
     geom_pointrange(aes(ymin = lower.HPD, ymax = upper.HPD)) +
-    geom_point(data = heron_clean, aes(y = SurvDev),
+    geom_point(data = heron_t2, aes(y = SurvDev),
               # position = position_jitter(width=0.02, height = 0),
                alpha=0.4, color = 'red') +  
      labs(title = "heron Reef", x = "Median Speed (m/s)", y = "Estimated marginal mean - Survival (yield)") +  # Axis labels
@@ -606,14 +903,13 @@ print(Fig2)
 
 # Interpretation
 
-```{r}
-heron.speed.brm |> summary()
-```
+### brm
 
-intercept: -0.86\
-slope: 12.29\
-CI intercept: -1.84-0.09\
-CI slope: 5.24-19.83 -\> For the slope we do [**not**]{.underline} want to have the CI crossing [**zero**]{.underline}
+### speed
+
+```{r}
+heron_brm_speed |> summary()
+```
 
 ```{r}
 heron.speed.brm$fit |> tidyMCMC(estimate.method = "median", 
@@ -625,7 +921,7 @@ heron.speed.brm$fit |> tidyMCMC(estimate.method = "median",
 ```
 
 ```{r}
-heron.speed.brm.tidy <- heron.speed.brm |> as_draws_df()  |>
+heron_speed_tidy <- heron_brm_speed |> as_draws_df()  |>
   dplyr::select(matches("^b_.*")) |>    # a more sophisticated way of selecting (and searching) for pattersn in our column headers
   mutate(across(everything(), exp)) |>
   summarise_draws("median",            #  for every column calculate the median
@@ -643,16 +939,58 @@ heron.speed.brm.tidy <- heron.speed.brm |> as_draws_df()  |>
 
 [**This table is the easiest to describe as your narrative for the biology/ecology of your data.**]{.underline} Also we have now first done the exponential of each number and then summarized this, instead of first summarizing it and then calculating the exponential of it. Therefore, for the Confidence Interval of b_median_current_speed we are now looking for that this range [**does not exceed 1**]{.underline} (as the exponential of zero is 1). Does the interval of \[0.0000- 0.0001489\] includes 1? NO! Therefore we have evidence that our slope decreases with current
 
+### Ub
+
+```{r}
+heron_brm_Ub |> summary()
+```
+
+### Wave
+
+```{r}
+heron_brm_wave |> summary()
+```
+
+### Turf
+
+```{r}
+heron_brm_turf |> summary()
+```
+
+### Concrete
+
+```{r}
+heron_brm_concrete |> summary()
+```
+
 ### R2
 
 ```{r}
-heron.speed.brm |> 
-  bayes_R2(summary = FALSE) |>
-  median_hdci()
+# Store models in a list
+models <- list(
+  heron_brm = heron_brm,
+  heron_brm_speed = heron_brm_speed,
+  heron_brm_wave = heron_brm_wave,
+  heron_brm_Ub = heron_brm_Ub,
+  heron_brm_turf = heron_brm_turf,
+  heron_brm_concrete = heron_brm_concrete,
+  heron_brm_PC1 = heron_brm_PC1
+)
+
+# Apply operations and store results in a list
+results <- lapply(models, function(model) {
+  model |>
+    bayes_R2(summary = FALSE) |>
+    median_hdci()
+})
+
+# Print the list of results
+print(results)
+
 ```
 
 ```{r}
-heron.speed.brm |> 
+heron_brm_speed |> 
   as_draws_df() |>
   dplyr::select(matches("^b_.*")) |>
   mutate(LD50 = -1*b_Intercept / b_median_speed) |>
