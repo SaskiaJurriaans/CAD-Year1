@@ -287,7 +287,7 @@ ggplot(data=heron_t2, aes(y = SurvDev, x = median_speed)) +
   geom_smooth(method="lm")
 ```
 
-# Brm1
+# Brm
 
 We need to make sure that the categorical variables and the random effects are defined as factors:
 
@@ -296,36 +296,68 @@ heron_t2 <- heron_t2 |> mutate(Site = factor(Site),
                                ReefDev = factor(ReefDev))
 ```
 
-### Formula
+### Formulas
 
 Logistic mixed-effects regression model with random intercepts for Site and Device:
 
 ```{r}
 heron_form <- bf(SurvDev ~ (1|Site) + (1|ReefDev), family = bernoulli(link='logit'))
 heron_form_speed <- bf(SurvDev ~ median_speed + (1|Site) + (1|ReefDev), family = bernoulli(link='logit'))
+heron_form_Ub <- bf(SurvDev ~ Ub_avrg + (1|Site) + (1|ReefDev), family = bernoulli(link='logit'))
+heron_form_sed <- bf(SurvDev ~ sedturf_t2 + median_speed + (1|Site) + (1|ReefDev), family = bernoulli(link='logit'))
+heron_form_Wave <- bf(SurvDev ~ WaveEnergyLevel + median_speed + (1|Site) + (1|ReefDev), family = bernoulli(link='logit'))
+heron_form_PC1 <- bf(SurvDev ~ PC1 + (1|Site) + (1|ReefDev), family = bernoulli(link='logit'))
+
 ```
 
 ### Priors
 
 class "Intercept" -\> for random effects
 
-class "b" -\> for regression coefficent (slope, we do not have)
+class "b" -\> for regression coefficent
 
 class "sd" -\> for standard deviations of random effects
 
 ```{r}
-priors1 <- prior(normal(0, 1.7), class = "Intercept") +
+2.5 * sd(heron_t2$SurvDev, na.rm = TRUE)/sd(heron_t2$median_speed, na.rm = TRUE)
+2.5 * sd(heron_t2$SurvDev, na.rm = TRUE)/sd(heron_t2$Ub_avrg, na.rm = TRUE)
+2.5 * sd(heron_t2$SurvDev, na.rm = TRUE)/sd(heron_t2$sedturf_t2, na.rm = TRUE)
+2.5 * sd(heron_t2$SurvDev, na.rm = TRUE)/sd(heron_t2$WaveEnergyLevel, na.rm = TRUE)
+2.5 * sd(heron_t2$SurvDev, na.rm = TRUE)/sd(heron_t2$PC1, na.rm = TRUE)
+
+```
+
+```{r}
+priors <- prior(normal(0, 1.7), class = "Intercept") +
    prior(student_t(3, 0, 1.5), class = 'sd')
 
-priors2 <- prior(normal(0, 1.7), class = "Intercept") +
+priors_speed <- prior(normal(0, 1.7), class = "Intercept") +
   prior(normal(0,30), class = "b")  +
    prior(student_t(3, 0, 1.5), class = 'sd')
+
+priors_Ub <- prior(normal(0, 1.7), class = "Intercept") +
+  prior(normal(0,6), class = "b")  +
+   prior(student_t(3, 0, 1.5), class = 'sd')
+
+priors_sed <- prior(normal(0, 1.7), class = "Intercept") +
+  prior(normal(0,0.25), class = "b")  +
+   prior(student_t(3, 0, 1.5), class = 'sd')
+
+priors_Wave <- prior(normal(0, 1.7), class = "Intercept") +
+  prior(normal(0,1), class = "b")  +
+   prior(student_t(3, 0, 1.5), class = 'sd')
+
+priors_PC1 <- prior(normal(0, 1.7), class = "Intercept") +
+  prior(normal(0,8), class = "b")  +
+   prior(student_t(3, 0, 1.5), class = 'sd')
 ```
 
+### brm- Random effects only
+
 ```{r}
-heron_brm1 <- brm(heron_form,
+heron_brm <- brm(heron_form,
                  data=heron_t2,
-                 prior = priors1,
+                 prior = priors,
                  sample_prior = 'yes',
                  iter = 5000,
                  warmup = 1000,
@@ -335,18 +367,20 @@ heron_brm1 <- brm(heron_form,
                 backend = "rstan")
 
 # To save the model use >> 
-#save(heron.brm1, file = "scripts/models/survival_heron.speed.brm.RData")
+#save(heron_brm, file = "scripts/models/heron_brm.RData")
 
 # To load the model back in workspace >>
 #MAY NEED TO RUN THIS IN CONSOLE TO WROK
-#load(file = "scripts/models/survival_heron.speed.brm.RData")
+#load(file = "scripts/models/heron_brm.RData")
 
 ```
 
+### brm- Speed
+
 ```{r}
-heron_brm2 <- brm(heron_form_speed,
+heron_brm_speed <- brm(heron_form_speed,
                  data=heron_t2,
-                 prior = priors2,
+                 prior = priors_speed,
                  sample_prior = 'yes',
                  iter = 5000,
                  warmup = 1000,
@@ -355,12 +389,104 @@ heron_brm2 <- brm(heron_form_speed,
                  refresh = 0,
                 backend = "rstan")
 
-# To save the model use >> 
-#save(heron.brm1, file = "scripts/models/survival_heron.speed.brm.RData")
+# Save the model
+#save(heron_brm_speed, file = "scripts/models/heron_brm_speed.RData")
 
-# To load the model back in workspace >>
+# To load the model back in workspace
+# MAY NEED TO RUN THIS IN CONSOLE TO WORK
+#load(file = "scripts/models/heron_brm_speed.RData")
+```
+
+### brm- Ub
+
+```{r}
+heron_brm_Ub <- brm(heron_form_Ub,
+                 data=heron_t2,
+                 prior = priors_Ub,
+                 sample_prior = 'yes',
+                 iter = 5000,
+                 warmup = 1000,
+                 chains = 3, cores = 3,
+                 thin = 5,
+                 refresh = 0,
+                backend = "rstan")
+
+# Save the model
+#save(heron_brm_Ub, file = "scripts/models/heron_brm_Ub.RData")
+
+# To load the model back in workspace
+#MAY NEED TO RUN THIS IN CONSOLE TO WORK
+#load(file = "scripts/models/scripts/models/heron_brm_Ub.RData")
+
+```
+
+### brm- Wave
+
+```{r}
+heron_brm_wave <- brm(heron_form_Wave,
+                 data=heron_t2,
+                 prior = priors_Wave,
+                 sample_prior = 'yes',
+                 iter = 5000,
+                 warmup = 1000,
+                 chains = 3, cores = 3,
+                 thin = 5,
+                 refresh = 0,
+                backend = "rstan")
+
+# Save the model
+#save(heron_brm_wave, file = "scripts/models/heron_brm_wave.RData")
+
+# To load the model back in workspace
+#MAY NEED TO RUN THIS IN CONSOLE TO WORK
+#load(file = "scripts/models/heron_brm_wave.RData")
+
+```
+
+### brm- Sediment
+
+```{r}
+heron_brm_sed <- brm(heron_form_sed,
+                 data=heron_t2,
+                 prior = priors_sed,
+                 sample_prior = 'yes',
+                 iter = 5000,
+                 warmup = 1000,
+                 chains = 3, cores = 3,
+                 thin = 5,
+                 refresh = 0,
+                backend = "rstan")
+
+# Save the model 
+#save(heron_brm_sed, file = "scripts/models/heron_brm_sed.RData")
+
+# To load the model back in workspace
 #MAY NEED TO RUN THIS IN CONSOLE TO WROK
-#load(file = "scripts/models/survival_heron.speed.brm.RData")
+#load(file = "scripts/models/heron_brm_sed.RData")
+
+```
+
+### brm- PC1
+
+```{r}
+heron_brm_PC1 <- brm(heron_form_PC1,
+                 data=heron_t2,
+                 prior = priors_PC1,
+                 sample_prior = 'yes',
+                 iter = 5000,
+                 warmup = 1000,
+                 chains = 3, cores = 3,
+                 thin = 5,
+                 refresh = 0,
+                backend = "rstan")
+
+# Save the model 
+#save(heron_brm_PC1, file = "scripts/models/heron_brm_PC1.RData")
+
+# To load the model back in workspace 
+#MAY NEED TO RUN THIS IN CONSOLE TO WORK
+#load(file = "scripts/models/heron_brm_PC1.RData")
+
 ```
 
 ### Diagnostics
@@ -368,10 +494,10 @@ heron_brm2 <- brm(heron_form_speed,
 MCMC
 
 ```{r}
-heron_brm1$fit |> stan_trace()
-heron_brm1$fit |> stan_ac()
-heron_brm1$fit |> stan_rhat()
-heron_brm1$fit |> stan_ess()
+heron_brm$fit |> stan_trace()
+heron_brm$fit |> stan_ac()
+heron_brm$fit |> stan_rhat()
+heron_brm$fit |> stan_ess()
 ```
 
 Posterior probability checks
