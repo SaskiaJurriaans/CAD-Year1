@@ -179,6 +179,7 @@ moore_t5 <- moore_t5 |> mutate(Site = factor(Site),
 Logistic mixed-effects regression model with random intercepts for Site and Device:
 
 ```{r}
+
 moore_form <- bf(SurvDev ~ (1|Site) + (1|ReefDev), family = bernoulli(link='logit'))
 moore_form_speed <- bf(SurvDev ~ median_speed +    (1|Site) + (1|ReefDev), family = bernoulli(link='logit'))
 moore_form_Ub <-    bf(SurvDev ~ Ub_avrg +         (1|Site) + (1|ReefDev), family = bernoulli(link='logit'))

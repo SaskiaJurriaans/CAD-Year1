@@ -77,13 +77,13 @@ survival <- survival |>
 ### Subset data: davies yield (device level)
 
 ```{r}
-davies_surv <- survival |> filter (Reef == "davies",
+davies_surv <- survival |> filter (Reef == "Davies",
                              Census == "t6",
                              Tab_ID == 1) |>
   select(-c(Tab_ID, SurvTab, Spp))
 
 davies_env <- environment |> 
-  filter (Reef == "davies") |>
+  filter (Reef == "Davies") |>
   select(-c(Reef1, Device_ID))
 ```
 
@@ -179,8 +179,12 @@ davies_t5 <- davies_t5 |> mutate(Site = factor(Site),
 Logistic mixed-effects regression model with random intercepts for Site and Device:
 
 ```{r}
+davies_device <- bf(SurvDev ~ (1|Site),  family = bernoulli(link='logit'))
+
 davies_form <- bf(SurvDev ~ (1|Site) + (1|ReefDev), family = bernoulli(link='logit'))
+
 davies_form_speed <- bf(SurvDev ~ median_speed +    (1|Site) + (1|ReefDev), family = bernoulli(link='logit'))
+
 davies_form_Ub <-    bf(SurvDev ~ Ub_avrg +         (1|Site) + (1|ReefDev), family = bernoulli(link='logit'))
 davies_form_turf <-   bf(SurvDev ~ sedturf_t5 +     (1|Site) + (1|ReefDev), family = bernoulli(link='logit'))
 davies_form_concrete <-bf(SurvDev ~ sedconcrete_t5 +(1|Site) + (1|ReefDev), family = bernoulli(link='logit'))
@@ -218,7 +222,7 @@ priors <- prior(normal(0, 1.7), class = "Intercept") +
 2.5 * sd(davies_t5$SurvDev, na.rm = TRUE)/sd(davies_t5$median_speed, na.rm = TRUE)
 
 priors_speed <- prior(normal(0, 1.7), class = "Intercept") +
-  prior(normal(0,57), class = "b")  +
+  prior(normal(0,40), class = "b")  +
    prior(student_t(3, 0, 1.5), class = 'sd')
 ```
 
@@ -228,7 +232,7 @@ priors_speed <- prior(normal(0, 1.7), class = "Intercept") +
 2.5 * sd(davies_t5$SurvDev, na.rm = TRUE)/sd(davies_t5$Ub_avrg, na.rm = TRUE)
 
 priors_Ub <- prior(normal(0, 1.7), class = "Intercept") +
-  prior(normal(0,8), class = "b")  +
+  prior(normal(0,6), class = "b")  +
    prior(student_t(3, 0, 1.5), class = 'sd')
 ```
 
@@ -238,7 +242,7 @@ priors_Ub <- prior(normal(0, 1.7), class = "Intercept") +
 2.5 * sd(davies_t5$SurvDev, na.rm = TRUE)/sd(davies_t5$sedturf_t5, na.rm = TRUE)
 
 priors_turf <- prior(normal(0, 1.7), class = "Intercept") +
-  prior(normal(0,1.6), class = "b")  +
+  prior(normal(0,5), class = "b")  +
    prior(student_t(3, 0, 1.5), class = 'sd')
 ```
 
@@ -248,7 +252,7 @@ priors_turf <- prior(normal(0, 1.7), class = "Intercept") +
 2.5 * sd(davies_t5$SurvDev, na.rm = TRUE)/sd(davies_t5$sedconcrete_t5, na.rm = TRUE)
 
 priors_concrete <- prior(normal(0, 1.7), class = "Intercept") +
-  prior(normal(0,4), class = "b")  +
+  prior(normal(0,2), class = "b")  +
    prior(student_t(3, 0, 1.5), class = 'sd')
 ```
 
@@ -274,6 +278,21 @@ priors_PC1 <- prior(normal(0, 1.7), class = "Intercept") +
 ```
 
 ### brm- Random effects only
+
+```{r}
+davies_brm1 <- brm(davies_device,
+                 data=davies_t5,
+                 prior = priors,
+                 sample_prior = 'yes',
+                 iter = 5000,
+                 warmup = 1000,
+                 chains = 3, cores = 3,
+                 thin = 5,
+                 refresh = 0,
+                 control = list(adapt_delta = 0.99),
+                backend = "rstan")
+
+```
 
 ```{r}
 davies_brm <- brm(davies_form,
@@ -304,7 +323,7 @@ davies_brm_speed <- brm(davies_form_speed,
                  chains = 3, cores = 3,
                  thin = 5,
                  refresh = 0,
-                 control = list(adapt_delta = 0.9),
+                 control = list(adapt_delta = 0.99),
                  backend = "rstan")
 
 # Save the model
@@ -323,7 +342,7 @@ davies_brm_Ub <- brm(davies_form_Ub,
                  chains = 3, cores = 3,
                  thin = 5,
                  refresh = 0,
-                 control = list(adapt_delta = 0.9),
+                 control = list(adapt_delta = 0.99),
                 backend = "rstan")
 
 # Save the model
@@ -361,7 +380,7 @@ davies_brm_turf <- brm(davies_form_turf,
                  chains = 3, cores = 3,
                  thin = 5,
                  refresh = 0,
-                 control = list(adapt_delta = 0.9),
+                 control = list(adapt_delta = 0.99),
                 backend = "rstan")
 
 # Save the model 
@@ -380,7 +399,7 @@ davies_brm_concrete <- brm(davies_form_concrete,
                  chains = 3, cores = 3,
                  thin = 5,
                  refresh = 0,
-                 control = list(adapt_delta = 0.9),
+                 control = list(adapt_delta = 0.99),
                 backend = "rstan")
 
 # Save the model 
@@ -399,7 +418,7 @@ davies_brm_PC1 <- brm(davies_form_PC1,
                  chains = 3, cores = 3,
                  thin = 5,
                  refresh = 0,
-                 control = list(adapt_delta = 0.9),
+                 control = list(adapt_delta = 0.99),
                 backend = "rstan")
 
 # Save the model 
@@ -420,8 +439,7 @@ load(file = "scripts/models/davies_brm_PC1.RData")
 
 ### loo
 
-```{r}
-#Using loo compare, lower value is better
+```{r}l}
 l_brm <- davies_brm |> loo()
 l_speed <- davies_brm_speed|> loo()
 l_Ub <- davies_brm_Ub |> loo()
@@ -430,12 +448,12 @@ l_turf <- davies_brm_turf|> loo()
 l_concrete <- davies_brm_concrete|> loo()
 l_PC1 <- davies_brm_PC1|> loo()
 
-looic(davies_brm)           # LOOIC: 268.24 [13.73]
-looic(davies_brm_speed)     # LOOIC: 263.63 [13.58]
-looic(davies_brm_wave)      # LOOIC: 266.09 [13.76]
-looic(davies_brm_concrete)  # LOOIC: 265.66 [13.62]
-looic(davies_brm_turf)      # LOOIC: 265.17 [13.66]
-looic(davies_brm_PC1)       # LOOIC: 265.17 [13.66]
+looic(davies_brm)           #  LOOIC: 257.06 [15.59]
+looic(davies_brm_speed)     #  LOOIC: 256.87 [15.57]
+looic(davies_brm_wave)      #  LOOIC: 253.67 [15.30]
+looic(davies_brm_concrete)  #  LOOIC: 254.73 [15.45]
+looic(davies_brm_turf)      #  LOOIC: 255.66 [15.56]
+looic(davies_brm_PC1)       #  LOOIC: 255.66 [15.56]
 
 loo_compare(l_brm, l_speed, l_Ub, l_wave, l_turf, l_concrete, l_PC1)
 ```
@@ -462,7 +480,7 @@ davies_brm |> mcmc_plot(type='violin')  # assess convergence and mixing of MCMC 
 
 -   **stan_ac**: All below 0.25, all good.
 -   **rhat_hist**: Rhat is a **scale reduction factor** measure of convergence between the chains. The closer the values are to 1, the more the chains have converged. Values greater than 1.05 indicate a lack of convergence. There will be an Rhat value for each parameter estimated.
--   **stan_ess:** effective sample size not very efficient, most below 50%.
+-   **stan_ess:** effective sample size not very efficient and split in two groups of frequencies?
 
 #### **Posterior probability checks**
 
@@ -513,7 +531,7 @@ davies_brm_speed$fit |> stan_ess()
 
 -   **stan_ac**: All below 0.25, all good.
 -   **rhat_hist**: Rhat is a **scale reduction factor** measure of convergence between the chains. The closer the values are to 1, the more the chains have converged. Values greater than 1.05 indicate a lack of convergence. There will be an Rhat value for each parameter estimated.
--   **stan_ess:** effective sample size better than previous model, more around 70%
+-   **stan_ess:** effective sample size not good, also split into two distinct groups
 
 #### **Posterior probability checks**
 
@@ -786,7 +804,7 @@ davies_brm_speed |> summary()
 ```
 
 ```{r}
-davies.speed.brm$fit |> tidyMCMC(estimate.method = "median", 
+davies_brm_speed$fit |> tidyMCMC(estimate.method = "median", 
                             conf.int = TRUE, 
                             conf.method = "HPDinterval", 
                             rhat = TRUE, 
@@ -865,24 +883,26 @@ print(results)
 
 NOTES:
 
-R\^2 brm 0.3224492
+R\^2 brm 0.2266062
 
-R\^2 speed 0.3773391
+R\^2 speed 0.2893343
 
-R\^2 Wave 0.3766208
+R\^2 Wave 0.2867257
 
-R\^2 Ub 0.3756796
+R\^2 Ub 0.2855458
 
-R\^2 turf 0.3770032
+R\^2 turf 0.2916004
 
-R\^2 concrete 0.370615
+R\^2 concrete 0.2924059
 
-R\^2 PC1 0.3652654
+R\^2 PC1 0.2856405
 
 ```{r}
-davies_brm_speed |> 
+davies_brm_wave |> 
   as_draws_df() |>
   dplyr::select(matches("^b_.*")) |>
-  mutate(LD50 = -1*b_Intercept / b_median_speed) |>
+  mutate(LD50 = -1*b_Intercept / b_WaveEnergyLevel) |>
   median_hdci(LD50)
 ```
+
+NOTE: This makes no sense
