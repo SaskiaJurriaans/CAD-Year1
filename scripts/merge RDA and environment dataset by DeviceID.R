@@ -9,7 +9,7 @@
 
 
 #load data --> FinalMetrics_Summary.xlsx
-#Y1Environment<-read_excel("data/FinalMetrics_Summary.xlsx")
+#Y1Environment<-FinalMetrics_Summary <- read_excel("data/FinalMetrics_Summary.xlsx")
 #name df: Y1Environment
 
 #load data --> YEAR1Benthic.xlsx
@@ -40,29 +40,28 @@ BenthicEnv <- merge(Y1Benthic, Y1Environment, by = c("Reef", "Site"), all = TRUE
 BenthicEnv <- BenthicEnv |>
   select(-c(4:24))
 
-#add Reef names
+#create net column with Device_ID instead of site label (which corresponds to ReefDev number)
 RDA_Davies <- RDA_Davies |>
-  mutate(Reef1 = "Davies") |>
-  select(-label)
+  mutate(Device_ID = as.numeric(sub("sit", "", label)),
+         Reef = "Davies")
 
 RDA_Moore <- RDA_Moore |>
-  mutate(Reef1 = "Moore")|>
-  select(-label)
+  mutate(Device_ID = as.numeric(sub("sit", "", label)),
+         Reef = "Moore")
 
 RDA_Heron <- RDA_Heron |>
-  mutate(Reef1 = "Heron")|>
-  select(-label)
+  mutate(Device_ID = as.numeric(sub("sit", "", label)),
+         Reef = "Heron")
 
 RDA <-rbind(RDA_Davies,RDA_Heron,RDA_Moore)
 
 
 #combine RDA and BenticEnv
-Y1_Benthic_Environment_ReefDev <- cbind(RDA, BenthicEnv)
+Y1_Benthic_Environment_DevID <- merge(RDA, BenthicEnv, by = c("Reef", "Device_ID"), all = TRUE)
 
-Y1_Benthic_Environment_ReefDev <- Y1_Benthic_Environment_ReefDev |>
-  arrange(Reef, Site, ReefDev) |>
-  select(-c(Reef1,Device_ID), everything())
+Y1_Benthic_Environment_DevID <- Y1_Benthic_Environment_DevID |>
+  arrange(Reef, Site, Device_ID)
 
 #save dataframe
 library(openxlsx)
-write.xlsx(Y1_Benthic_Environment_ReefDev, "YEAR1 Benthic Environment ReefDev.xlsx", rowName = FALSE)
+write.xlsx(Y1_Benthic_Environment_DevID, "YEAR1 Benthic Environment DeviceID.xlsx", rowName = FALSE)

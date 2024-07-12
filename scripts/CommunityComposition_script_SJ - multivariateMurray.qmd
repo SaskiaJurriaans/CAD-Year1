@@ -52,24 +52,24 @@ survival_master <- read_excel("C:/Users/sjurriaa/Australian Institute of Marine 
                               sheet = "Survival", na = "NA")
 
 #environmental dataset
-Y1Environment <- read_excel("C:/Users/sjurriaa/Australian Institute of Marine Science/Carly Randall - Randall Lab/CAD/CAD Year1/data/YEAR1 Environmental Data Devices.xlsx", 
+Y1Environment <- read_excel("C:/Users/sjurriaa/Australian Institute of Marine Science/Carly Randall - Randall Lab/CAD/CAD Year1/data/YEAR1 Benthic Environment ReefDev.xlsx", 
     na = "NA")
 ```
 
 ### Create subset of the survival with final census
 
 ```{r}
-#select final census timepoint which is t2 for Heron and t6 for Davies and Moore
+#select final census timepoint which is t3 for Heron and t6 for Davies and Moore
 survival_master_H <- survival_master |>
   filter(Reef == "Heron",
-         Census == "t2",
+         Census == "t3",
          Tab_ID == 1)
 survival_master_MD <- survival_master |>
   filter(Census == "t6",
          !Reef == "Heron",
          Tab_ID ==1)
 
-#combine t2 Heron and t6 Moore&Davies in one dataframe that is named Y1Survival and select only columns ReefDev and SurvDev which is renamed Survival 
+#combine t3 Heron and t6 Moore&Davies in one dataframe that is named Y1Survival and select only columns ReefDev and SurvDev which is renamed Survival 
 survival_t6<-rbind(survival_master_MD,survival_master_H)
 Y1Survival <- survival_t6 |>
   select(Reef, Site, ReefDev, SurvDev) |>
@@ -180,7 +180,7 @@ davies.std <- (davies.benthic.CCA[,-1]^0.25) |>
 davies.std
 ```
 
-### PCA
+### RDA
 
 ```{r}
 davies.rda <- rda(davies.std, scale=FALSE)   #rda and the name of your standardized data
@@ -248,7 +248,15 @@ davies_plot <- ggplot() +
   geom_point(data = davies_site_df, aes(x = PC1, y = PC2)) +
   geom_segment(data = davies_species_df, aes(x = 0, y = 0, xend = PC1, yend = PC2),
                arrow = arrow(length = unit(0.3, 'lines')), color = 'red') +
-  geom_text(data = davies_species_df, aes(x = PC1 * 1.1, y = PC2 * 1.1, label = label), color = 'red')
+   geom_text(
+     data = davies_species_df, 
+     aes(x = PC1 * 1.1, y = PC2 * 1.1, 
+         label = label), 
+            color = 'red', 
+            size = 5,            # Increase the size as needed
+            fontface = "plain") +
+  theme_minimal()
+
 davies_plot 
 ```
 
@@ -294,12 +302,22 @@ davies_plot
 davies.env <- Y1Environment |>
   filter(Reef == "Davies") |>
   select(-c(Reef, Site))
+
+davies.env <- davies.env |>
+  rename(Ub = Ub_avrg,
+         FlowVel = median_speed,
+         SedTurf2 = sedturf_t2,
+         SedTurf5 = sedturf_t5,
+         SedCon2 = sedconcrete_t2,
+         SedCon5 = sedconcrete_t5,
+         Temp = mean_temp)
 ```
 
 Correlation plot to see which variables are correlated
 
 ```{r}
 davies.env |>
+  select(-c(Reef1, ReefDev, Device_ID)) |>
   cor() |> 
   corrplot(type = 'upper',
     order = 'FPC',
@@ -313,6 +331,7 @@ davies.env<- davies.env |>
   select(-c(percentile_10, range, percentile_90))
 
 davies.env |>
+  select(-c(Reef1, ReefDev, Device_ID)) |>
   cor() |> 
   corrplot(type = 'upper',
     order = 'FPC',
@@ -342,7 +361,7 @@ One observation is missing for site D1a - thus will need to remove one row from 
 
 ```{r}
 # Remove one row from davies.env because of missing observation in davies.rda
-davies.env <- davies.env[-1,]
+#davies.env <- davies.env[-1,]
 ```
 
 ```{r}
@@ -378,13 +397,28 @@ envfit_df <- data.frame(
 # Optionally, you can set rownames as a separate column
 envfit_df$Variable <- rownames(arrows)
 
+# Your existing plot code with font customization for vector labels
 davies_env_plot <- davies_plot + 
-  geom_segment(data=envfit_df,
-    aes(y=0, x=0, yend=PC2, xend=PC1),
-    arrow=arrow(length=unit(0.3,'lines')), color='blue') +
-  geom_text(data=envfit_df,
-    aes(y=PC2*1.1, x=PC1*1.1, label=Variable), color='blue')
-davies_env_plot
+  geom_segment(data = envfit_df,
+               aes(y = 0, x = 0, yend = PC2, xend = PC1),
+               arrow = arrow(length = unit(0.3, 'lines')), color = 'blue') +
+  geom_text(data = envfit_df,
+            aes(y = PC2 * 1.1, x = PC1 * 1.1, label = Variable), 
+            color = 'blue', 
+            family = "Arial",    # Change to your desired font
+            size = 5) + 
+  theme_minimal() +
+  ggtitle("Davies Reef") + 
+    theme(
+    text = element_text(family = "Arial", size = 14, face = "bold"),  # Change to your desired font for the rest of the text
+    axis.text = element_text(family = "Arial", size = 12),
+    axis.title = element_text(family = "Arial", size = 14, face = "plain"),
+    legend.text = element_text(family = "Arial", size = 10)
+  )
+
+# Print the plot
+print(davies_env_plot)
+
 
 ```
 
@@ -395,30 +429,30 @@ What is driving this community??
 ### VIF - multicollinearity
 
 ```{r}
-lm(1:nrow(davies.env) ~ Ub_avrg + median_speed + mean_temp + sedturf_t2 + sedconcrete_t2  +sedturf_t5      + sedconcrete_t5, data=davies.env) |> 
+lm(1:nrow(davies.env) ~ Ub + FlowVel + SedTurf2 + SedCon2  +SedTurf5      + SedCon5, data=davies.env) |> 
   vif()
 ```
 
-Values above 5 on a variance inflation scale are indicative of correlation. Thus only **median_speed**, **mean_temp** and **sedturf_t2** can go in a model with each other. The other variables have a value greater than 5 so we cannot put them in a model together because they are too highly correlated and we would not be able to distinguish them.
+Values above 5 on a variance inflation scale are indicative of correlation. Thus only **FlowVelocity**, **Ub** and **SedTurf2** can go in a model with each other. The other variables have a value greater than 5 so we cannot put them in a model together because they are too highly correlated and we would not be able to distinguish them.
 
 ```{r}
-lm(1:nrow(davies.env) ~ median_speed + mean_temp+ sedturf_t2 , data=davies.env) |> 
+lm(1:nrow(davies.env) ~ FlowVel + Ub + SedTurf2 , data=davies.env) |> 
   vif()
 ```
 
 Is there any evidence that the community is influenced by any of the environmental variables?
 
 ```{r}
-lm(davies_site_df$PC1 ~ median_speed + mean_temp + sedturf_t2, data=davies.env) |>
+lm(davies_site_df$PC1 ~ FlowVel + Ub + SedTurf2, data=davies.env) |>
   summary()
 ```
 
-Yes for median_speed and mean temperature, but not for sedimentation.
+Yes for FlowVelocity and Ub, but not for sedimentation.
 
 And now for PC2:
 
 ```{r}
-lm(davies_site_df$PC2 ~ median_speed +  sedturf_t2, data=davies.env) |>
+lm(davies_site_df$PC2 ~ FlowVel + Ub + SedTurf2, data=davies.env) |>
   summary()
 ```
 
@@ -480,7 +514,7 @@ heron.std <- (heron.benthic.CCA[,-1]^0.25) |>
 heron.std
 ```
 
-### PCA
+### RDA
 
 ```{r}
 heron.rda <- rda(heron.std, scale=FALSE)   
@@ -542,18 +576,22 @@ remove(heron_sites,heron_species)
 ### Figures
 
 ```{r}
-heron_plot <- ggplot() +   
-  geom_hline(yintercept = 0, linetype = 'dotted') +   
-  geom_vline(xintercept = 0, linetype = 'dotted') +   
-  geom_point(data = heron_site_df, aes(x = PC1, y = PC2)) +   
-  geom_segment(data = heron_species_df, 
-               aes(x = 0, y = 0, xend = PC1, yend = PC2),                
-               arrow = arrow(length = unit(0.3, 'lines')), 
-               color = 'red') +   
-  geom_text(data = heron_species_df, 
-            aes(x = PC1 * 1.1, y = PC2 * 1.1, label = label), 
-            color = 'red') 
-heron_plot
+heron_plot <- ggplot() +
+  geom_hline(yintercept = 0, linetype = 'dotted') +
+  geom_vline(xintercept = 0, linetype = 'dotted') +
+  geom_point(data = heron_site_df, aes(x = PC1, y = PC2)) +
+  geom_segment(data = heron_species_df, aes(x = 0, y = 0, xend = PC1, yend = PC2),
+               arrow = arrow(length = unit(0.3, 'lines')), color = 'red') +
+   geom_text(
+     data = heron_species_df, 
+     aes(x = PC1 * 1.1, y = PC2 * 1.1, 
+         label = label), 
+            color = 'red', 
+            size = 5,            # Increase the size as needed
+            fontface = "plain") +
+  theme_minimal()
+
+heron_plot 
 ```
 
 ### Eigenvalues
@@ -594,6 +632,16 @@ heron_plot
 heron.env <- Y1Environment |>   
   filter(Reef == "Heron") |>   
   select(-c(Reef, Site, sedturf_t5,sedconcrete_t5))
+
+heron.env <- heron.env |>
+  select(-c(ReefDev, Reef1, Device_ID))
+
+heron.env <- heron.env |>
+  rename(Ub = Ub_avrg,
+         FlowVel = median_speed,
+         SedTurf = sedturf_t2,
+         SedCon = sedconcrete_t2,
+         Temp = mean_temp)
 ```
 
 Correlation plot to see which variables are correlated
@@ -678,12 +726,23 @@ envfit_df <- data.frame(Variable = rownames(arrows),
 # Optionally, you can set rownames as a separate column 
 envfit_df$Variable <- rownames(arrows)  
 
-heron_env_plot <- heron_plot +    
-  geom_segment(data=envfit_df,aes(y=0, x=0, yend=PC2, xend=PC1),
-               arrow=arrow(length=unit(0.3,'lines')), 
-               color='blue') +   
-  geom_text(data=envfit_df,aes(y=PC2*1.1, x=PC1*1.1, label=Variable), 
-            color='blue') 
+heron_env_plot <- heron_plot + 
+  geom_segment(data = envfit_df,
+               aes(y = 0, x = 0, yend = PC2, xend = PC1),
+               arrow = arrow(length = unit(0.3, 'lines')), color = 'blue') +
+  geom_text(data = envfit_df,
+            aes(y = PC2 * 1.1, x = PC1 * 1.1, label = Variable), 
+            color = 'blue', 
+            family = "Arial",    # Change to your desired font
+            size = 5) + 
+  theme_minimal() +
+  ggtitle("Heron Reef") +
+  theme(
+    text = element_text(family = "Arial", size = 14, face = "bold"),  # Change to your desired font for the rest of the text
+    axis.text = element_text(family = "Arial", size = 12),
+    axis.title = element_text(family = "Arial", size = 14, face = "plain"),
+    legend.text = element_text(family = "Arial", size = 10)
+  )
 
 heron_env_plot 
 ```
@@ -695,34 +754,34 @@ What is driving this community??
 ### VIF - multicollinearity
 
 ```{r}
-lm(1:nrow(heron.env) ~ Ub_avrg + median_speed + mean_temp + sedturf_t2 + sedconcrete_t2, data=heron.env) |>    
+lm(1:nrow(heron.env) ~ Ub + FlowVel + Temp + SedTurf + SedCon, data=heron.env) |>    
   vif()
 ```
 
-Values above 5 on a variance inflation scale are indicative of correlation but these are all below 5 thus can remain in the model with each other. Although Ub_avrg shows moderate collinearity, so perhaps can be removed, and the same for sediment concrete.
+Values above 5 on a variance inflation scale are indicative of correlation but these are all below 5 thus can remain in the model with each other. However, temperature makes not much sense to keep in since we know that there was no spatial variation between sites.
 
 ```{r}
-lm(1:nrow(heron.env) ~ median_speed + mean_temp+ sedturf_t2 , data=heron.env) |>   
+lm(1:nrow(heron.env) ~ Ub + FlowVel + SedTurf + SedCon , data=heron.env) |>   
   vif()
 ```
 
 Is there any evidence that the community is influenced by any of the environmental variables?
 
 ```{r}
-lm(heron_site_df$PC1 ~ median_speed + mean_temp + sedturf_t2, data=heron.env) |>   
+lm(heron_site_df$PC1 ~ Ub + FlowVel + SedTurf + SedCon, data=heron.env) |>   
   summary()
 ```
 
-Yes for median_speed and mean temperature, but not for sedimentation.
+Yes for bottom stress, Flow velocity and SedTurf, but not for SedCon (which is likely correlated to SedTurf anyway).
 
 And now for PC2:
 
 ```{r}
-lm(heron_site_df$PC2 ~ median_speed +  mean_temp+ sedturf_t2, data=heron.env) |>   
+lm(heron_site_df$PC2 ~ Ub + FlowVel + SedTurf + SedCon, data=heron.env) |>   
   summary()
 ```
 
-Only median_speed is significant for PC2 (that explains 13.7% of variability).
+Only Flow Velocity is significant for PC2 (that explains 13.7% of variability).
 
 # \-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\--
 
@@ -842,20 +901,22 @@ remove(moore_sites,moore_species)
 ### Figures
 
 ```{r}
-moore_plot <- ggplot() +      
-  geom_hline(yintercept = 0, linetype = 'dotted') +      
-  geom_vline(xintercept = 0, linetype = 'dotted') +      
-  geom_point(data = moore_site_df, aes(x = PC1, y = PC2)) +      
-  geom_segment(data = moore_species_df,
-               aes(x = 0, y = 0, xend = PC1, yend = PC2),
-               arrow = arrow(length = unit(0.3, 'lines')),
-               color = 'red') +    
-  geom_text(data = moore_species_df,
-            aes(x = PC1 * 1.1, y = PC2 * 1.1, 
-                label = label),
-            color = 'red')  
+moore_plot <- ggplot() +
+  geom_hline(yintercept = 0, linetype = 'dotted') +
+  geom_vline(xintercept = 0, linetype = 'dotted') +
+  geom_point(data = moore_site_df, aes(x = PC1, y = PC2)) +
+  geom_segment(data = moore_species_df, aes(x = 0, y = 0, xend = PC1, yend = PC2),
+               arrow = arrow(length = unit(0.3, 'lines')), color = 'red') +
+   geom_text(
+     data = moore_species_df, 
+     aes(x = PC1 * 1.1, y = PC2 * 1.1, 
+         label = label), 
+            color = 'red', 
+            size = 5,            # Increase the size as needed
+            fontface = "plain") +
+  theme_minimal()
 
-moore_plot
+moore_plot 
 ```
 
 ### Eigenvalues
@@ -898,6 +959,16 @@ moore_plot
 moore.env <- Y1Environment |>      
   filter(Reef == "Moore") |>      
   select(-c(Reef, Site, sedturf_t2, sedconcrete_t2))
+
+moore.env <- moore.env |>
+  select(-c(ReefDev, Reef1, Device_ID))
+
+moore.env <- moore.env |>
+  rename(Ub = Ub_avrg,
+         FlowVel = median_speed,
+         SedTurf = sedturf_t5,
+         SedCon = sedconcrete_t5,
+         Temp = mean_temp)
 ```
 
 Correlation plot to see which variables are correlated
@@ -982,12 +1053,23 @@ envfit_df <- data.frame(Variable = rownames(arrows),
 # Optionally, you can set rownames as a separate column  
 envfit_df$Variable <- rownames(arrows)    
 
-moore_env_plot <- moore_plot +
-  geom_segment(data=envfit_df,aes(y=0, x=0, yend=PC2, xend=PC1),
-               arrow=arrow(length=unit(0.3,'lines')),
-               color='blue') +  
-  geom_text(data=envfit_df,aes(y=PC2*1.1, x=PC1*1.1, label=Variable),
-            color='blue')   
+moore_env_plot <- moore_plot + 
+  geom_segment(data = envfit_df,
+               aes(y = 0, x = 0, yend = PC2, xend = PC1),
+               arrow = arrow(length = unit(0.3, 'lines')), color = 'blue') +
+  geom_text(data = envfit_df,
+            aes(y = PC2 * 1.1, x = PC1 * 1.1, label = Variable), 
+            color = 'blue', 
+            family = "Arial",    # Change to your desired font
+            size = 5) + 
+  theme_minimal() +
+  ggtitle("Moore Reef") +
+  theme(
+    text = element_text(family = "Arial", size = 14, face = "bold"),  # Change to your desired font for the rest of the text
+    axis.text = element_text(family = "Arial", size = 12),
+    axis.title = element_text(family = "Arial", size = 14, face = "plain"),
+    legend.text = element_text(family = "Arial", size = 10)
+  )
 
 moore_env_plot 
 ```
@@ -999,34 +1081,29 @@ What is driving this community??
 ### VIF - multicollinearity
 
 ```{r}
-lm(1:nrow(moore.env) ~ Ub_avrg + median_speed + percentile_10 + mean_temp + sedturf_t5 + sedconcrete_t5 , data=moore.env) |>
+lm(1:nrow(moore.env) ~ Ub + FlowVel + SedTurf + SedCon , data=moore.env) |>
   vif()
 ```
 
-Values above 5 on a variance inflation scale are indicative of correlation, but these variables are all below 5 thus can remain in the model. Ub_avrg has moderate collinearity thus could be removed?
-
-```{r}
-lm(1:nrow(moore.env) ~ median_speed +percentile_10 + mean_temp+ sedturf_t5 + sedconcrete_t5 , data=moore.env) |>
-  vif()
-```
+Values above 5 on a variance inflation scale are indicative of correlation, but these variables are all below 5 thus can remain in the model.
 
 Is there any evidence that the community is influenced by any of the environmental variables?
 
 ```{r}
-lm(moore_site_df$PC1 ~ Ub_avrg + median_speed + percentile_10 + mean_temp + sedturf_t5 + sedconcrete_t5, data=moore.env) |>    
+lm(moore_site_df$PC1 ~ Ub + FlowVel + SedTurf + SedCon, data=moore.env) |>    
   summary()
 ```
 
-Ub_avrg, median_speed, mean_temp and sedconcrete_t5 are significant, but percentile_10 and sedturf_t5 are not.
+Bottom stress, Flow velocity and SedCon are significant, only SedTurf is not.
 
 And now for PC2:
 
 ```{r}
-lm(moore_site_df$PC2 ~ Ub_avrg + median_speed + percentile_10 + mean_temp + sedturf_t5 + sedconcrete_t5, data=moore.env) |>   
+lm(moore_site_df$PC2 ~ Ub + FlowVel + SedTurf + SedCon, data=moore.env) |>   
   summary()
 ```
 
-Median speed and percentile_10 are significant values for PC2 (that explains 16% of variability).
+Bottom stress and SedTurf are significant values for PC2 (that explains 16% of variability).
 
 # \-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\--
 
@@ -1054,19 +1131,19 @@ write.xlsx(davies.env, "C:/Users/sjurriaa/Australian Institute of Marine Science
 
 # Save figures
 
-All saved on 19/04/2024
+All saved on 06/06/2024
 
 ```{r}
-ggsave("C:/Users/sjurriaa/Australian Institute of Marine Science/Carly Randall - Randall Lab/CAD/CAD Field Data/2022_Deployment_Saskia_YEAR1/Benthic/Quadrats_t0/Output/April2024/RDA Moore.jpeg", moore_plot, width = 10, height = 10, dpi=600)
-ggsave("C:/Users/sjurriaa/Australian Institute of Marine Science/Carly Randall - Randall Lab/CAD/CAD Field Data/2022_Deployment_Saskia_YEAR1/Benthic/Quadrats_t0/Output/April2024/RDA Moore Environment.jpeg", moore_env_plot, width = 10, height = 10, dpi = 600)
+ggsave("C:/Users/sjurriaa/Australian Institute of Marine Science/Carly Randall - Randall Lab/CAD/CAD Field Data/2022_Deployment_Saskia_YEAR1/Benthic/Quadrats_t0/Output/April2024/RDA Moore.jpeg", moore_plot, width = 5, height = 4, dpi=600)
+ggsave("C:/Users/sjurriaa/Australian Institute of Marine Science/Carly Randall - Randall Lab/CAD/CAD Field Data/2022_Deployment_Saskia_YEAR1/Benthic/Quadrats_t0/Output/April2024/RDA Moore Environment.jpeg", moore_env_plot, width = 5, height = 4, dpi = 600)
 
-ggsave("C:/Users/sjurriaa/Australian Institute of Marine Science/Carly Randall - Randall Lab/CAD/CAD Field Data/2022_Deployment_Saskia_YEAR1/Benthic/Quadrats_t0/Output/April2024/RDA Heron.jpeg", heron_plot, width = 10, height = 10, dpi=600)
-ggsave("C:/Users/sjurriaa/Australian Institute of Marine Science/Carly Randall - Randall Lab/CAD/CAD Field Data/2022_Deployment_Saskia_YEAR1/Benthic/Quadrats_t0/Output/April2024/RDA Heron Environment.jpeg", heron_env_plot, width = 10, height = 10, dpi = 600)
+ggsave("C:/Users/sjurriaa/Australian Institute of Marine Science/Carly Randall - Randall Lab/CAD/CAD Field Data/2022_Deployment_Saskia_YEAR1/Benthic/Quadrats_t0/Output/April2024/RDA Heron.jpeg", heron_plot, width = 5, height = 4, dpi=600)
+ggsave("C:/Users/sjurriaa/Australian Institute of Marine Science/Carly Randall - Randall Lab/CAD/CAD Field Data/2022_Deployment_Saskia_YEAR1/Benthic/Quadrats_t0/Output/April2024/RDA Heron Environment.jpeg", heron_env_plot, width = 5, height = 4, dpi = 600)
 
-ggsave("C:/Users/sjurriaa/Australian Institute of Marine Science/Carly Randall - Randall Lab/CAD/CAD Field Data/2022_Deployment_Saskia_YEAR1/Benthic/Quadrats_t0/Output/April2024/RDA Davies.jpeg", davies_plot, width = 10, height = 10, dpi=600)
-ggsave("C:/Users/sjurriaa/Australian Institute of Marine Science/Carly Randall - Randall Lab/CAD/CAD Field Data/2022_Deployment_Saskia_YEAR1/Benthic/Quadrats_t0/Output/April2024/RDA Davies Environment.jpeg", davies_env_plot, width = 10, height = 10, dpi = 600)
+ggsave("C:/Users/sjurriaa/Australian Institute of Marine Science/Carly Randall - Randall Lab/CAD/CAD Field Data/2022_Deployment_Saskia_YEAR1/Benthic/Quadrats_t0/Output/April2024/RDA Davies.jpeg", davies_plot, width = 5, height = 4, dpi=600)
+ggsave("C:/Users/sjurriaa/Australian Institute of Marine Science/Carly Randall - Randall Lab/CAD/CAD Field Data/2022_Deployment_Saskia_YEAR1/Benthic/Quadrats_t0/Output/April2024/RDA Davies Environment.jpeg", davies_env_plot, width = 5, height = 4, dpi = 600)
 
-#All saved on 19/04/2024
+#All saved on 06/06/2024
 ```
 
 # 

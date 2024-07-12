@@ -77,8 +77,12 @@ survival <- survival |>
 ### Subset data: moore yield (device level)
 
 ```{r}
-moore_surv <- survival |> filter (Reef == "Moore",
+moore_surv_t6 <- survival |> filter (Reef == "Moore",
                              Census == "t6",
+                             Tab_ID == 1) |>
+  select(-c(Tab_ID, SurvTab, Spp))
+
+moore_surv <- survival |> filter (Reef == "Moore",
                              Tab_ID == 1) |>
   select(-c(Tab_ID, SurvTab, Spp))
 
@@ -90,7 +94,8 @@ moore_env <- environment |>
 ### Merge survival and environment
 
 ```{r}
-moore_t5 <- merge(moore_env, moore_surv, by = c("Reef", "Site", "ReefDev"), all = TRUE)
+moore_t5 <- merge(moore_env, moore_surv_t6, by = c("Reef", "Site", "ReefDev"), all = TRUE)
+moore <- merge(moore_env, moore_surv, by = c("Reef", "Site", "ReefDev"), all = TRUE)
 
 #free up space
 remove(moore_surv, moore_env)
@@ -100,6 +105,12 @@ moore_t5$SurvDev <- as.numeric(moore_t5$SurvDev)
 moore_t5 <- moore_t5[complete.cases(moore_t5$SurvDev),  ]
 moore_t5 <- moore_t5[complete.cases(moore_t5$PC1),  ]
 moore_t5 <- moore_t5 |> select(-c(sedturf_t2, sedconcrete_t2))
+
+# Remove rows with missing values
+moore$SurvDev <- as.numeric(moore$SurvDev)
+moore <- moore[complete.cases(moore$SurvDev),  ]
+moore <- moore[complete.cases(moore$PC1),  ]
+moore <- moore |> select(-c(sedturf_t2, sedconcrete_t2))
 ```
 
 ### GLM
@@ -108,6 +119,9 @@ moore_t5 <- moore_t5 |> select(-c(sedturf_t2, sedconcrete_t2))
 library(lme4)
 moore_t5$Site <- as.factor(moore_t5$Site)
 moore_t5$ReefDev<- as.factor(moore_t5$ReefDev)
+
+moore$Site <- as.factor(moore$Site)
+moore$ReefDev<- as.factor(moore$ReefDev)
 
 moore_glmer1<- glmer(SurvDev ~ (1|Site) + (1|ReefDev), data=moore_t5, family = binomial(link = "logit")) #allowing for random intercepts but not random slopes --> accounting for potential variability in survival beteeen different sites and devices, but assuming that the effect of device on  survival is constant across different sites.
 
@@ -165,12 +179,34 @@ ggplot(data=moore_t5, aes(y = SurvDev, x = WaveEnergyLevel)) +
   geom_smooth(method="lm")
 ```
 
+```{r}
+Moore_current <- ggplot(moore_t5, aes(x = median_speed, y = SurvDev)) +
+  geom_point(position = position_jitter(width = 0.2, height = 0)) +
+  geom_smooth(method="lm") +
+  labs(title = "Moore Reef",
+       x = "In-situ current - median speed (m/s)",
+       y = "% Survival (yield)") +
+  theme_bw() +
+  ylim(0,1) +
+  theme(panel.border = element_rect(color = "black", fill = NA),
+        axis.line = element_line(color = "black"),
+        axis.text = element_text(size = 12),
+        axis.title = element_text(size = 14)) 
+
+Moore_current
+
+ggsave("Moore - Survival final census Current - yield.png", plot=Moore_current, width = 4, height = 6, dpi = 600)
+```
+
 # Brm
 
 We need to make sure that the categorical variables and the random effects are defined as factors:
 
 ```{r}
 moore_t5 <- moore_t5 |> mutate(Site = factor(Site),
+                               ReefDev = factor(ReefDev))
+
+moore <- moore |> mutate(Site = factor(Site),
                                ReefDev = factor(ReefDev))
 ```
 
@@ -180,24 +216,24 @@ Logistic mixed-effects regression model with random intercepts for Site and Devi
 
 ```{r}
 
-moore_form <- bf(SurvDev ~ (1|Site) + (1|ReefDev), family = bernoulli(link='logit'))
-moore_form_speed <- bf(SurvDev ~ median_speed +    (1|Site) + (1|ReefDev), family = bernoulli(link='logit'))
-moore_form_Ub <-    bf(SurvDev ~ Ub_avrg +         (1|Site) + (1|ReefDev), family = bernoulli(link='logit'))
-moore_form_turf <-   bf(SurvDev ~ sedturf_t5 +     (1|Site) + (1|ReefDev), family = bernoulli(link='logit'))
-moore_form_concrete <-bf(SurvDev ~ sedconcrete_t5 +(1|Site) + (1|ReefDev), family = bernoulli(link='logit'))
-moore_form_Wave <-  bf(SurvDev ~ WaveEnergyLevel + (1|Site) + (1|ReefDev), family = bernoulli(link='logit'))
-moore_form_PC1 <-   bf(SurvDev ~ PC1 +             (1|Site) + (1|ReefDev), family = bernoulli(link='logit'))
+moore_form <- bf(SurvDev ~ (1|Site), family = bernoulli(link='logit'))
+moore_form_speed <- bf(SurvDev ~ median_speed +    (1|Site), family = bernoulli(link='logit'))
+moore_form_Ub <-    bf(SurvDev ~ Ub_avrg +         (1|Site), family = bernoulli(link='logit'))
+moore_form_turf <-   bf(SurvDev ~ sedturf_t5 +     (1|Site), family = bernoulli(link='logit'))
+moore_form_concrete <-bf(SurvDev ~ sedconcrete_t5 +(1|Site), family = bernoulli(link='logit'))
+moore_form_Wave <-  bf(SurvDev ~ WaveEnergyLevel + (1|Site), family = bernoulli(link='logit'))
+moore_form_PCA <-   bf(SurvDev ~ PC1 +   PC2 +          (1|Site), family = bernoulli(link='logit'))
 ```
 
 Now with polynomial terms:
 
 ```{r}
-moore_form <- bf(SurvDev ~ (1|Site) + (1|ReefDev), family = bernoulli(link='logit'))
-moore_form_speed_poly <- bf(SurvDev ~ poly(median_speed,3) +    (1|Site) + (1|ReefDev), family = bernoulli(link='logit'))
-moore_form_Ub_poly <-    bf(SurvDev ~ poly(Ub_avrg,3) +         (1|Site) + (1|ReefDev), family = bernoulli(link='logit'))
-moore_form_turf_poly <-   bf(SurvDev ~ poly(sedturf_t5,3) +      (1|Site) + (1|ReefDev), family = bernoulli(link='logit'))
-moore_form_Wave_poly <-  bf(SurvDev ~ poly(WaveEnergyLevel,3) + (1|Site) + (1|ReefDev), family = bernoulli(link='logit'))
-moore_form_PC1_poly <-   bf(SurvDev ~ poly(PC1,3) +             (1|Site) + (1|ReefDev), family = bernoulli(link='logit'))
+moore_form <- bf(SurvDev ~ (1|Site), family = bernoulli(link='logit'))
+moore_form_speed_poly <- bf(SurvDev ~ poly(median_speed,3) +    (1|Site) , family = bernoulli(link='logit'))
+moore_form_Ub_poly <-    bf(SurvDev ~ poly(Ub_avrg,3) +         (1|Site) , family = bernoulli(link='logit'))
+moore_form_turf_poly <-   bf(SurvDev ~ poly(sedturf_t5,3) +      (1|Site) , family = bernoulli(link='logit'))
+moore_form_Wave_poly <-  bf(SurvDev ~ poly(WaveEnergyLevel,3) + (1|Site) , family = bernoulli(link='logit'))
+moore_form_PC1_poly <-   bf(SurvDev ~ poly(PC1,3) +       poly(PC2,3)  +    (1|Site) , family = bernoulli(link='logit'))
 ```
 
 ### Priors
@@ -213,71 +249,231 @@ priors <- prior(normal(0, 1.7), class = "Intercept") +
    prior(student_t(3, 0, 1.5), class = 'sd')
 ```
 
-**median speed**
-
-```{r}
-2.5 * sd(moore_t5$SurvDev, na.rm = TRUE)/sd(moore_t5$median_speed, na.rm = TRUE)
-
-priors_speed <- prior(normal(0, 1.7), class = "Intercept") +
-  prior(normal(0,57), class = "b")  +
-   prior(student_t(3, 0, 1.5), class = 'sd')
+```         
 ```
 
-**Ub**
+### brm1- Random effects + time
 
 ```{r}
-2.5 * sd(moore_t5$SurvDev, na.rm = TRUE)/sd(moore_t5$Ub_avrg, na.rm = TRUE)
+moore_form_time <- bf(SurvDev ~ Census + (1|Site), family = bernoulli(link='logit'))
 
-priors_Ub <- prior(normal(0, 1.7), class = "Intercept") +
-  prior(normal(0,8), class = "b")  +
+priors_time <- prior(normal(0, 1.7), class = "Intercept") +
+  prior(normal(0,5), class = "b") +
    prior(student_t(3, 0, 1.5), class = 'sd')
-```
 
-**turf**
+moore_brm1_time <- brm(moore_form_time,
+                 data=moore,
+                 prior = priors_time,
+                 sample_prior = 'yes',
+                 iter = 5000,
+                 warmup = 1000,
+                 chains = 3, cores = 3,
+                 thin = 5,
+                 refresh = 0,
+                 control = list(adapt_delta = 0.99),
+                backend = "rstan")
 
-```{r}
-2.5 * sd(moore_t5$SurvDev, na.rm = TRUE)/sd(moore_t5$sedturf_t5, na.rm = TRUE)
-
-priors_turf <- prior(normal(0, 1.7), class = "Intercept") +
-  prior(normal(0,1.6), class = "b")  +
-   prior(student_t(3, 0, 1.5), class = 'sd')
-```
-
-**concrete**
-
-```{r}
-2.5 * sd(moore_t5$SurvDev, na.rm = TRUE)/sd(moore_t5$sedconcrete_t5, na.rm = TRUE)
-
-priors_concrete <- prior(normal(0, 1.7), class = "Intercept") +
-  prior(normal(0,4), class = "b")  +
-   prior(student_t(3, 0, 1.5), class = 'sd')
-```
-
-**WaveEnergyLevel**
-
-```{r}
-2.5 * sd(moore_t5$SurvDev, na.rm = TRUE)/sd(moore_t5$WaveEnergyLevel, na.rm = TRUE)
-
-priors_wave <- prior(normal(0, 1.7), class = "Intercept") +
-  prior(normal(0,1), class = "b")  +
-   prior(student_t(3, 0, 1.5), class = 'sd')
+# To save the model use >> 
+#save(moore_brm1_time, file = "scripts/models/moore_brm1_time.RData")
 
 ```
 
-**PC1**
+### brm2- time \* Wave
 
 ```{r}
-2.5 * sd(moore_t5$SurvDev, na.rm = TRUE)/sd(moore_t5$PC1, na.rm = TRUE)
+moore_form_time_wave <-  bf(SurvDev ~ Census + WaveEnergyLevel + (1|Site), family = bernoulli(link='logit'))
 
-priors_PC1 <- prior(normal(0, 1.7), class = "Intercept") +
-  prior(normal(0,8), class = "b")  +
+priors_time <- prior(normal(0, 1.7), class = "Intercept") +
+  prior(normal(0,5), class = "b") +
    prior(student_t(3, 0, 1.5), class = 'sd')
+
+moore_brm2_time_wave <- brm(moore_form_time_wave,
+                 data=moore,
+                 prior = priors_time,
+                 sample_prior = 'yes',
+                 iter = 5000,
+                 warmup = 1000,
+                 chains = 3, cores = 3,
+                 thin = 5,
+                 refresh = 0,
+                 control = list(adapt_delta = 0.99),
+                backend = "rstan")
+
+# To save the model use >> 
+#save(moore_brm2_time_wave, file = "scripts/models/moore_brm2_time_wave.RData")
 ```
 
-### brm- Random effects only
+### brm3- time \* Ub
 
 ```{r}
-moore_brm <- brm(moore_form,
+moore_form_Ub_time <-    bf(SurvDev ~ Census + Ub_avrg +         (1|Site), family = bernoulli(link='logit'))
+
+priors_time <- prior(normal(0, 1.7), class = "Intercept") +
+  prior(normal(0,5), class = "b") +
+   prior(student_t(3, 0, 1.5), class = 'sd')
+
+moore_brm3_time_Ub <- brm(moore_form_Ub_time,
+                 data=moore,
+                 prior = priors_time,
+                 sample_prior = 'yes',
+                 iter = 5000,
+                 warmup = 1000,
+                 chains = 3, cores = 3,
+                 thin = 5,
+                 refresh = 0,
+                 control = list(adapt_delta = 0.99),
+                 backend = "rstan")
+
+# Save the model
+#save(moore_brm3_time_Ub, file = "scripts/models/moore_brm3_time_Ub.RData")
+```
+
+### brm4- time \* Current
+
+```{r}
+moore_form_current_time <-    bf(SurvDev ~ Census + median_speed  +         (1|Site), family = bernoulli(link='logit'))
+
+priors_time <- prior(normal(0, 1.7), class = "Intercept") +
+  prior(normal(0,5), class = "b") +
+   prior(student_t(3, 0, 1.5), class = 'sd')
+
+moore_brm4_time_current <- brm(moore_form_current_time,
+                 data=moore,
+                 prior = priors_time,
+                 sample_prior = 'yes',
+                 iter = 5000,
+                 warmup = 1000,
+                 chains = 3, cores = 3,
+                 thin = 5,
+                 refresh = 0,
+                 control = list(adapt_delta = 0.99),
+                 backend = "rstan")
+
+# Save the model
+#save(moore_brm4_time_current, file = "scripts/models/moore_brm4_time_current.RData")
+```
+
+### brm5- time \* Turf
+
+```{r}
+moore_form_turf_time <-    bf(SurvDev ~ Census + sedturf_t5  + (1|Site), family = bernoulli(link='logit'))
+
+priors_time <- prior(normal(0, 1.7), class = "Intercept") +
+  prior(normal(0,5), class = "b") +
+   prior(student_t(3, 0, 1.5), class = 'sd')
+
+moore_brm5_time_turf <- brm(moore_form_turf_time,
+                 data=moore,
+                 prior = priors_time,
+                 sample_prior = 'yes',
+                 iter = 5000,
+                 warmup = 1000,
+                 chains = 3, cores = 3,
+                 thin = 5,
+                 refresh = 0,
+                 control = list(adapt_delta = 0.99),
+                 backend = "rstan")
+
+# Save the model
+#save(moore_brm5_time_turf, file = "scripts/models/moore_brm5_time_turf.RData")
+```
+
+### brm6- time \* Concrete
+
+```{r}
+moore_form_concrete_time <-    bf(SurvDev ~ Census + sedconcrete_t5  +         (1|Site), family = bernoulli(link='logit'))
+
+priors_time <- prior(normal(0, 1.7), class = "Intercept") +
+  prior(normal(0,5), class = "b") +
+   prior(student_t(3, 0, 1.5), class = 'sd')
+
+moore_brm6_time_concrete <- brm(moore_form_concrete_time,
+                 data=moore,
+                 prior = priors_time,
+                 sample_prior = 'yes',
+                 iter = 5000,
+                 warmup = 1000,
+                 chains = 3, cores = 3,
+                 thin = 5,
+                 refresh = 0,
+                 control = list(adapt_delta = 0.99),
+                 backend = "rstan")
+
+# Save the model
+#save(moore_brm6_time_concrete, file = "scripts/models/moore_brm6_time_concrete.RData")
+```
+
+### brm7- time \* habitat
+
+```{r}
+moore_form_PCA_time <-    bf(SurvDev ~ Census + PC1  + PC2+         (1|Site), family = bernoulli(link='logit'))
+
+priors_time <- prior(normal(0, 1.7), class = "Intercept") +
+  prior(normal(0,5), class = "b") +
+   prior(student_t(3, 0, 1.5), class = 'sd')
+
+moore_brm7_time_PCA <- brm(moore_form_PCA_time,
+                 data=moore,
+                 prior = priors_time,
+                 sample_prior = 'yes',
+                 iter = 5000,
+                 warmup = 1000,
+                 chains = 3, cores = 3,
+                 thin = 5,
+                 refresh = 0,
+                 control = list(adapt_delta = 0.99),
+                 backend = "rstan")
+
+# Save the model
+#save(moore_brm7_time_PCA, file = "scripts/models/moore_brm7_time_PCA.RData")
+```
+
+# Load models (time)
+
+```{r}
+load(file = "scripts/models/moore_brm1_time.RData")
+load(file = "scripts/models/moore_brm2_time_wave.RData")
+load(file = "scripts/models/moore_brm3_time_Ub.RData")
+load(file = "scripts/models/moore_brm4_time_current.RData")
+load(file = "scripts/models/moore_brm5_time_turf.RData")
+load(file = "scripts/models/moore_brm6_time_concrete.RData")
+load(file = "scripts/models/moore_brm7_time_PCA.RData")
+```
+
+# loo (time)
+
+```{r}
+#Using loo compare, lower value is better
+l_brm <- moore_brm1_time |> loo()
+l_wave <- moore_brm2_time_wave|> loo()
+l_Ub <- moore_brm3_time_Ub |> loo()
+l_current <- moore_brm4_time_current |> loo()
+l_turf <- moore_brm5_time_turf|> loo()
+l_concrete <- moore_brm6_time_concrete|> loo()
+l_PCA <- moore_brm7_time_PCA|> loo()
+
+looic(moore_brm1_time)           #  LOOIC: 1107.86 [34.06]
+looic(moore_brm2_time_wave)     #  LOOIC: 1108.62   [34.20]
+looic(moore_brm3_time_Ub)      #  LOOIC: 1108.24  [34.17]
+looic(moore_brm4_time_current)  #  LOOIC: 1108.36 [34.05] 
+looic(moore_brm5_time_turf)      #  LOOIC: 1107.98   [34.20]
+looic(moore_brm6_time_concrete)       #  LOOIC: 1108.53   [34.18]
+looic(moore_brm7_time_PCA)       #  LOOIC: 1109.02   [34.31]
+
+loo_compare(l_brm, l_current, l_Ub, l_wave, l_turf, l_concrete, l_PCA)
+```
+
+**NOTES ON THIS:** Prefer the model with the lower LOOIC, as it suggests better expected out-of-sample predictive performance. However, consider the uncertainty (SE) around these estimates. Significance of Differences: Look at the differences in LOOIC and their standard errors. A rule of thumb is that a difference greater than twice its standard error might be considered substantial, but this is not a strict threshold. If two models have similar LOOIC values, the simpler model (the one with fewer parameters) is typically preferred due to the principle of parsimony. This is not directly shown in the loo_compare() output but is an important consideration when interpreting results.
+
+### brm8- Random effects FINAL TIMEPOINT
+
+```{r}
+moore_form_t6 <- bf(SurvDev ~ (1|Site), family = bernoulli(link='logit'))
+
+priors <- prior(normal(0, 1.7), class = "Intercept") +
+    prior(student_t(3, 0, 1.5), class = 'sd')
+
+moore_brm8_t6 <- brm(moore_form_t6,
                  data=moore_t5,
                  prior = priors,
                  sample_prior = 'yes',
@@ -290,51 +486,19 @@ moore_brm <- brm(moore_form,
                 backend = "rstan")
 
 # To save the model use >> 
-#save(moore_brm, file = "scripts/models/moore_brm.RData")
+#save(moore_brm8_t6, file = "scripts/models/moore_brm8_t6.RData")
 ```
 
-### brm- speed
+### brm9- t6- Wave
 
 ```{r}
-moore_brm_speed <- brm(moore_form_speed,
-                 data=moore_t5,
-                 prior = priors_speed,
-                 sample_prior = 'yes',
-                 iter = 5000,
-                 warmup = 1000,
-                 chains = 3, cores = 3,
-                 thin = 5,
-                 refresh = 0,
-                 control = list(adapt_delta = 0.9),
-                 backend = "rstan")
+moore_form_t6_wave <-  bf(SurvDev ~ WaveEnergyLevel + (1|Site), family = bernoulli(link='logit'))
 
-# Save the model
-#save(moore_brm_speed, file = "scripts/models/moore_brm_speed.RData")
-```
+priors_wave <- prior(normal(0, 1.7), class = "Intercept") +
+  prior(normal(0,1), class = "b")  +
+   prior(student_t(3, 0, 1.5), class = 'sd')
 
-### brm- Ub
-
-```{r}
-moore_brm_Ub <- brm(moore_form_Ub,
-                 data=moore_t5,
-                 prior = priors_Ub,
-                 sample_prior = 'yes',
-                 iter = 5000,
-                 warmup = 1000,
-                 chains = 3, cores = 3,
-                 thin = 5,
-                 refresh = 0,
-                 control = list(adapt_delta = 0.9),
-                backend = "rstan")
-
-# Save the model
-#save(moore_brm_Ub, file = "scripts/models/moore_brm_Ub.RData")
-```
-
-### brm- wave
-
-```{r}
-moore_brm_wave <- brm(moore_form_Wave,
+moore_brm9_t6_wave <- brm(moore_form_t6_wave,
                  data=moore_t5,
                  prior = priors_wave,
                  sample_prior = 'yes',
@@ -346,14 +510,70 @@ moore_brm_wave <- brm(moore_form_Wave,
                  control = list(adapt_delta = 0.99),
                 backend = "rstan")
 
-# Save the model
-#save(moore_brm_wave, file = "scripts/models/moore_brm_wave.RData")
+# To save the model use >> 
+#save(moore_brm9_t6_wave, file = "scripts/models/moore_brm9_t6_wave.RData")
 ```
 
-### brm- turf
+### brm10- t6- Ub
 
 ```{r}
-moore_brm_turf <- brm(moore_form_turf,
+moore_form_t6_Ub <-    bf(SurvDev ~  Ub_avrg +         (1|Site), family = bernoulli(link='logit'))
+
+priors_Ub <- prior(normal(0, 1.7), class = "Intercept") +
+  prior(normal(0,6), class = "b")  +
+   prior(student_t(3, 0, 1.5), class = 'sd')
+
+moore_brm10_t6_Ub <- brm(moore_form_t6_Ub,
+                 data=moore_t5,
+                 prior = priors_Ub,
+                 sample_prior = 'yes',
+                 iter = 5000,
+                 warmup = 1000,
+                 chains = 3, cores = 3,
+                 thin = 5,
+                 refresh = 0,
+                 control = list(adapt_delta = 0.99),
+                 backend = "rstan")
+
+# Save the model
+#save(moore_brm10_t6_Ub, file = "scripts/models/moore_brm10_t6_Ub.RData")
+```
+
+### brm11- t6- current
+
+```{r}
+moore_form_t6_current <-    bf(SurvDev ~  median_speed +         (1|Site), family = bernoulli(link='logit'))
+
+priors_speed <- prior(normal(0, 1.7), class = "Intercept") +
+  prior(normal(0,40), class = "b")  +
+   prior(student_t(3, 0, 1.5), class = 'sd')
+
+moore_brm11_t6_current <- brm(moore_form_t6_current,
+                 data=moore_t5,
+                 prior = priors_speed,
+                 sample_prior = 'yes',
+                 iter = 5000,
+                 warmup = 1000,
+                 chains = 3, cores = 3,
+                 thin = 5,
+                 refresh = 0,
+                 control = list(adapt_delta = 0.99),
+                 backend = "rstan")
+
+# Save the model
+#save(moore_brm11_t6_current, file = "scripts/models/moore_brm11_t6_current.RData")
+```
+
+### brm12 - t6- turf
+
+```{r}
+moore_form_t6_turf <-    bf(SurvDev ~  sedturf_t5 +         (1|Site), family = bernoulli(link='logit'))
+
+priors_turf <- prior(normal(0, 1.7), class = "Intercept") +
+  prior(normal(0,5), class = "b")  +
+   prior(student_t(3, 0, 1.5), class = 'sd')
+
+moore_brm12_t6_turf <- brm(moore_form_t6_turf,
                  data=moore_t5,
                  prior = priors_turf,
                  sample_prior = 'yes',
@@ -362,17 +582,24 @@ moore_brm_turf <- brm(moore_form_turf,
                  chains = 3, cores = 3,
                  thin = 5,
                  refresh = 0,
-                 control = list(adapt_delta = 0.9),
-                backend = "rstan")
+                 control = list(adapt_delta = 0.99),
+                 backend = "rstan")
 
-# Save the model 
-#save(moore_brm_turf, file = "scripts/models/moore_brm_turf.RData")
+# Save the model
+
+#save(moore_brm12_t6_turf, file = "scripts/models/moore_brm12_t6_turf.RData")
 ```
 
-### brm- concrete
+### brm13 - t6- concrete
 
 ```{r}
-moore_brm_concrete <- brm(moore_form_concrete,
+moore_form_t6_concrete <-    bf(SurvDev ~  sedconcrete_t5 +         (1|Site), family = bernoulli(link='logit'))
+
+priors_concrete <- prior(normal(0, 1.7), class = "Intercept") +
+  prior(normal(0,5), class = "b")  +
+   prior(student_t(3, 0, 1.5), class = 'sd')
+
+moore_brm13_t6_concrete  <- brm(moore_form_t6_concrete,
                  data=moore_t5,
                  prior = priors_concrete,
                  sample_prior = 'yes',
@@ -381,64 +608,70 @@ moore_brm_concrete <- brm(moore_form_concrete,
                  chains = 3, cores = 3,
                  thin = 5,
                  refresh = 0,
-                 control = list(adapt_delta = 0.9),
-                backend = "rstan")
+                 control = list(adapt_delta = 0.99),
+                 backend = "rstan")
 
-# Save the model 
-#save(moore_brm_concrete, file = "scripts/models/moore_brm_concrete.RData")
+# Save the model
+#save(moore_brm13_t6_concrete, file = "scripts/models/moore_brm13_t6_concrete.RData")
 ```
 
-### brm- PC1
+### brm14- t6 - habitat
 
 ```{r}
-moore_brm_PC1 <- brm(moore_form_PC1,
+moore_form_t6_PCA <-    bf(SurvDev ~  PC1 + PC2 + (1|Site), family = bernoulli(link='logit'))
+
+priors_PCA <- prior(normal(0, 1.7), class = "Intercept") +
+  prior(normal(0,8), class = "b")  +
+   prior(student_t(3, 0, 1.5), class = 'sd')
+
+moore_brm14_t6_PCA  <- brm(moore_form_t6_PCA,
                  data=moore_t5,
-                 prior = priors_PC1,
+                 prior = priors_PCA,
                  sample_prior = 'yes',
                  iter = 5000,
                  warmup = 1000,
                  chains = 3, cores = 3,
                  thin = 5,
                  refresh = 0,
-                 control = list(adapt_delta = 0.9),
-                backend = "rstan")
+                 control = list(adapt_delta = 0.99),
+                 backend = "rstan")
 
-# Save the model 
-#save(moore_brm_PC1, file = "scripts/models/moore_brm_PC1.RData")
+# Save the model
+#save(moore_brm14_t6_PCA, file = "scripts/models/moore_brm14_t6_PCA.RData")
 ```
 
-### Load models
+# Load models (t6)
 
 ```{r}
-load(file = "scripts/models/moore_brm.RData")
-load(file = "scripts/models/moore_brm_speed.RData")
-load(file = "scripts/models/moore_brm_Ub.RData")
-load(file = "scripts/models/moore_brm_wave.RData")
-load(file = "scripts/models/moore_brm_turf.RData")
-load(file = "scripts/models/moore_brm_concrete.RData")
-load(file = "scripts/models/moore_brm_PC1.RData")
+load(file = "scripts/models/moore_brm8_t6.RData")
+load(file = "scripts/models/moore_brm9_t6_wave.RData")
+load(file = "scripts/models/moore_brm10_t6_Ub.RData")
+load(file = "scripts/models/moore_brm11_t6_current.RData")
+load(file = "scripts/models/moore_brm12_t6_turf.RData")
+load(file = "scripts/models/moore_brm13_t6_concrete.RData")
+load(file = "scripts/models/moore_brm14_t6_PCA.RData")
 ```
 
-### loo
+# loo (t6)
 
 ```{r}
-#Using loo compare, lower value is better
-l_brm <- moore_brm |> loo()
-l_speed <- moore_brm_speed|> loo()
-l_Ub <- moore_brm_Ub |> loo()
-l_wave <- moore_brm_wave |> loo()
-l_turf <- moore_brm_turf|> loo()
-l_concrete <- moore_brm_concrete|> loo()
-l_PC1 <- moore_brm_PC1|> loo()
+l_brm_t6 <- moore_brm8_t6 |> loo()
+l_wave_t6 <- moore_brm9_t6_wave|> loo()
+l_Ub_t6 <- moore_brm10_t6_Ub |> loo()
+l_current_t6 <- moore_brm11_t6_current |> loo()
+l_turf_t6 <- moore_brm12_t6_turf|> loo()
+l_concrete_t6 <- moore_brm13_t6_concrete|> loo()
+l_PCA_t6 <- moore_brm14_t6_PCA|> loo()
 
-looic(moore_brm)           # LOOIC: 268.24 [13.73]
-looic(moore_brm_speed)     # LOOIC: 263.63 [13.58]
-looic(moore_brm_wave)      # LOOIC: 266.09 [13.76]
-looic(moore_brm_concrete)  # LOOIC: 265.66 [13.62]
-looic(moore_brm_turf)      # LOOIC: 265.17 [13.66]
-looic(moore_brm_PC1)       # LOOIC: 265.17 [13.66]
+looic(moore_brm8_t6)           #  LOOIC: 261.20   [15.93]
+looic(moore_brm9_t6_wave)     #  LOOIC: 262.38   [16.18]
+looic(moore_brm10_t6_Ub)      #  LOOIC: 261.86   [15.96]
+looic(moore_brm11_t6_current)  #  LOOIC: 262.17   [16.19]
+looic(moore_brm12_t6_turf)      #  LOOIC: 262.56   [16.11]
+looic(moore_brm13_t6_concrete)       #  LOOIC: 262.60   [16.21]
+looic(moore_brm14_t6_PCA)       #  LOOIC: 265.15   [16.39]
 
-loo_compare(l_brm, l_speed, l_Ub, l_wave, l_turf, l_concrete, l_PC1)
+loo_compare(l_brm_t6, l_wave_t6, l_Ub_t6, l_current_t6, l_turf_t6, l_concrete_t6, l_PCA_t6)
 ```
 
 NOTES ON THIS: Prefer the model with the lower LOOIC, as it suggests better expected out-of-sample predictive performance. However, consider the uncertainty (SE) around these estimates. Significance of Differences: Look at the differences in LOOIC and their standard errors. A rule of thumb is that a difference greater than twice its standard error might be considered substantial, but this is not a strict threshold. If two models have similar LOOIC values, the simpler model (the one with fewer parameters) is typically preferred due to the principle of parsimony. This is not directly shown in the loo_compare() output but is an important consideration when interpreting results.
@@ -778,7 +1011,53 @@ print(Fig2)
 
 # Interpretation
 
-### brm
+### brm t6
+
+```{r}
+moore_brm8_t6 |> summary()
+moore_brm9_t6_wave|> summary()
+moore_brm10_t6_Ub|> summary()
+moore_brm11_t6_current|> summary()
+moore_brm12_t6_turf|> summary()
+moore_brm13_t6_concrete|> summary()
+moore_brm14_t6_PCA|> summary()
+```
+
+```{r}
+moore_brm8_t6 |> r2_loo()
+moore_brm9_t6_wave|> r2_loo()
+moore_brm10_t6_Ub|> r2_loo()
+moore_brm11_t6_current|> r2_loo()
+moore_brm12_t6_turf|> r2_loo()
+moore_brm13_t6_concrete|> r2_loo()
+moore_brm14_t6_PCA|> r2_loo()
+
+```
+
+### Site specific effects using ranef()
+
+```{r}
+#moore_form_t6 <- bf(SurvDev ~ (1|Site), family = bernoulli(link='logit'))
+#moore_brm8_t6
+
+moore_site_effects_brm8 <- ranef(moore_brm8_t6)$Site
+moore_site_effects_brm8
+
+```
+
+**Ranef**: compute random effects for each site in the model \`moore_brm8_t6\`. These random effects represent deviations of each site from the overall intercept.
+
+\- Intercept: the baseline or average effect across all sites.
+
+\- Estimate: estimated deviation of each site from the overall intercept.
+
+\- Est.Error: standard error associated with each estimate.
+
+\- Q2.5-Q97.5: CI interval for the estimate.
+
+These random effects can be interpreted as how much each site's survival rate deviates from the average survival rate across all sites after accounting for other fixed and random effects in the model. Positive values indicate that the site's survival rate is higher than the average, while negative values indicate lower survival rates. The credible intervals give you a sense of the uncertainty associated with these estimates.
+
+From this we can see that only **M1A** is different from M3A, M3B and M4B and M5A.
 
 ### speed
 

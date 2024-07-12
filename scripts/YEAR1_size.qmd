@@ -1,0 +1,633 @@
+---
+title: "YEAR1 Size"
+author: "Sas"
+format: html
+editor: visual
+---
+
+# Preparations
+
+Load the necessary libraries
+
+```{r}
+#| label: libraries
+#| output: false
+#| eval: true
+#| warning: false
+#| message: false
+#| cache: false
+
+library(tidyverse)  #for data wrangling etc
+library(rstanarm)   #for fitting models in STAN
+#library(cmdstanr)   #for cmdstan --> does not work on AIMS computers
+library(brms)       #for fitting models in STAN
+library(standist)   #for exploring distributions
+library(coda)       #for diagnostics
+library(bayesplot)  #for diagnostics
+library(ggmcmc)     #for MCMC diagnostics
+library(DHARMa)     #for residual diagnostics
+library(rstan)      #for interfacing with STAN
+library(emmeans)    #for marginal means etc
+library(broom)      #for tidying outputs
+library(tidybayes)  #for more tidying outputs
+library(HDInterval) #for HPD intervals
+library(ggeffects)  #for partial plots
+library(broom.mixed)#for summarising models
+library(posterior)  #for posterior draws
+library(ggeffects)  #for partial effects plots
+library(patchwork)  #for multi-panel figures
+library(bayestestR) #for ROPE
+library(see)        #for some plots
+library(readxl)     #to load excel documents
+library(easystats)     #framework for stats, modelling and visualisation
+#library(INLA)       #for approximate Bayes
+library(openxlsx)    # to write excel documents
+#library(INLAutils)  #for additional INLA outputs
+theme_set(theme_grey()) #put the default ggplot theme back
+library(lme4)
+source('helperFunctions.R')
+```
+
+# Read in the data
+
+```{r}
+survival <- read_excel("data/YEAR1_Survival.xlsx", 
+    col_types = c("numeric", "skip", "text", 
+        "skip", "skip", "numeric", "skip", 
+        "text", "text", "numeric", "skip", 
+        "text", "numeric", "text", "numeric", 
+        "numeric", "numeric", "numeric", 
+        "numeric"), na = "na")
+
+environment <- read_excel ("data/YEAR1 Benthic Environment ReefDev.xlsx", na="na")
+```
+
+# Data tidying
+
+**Create new column for size and remove empty rows with no size data**
+
+```{r}
+survival_size <- survival |>
+  mutate(Size = (LinLength_mm * PerpLenght_mm * Height_mm)/1000,
+         Size_log = log(Size + 1)) # Adding 1 to avoid log(0) 
+```
+
+**Separate by Reef**
+
+Moore:
+
+```{r}
+moore_surv <- survival_size |> filter (Reef == "Moore",
+                                  Census =="t6")  
+
+moore_env <- environment |> 
+  filter (Reef == "Moore") |>
+  select(-c(Reef1, Device_ID))
+```
+
+Davies:
+
+```{r}
+davies_surv <- survival_size |> filter (Reef == "Davies",
+                                   Census == "t6") 
+
+davies_env <- environment |> 
+  filter (Reef == "Davies") |>
+  select(-c(Reef1, Device_ID))
+```
+
+Heron:
+
+```{r}
+heron_surv <- survival_size |> filter (Reef == "Heron",
+                                  Census == "t3") 
+
+heron_env <- environment |> 
+  filter (Reef == "Heron") |>
+  select(-c(Reef1, Device_ID))
+```
+
+**Merge survival and environment**
+
+```{r}
+moore <- merge(moore_env, moore_surv, by = c("Reef", "Site", "ReefDev"), all = TRUE)
+davies <- merge(davies_env, davies_surv, by = c("Reef", "Site", "ReefDev"), all = TRUE)
+heron <- merge(heron_env, heron_surv, by = c("Reef", "Site", "ReefDev"), all = TRUE)
+```
+
+**Free up space**
+
+```{r}
+#free up space
+remove(moore_surv, moore_env)
+remove(davies_surv, davies_env)
+remove(heron_surv, heron_env)
+remove(survival_size)
+```
+
+**Remove rows with missing values**
+
+Moore:
+
+```{r}
+moore$SurvDev <- as.numeric(moore$SurvDev)
+moore <- moore[complete.cases(moore$Size),  ]
+moore <- moore |> select(-c(sedturf_t2, sedconcrete_t2))
+```
+
+Davies:
+
+```{r}
+davies$SurvDev <- as.numeric(davies$SurvDev)
+davies <- davies[complete.cases(davies$Size),  ]
+```
+
+Heron:
+
+```{r}
+heron$SurvDev <- as.numeric(heron$SurvDev)
+heron <- heron[complete.cases(heron$Size),  ]
+heron <- heron |> select(-c(sedturf_t5, sedconcrete_t5))
+```
+
+Fill in missing values for the environmental variables (since they are the same for each device within a site). However, not PC1 and PC2 values, these are device specific (because community composition was identified around each specific device), thus missing values of PC1 and PC2 cannot be filled in and need to be removed from analyses when running regressions for habitat.
+
+Moore:
+
+```{r}
+moore <- moore |>
+  group_by(Site) |>
+  mutate(
+    Ub_avrg = ifelse(is.na(Ub_avrg), max(Ub_avrg, na.rm=TRUE), Ub_avrg),
+    median_speed = ifelse(is.na(median_speed), max(median_speed, na.rm = TRUE), median_speed),
+    percentile_10 =  ifelse(is.na(percentile_10), max(percentile_10, na.rm = TRUE), percentile_10),
+    percentile_90 =  ifelse(is.na(percentile_90), max(percentile_90, na.rm = TRUE), percentile_90),
+    range  =  ifelse(is.na(range), max(range, na.rm = TRUE), range),
+    mean_temp = ifelse(is.na(mean_temp), max(mean_temp, na.rm = TRUE), mean_temp),
+    sedturf_t5 =  ifelse(is.na(sedturf_t5), max(sedturf_t5, na.rm = TRUE), sedturf_t5),
+    sedconcrete_t5 =  ifelse(is.na(sedconcrete_t5), max(sedconcrete_t5, na.rm = TRUE), sedconcrete_t5)
+  ) |>
+  ungroup()
+```
+
+Davies:
+
+```{r}
+davies <- davies |>
+  group_by(Site) |>
+  mutate(
+    Ub_avrg = ifelse(is.na(Ub_avrg), max(Ub_avrg, na.rm=TRUE), Ub_avrg),
+    median_speed = ifelse(is.na(median_speed), max(median_speed, na.rm = TRUE), median_speed),
+    percentile_10 =  ifelse(is.na(percentile_10), max(percentile_10, na.rm = TRUE), percentile_10),
+    percentile_90 =  ifelse(is.na(percentile_90), max(percentile_90, na.rm = TRUE), percentile_90),
+    range  =  ifelse(is.na(range), max(range, na.rm = TRUE), range),
+    mean_temp = ifelse(is.na(mean_temp), max(mean_temp, na.rm = TRUE), mean_temp),
+    sedturf_t2 =  ifelse(is.na(sedturf_t2), max(sedturf_t2, na.rm = TRUE), sedturf_t2),
+    sedconcrete_t2 =  ifelse(is.na(sedconcrete_t2), max(sedconcrete_t2, na.rm = TRUE), sedconcrete_t2),
+    sedturf_t5 =  ifelse(is.na(sedturf_t5), max(sedturf_t5, na.rm = TRUE), sedturf_t5),
+    sedconcrete_t5 =  ifelse(is.na(sedconcrete_t5), max(sedconcrete_t5, na.rm = TRUE), sedconcrete_t5)
+    ) |>
+  ungroup()
+```
+
+Heron:
+
+```{r}
+heron <- heron |>
+  group_by(Site) |>
+  mutate(
+    Ub_avrg = ifelse(is.na(Ub_avrg), max(Ub_avrg, na.rm=TRUE), Ub_avrg),
+    median_speed = ifelse(is.na(median_speed), max(median_speed, na.rm = TRUE), median_speed),
+    percentile_10 =  ifelse(is.na(percentile_10), max(percentile_10, na.rm = TRUE), percentile_10),
+    percentile_90 =  ifelse(is.na(percentile_90), max(percentile_90, na.rm = TRUE), percentile_90),
+    range  =  ifelse(is.na(range), max(range, na.rm = TRUE), range),
+    mean_temp = ifelse(is.na(mean_temp), max(mean_temp, na.rm = TRUE), mean_temp),
+    sedturf_t2 =  ifelse(is.na(sedturf_t2), max(sedturf_t2, na.rm = TRUE), sedturf_t2),
+    sedconcrete_t2 =  ifelse(is.na(sedconcrete_t2), max(sedconcrete_t2, na.rm = TRUE), sedconcrete_t2)
+    ) |>
+  ungroup()
+```
+
+# GLM
+
+### Moore
+
+Make Site and ReefDev (id) as factors
+
+```{r}
+moore$Site <- as.factor(moore$Site)
+moore$ReefDev<- as.factor(moore$ReefDev)
+```
+
+Cut median speed in bins to make it a factor
+
+```{r}
+# Decide on the number of bins
+num_bins <- 10  # You can adjust this number based on your needs
+
+# Convert median_speed to a categorical variable using cut
+moore$median_speed_cat <- cut(moore$median_speed, breaks = num_bins, labels = FALSE)
+moore$median_speed_cat <- as.factor(moore$median_speed_cat)
+
+# Check the result
+table(moore$median_speed_cat)
+```
+
+```{r}
+moore_lmer1 <- lmer(Size ~ (1|Site), data=moore)
+moore_lmer2 <- lmer(Size ~ Ub_avrg + (1|Site), data=moore)
+moore_lmer3 <- lmer(Size ~ WaveEnergyLevel + (1|Site), data=moore) 
+moore_lmer4 <- lmer(Size ~ median_speed + (1|Site), data=moore)
+moore_lmer4cat <- lmer(Size ~ median_speed_cat + (1|Site), data=moore)
+moore_lmer4log <- lmer(Size_log ~ median_speed + (1|Site), data = moore)
+moore_lmer5 <- lmer(Size ~ sedturf_t5 + (1|Site), data=moore) 
+
+summary(moore_lmer1)
+summary(moore_lmer2)
+summary(moore_lmer3)
+summary(moore_lmer4)
+summary(moore_lmer4cat)
+summary(moore_lmer4log)
+summary(moore_lmer5)
+
+AIC(moore_lmer1, moore_lmer2, moore_lmer3, moore_lmer4,moore_lmer4cat, moore_lmer4log, moore_lmer5)
+```
+
+Vizualize lmer using Size as predictor
+
+```{r}
+#plot with raw data
+ggplot(data=moore, aes(y = Size, x = median_speed)) + 
+  geom_point()+
+  geom_smooth(method="lm")
+
+#plot with raw data and poly smoothner
+ggplot(data=moore, aes(y = Size, x = median_speed)) + 
+  geom_point()+
+   geom_smooth(method="lm", formula = y~poly(x,3), se = FALSE)
+
+#plot with speed as categorical data
+ggplot(data=moore, aes(y = Size, x = median_speed_cat)) + 
+  geom_point()
+
+#plot wiht speed log transformed
+ggplot(data=moore, aes(y = Size_log, x = median_speed)) + 
+  geom_point()+
+   geom_smooth(method="lm")
+```
+
+Calculate marginal means
+
+```{r}
+library(emmeans)
+marginal_means<- emmeans(moore_lmer4, ~median_speed)
+marginal_means_df <- as.data.frame(marginal_means)
+
+head(marginal_means_df)
+```
+
+Calculate marginal means for the categorical variable
+
+```{r}
+marginal_means_cat <- emmeans(moore_lmer4cat, ~ median_speed_cat)
+marginal_means_cat_df <- as.data.frame(marginal_means_cat)
+
+# Inspect the marginal means dataframe
+head(marginal_means_cat_df)
+
+```
+
+Calculate marginal means for log transformed response variable
+
+```{r}
+marginal_means_log<- emmeans(moore_lmer4log, ~median_speed)
+marginal_means_log_df <- as.data.frame(marginal_means)
+
+head(marginal_means_df)
+```
+
+Vizualize marginal means with median speed as a continuous variable
+
+```{r}
+# Plot raw data with marginal means - RAW DATA SCALE
+ggplot() +
+  geom_point(data = moore, aes(x = median_speed, y = Size)) +
+  geom_line(data = marginal_means_df, aes(x = median_speed, y = emmean, group = 1), size = 1) +
+  geom_pointrange(data = marginal_means_df, aes(x = median_speed, y = emmean, ymin = lower.CL, ymax = upper.CL), size = 1, color = "blue") +
+  labs(title = "Raw Data and Marginal Means: Size vs. Median Speed - continuous ",
+       x = "Median Flow velocity (m/s)",
+       y = "Size") +
+  theme_modern()
+
+# Plot raw data with marginal means - LOG TRANSFORMED SCALE
+ggplot() +
+  geom_point(data = moore, aes(x = median_speed, y = Size_log), alpha = 0.3) +
+  geom_line(data = marginal_means_log_df, aes(x = median_speed, y = emmean, group = 1), size = 1) +
+  geom_pointrange(data = marginal_means_log_df, aes(x = median_speed, y = emmean, ymin = lower.CL, ymax = upper.CL), size = 1, color = "blue") +
+  labs(title = "Raw Data and Marginal Means: Log(Size) vs. Median Speed (Continuous)",
+       x = "Median Flow velocity (m/s)",
+       y = "log(Size)") +
+  theme_modern()
+
+```
+
+And with median speed as a categorical variable
+
+```{r}
+# Plot raw data with marginal means and confidence intervals for categorical variable
+ggplot() +
+  geom_point(data = moore, aes(x = median_speed_cat, y = Size), alpha = 0.3) +  # Raw data points with transparency
+  geom_line(data = marginal_means_cat_df, aes(x = median_speed_cat, y = emmean, group = 1), color = "blue", size = 1) +
+  geom_errorbar(data = marginal_means_cat_df, aes(x = median_speed_cat, ymin = lower.CL, ymax = upper.CL), width = 0.2, color = "blue") +
+  theme_minimal() +
+  labs(title = "Raw Data and Marginal Means: Size vs. Median Speed (Categorical)",
+       x = "Median Speed (Categorical)",
+       y = "Size") +
+  theme_modern()
+```
+
+### Davies
+
+Make Site and ReefDev (id) as factors
+
+```{r}
+davies$Site <- as.factor(davies$Site) 
+davies$ReefDev<- as.factor(davies$ReefDev)
+```
+
+Cut median speed in bins to make it a factor
+
+```{r}
+# Decide on the number of bins 
+num_bins <- 10
+
+# Convert median_speed to a categorical variable using cut 
+davies$median_speed_cat <- cut(davies$median_speed, breaks = num_bins, labels = FALSE) 
+davies$median_speed_cat <- as.factor(davies$median_speed_cat)  
+
+# Check the result 
+table(davies$median_speed_cat)
+```
+
+```{r}
+davies_lmer1 <- lmer(Size ~ (1|Site), data=davies) 
+davies_lmer2 <- lmer(Size ~ Ub_avrg + (1|Site), data=davies) 
+davies_lmer3 <- lmer(Size ~ WaveEnergyLevel + (1|Site), data=davies)  
+davies_lmer4 <- lmer(Size ~ median_speed + (1|Site), data=davies) 
+davies_lmer4cat <- lmer(Size ~ median_speed_cat + (1|Site), data=davies) 
+davies_lmer4log <- lmer(Size_log ~ median_speed + (1|Site), data = davies) 
+davies_lmer5 <- lmer(Size ~ sedturf_t5 + (1|Site), data=davies)  
+
+summary(davies_lmer1) 
+summary(davies_lmer2) 
+summary(davies_lmer3) 
+summary(davies_lmer4) 
+summary(davies_lmer4cat) 
+summary(davies_lmer4log) 
+summary(davies_lmer5)  
+
+AIC(davies_lmer1, davies_lmer2, davies_lmer3, davies_lmer4,davies_lmer4cat, davies_lmer4log, davies_lmer5)
+```
+
+Vizualize lmer using Size as predictor
+
+```{r}
+#plot with raw data 
+ggplot(data=davies, aes(y = Size, x = median_speed)) +    
+  geom_point()+   
+  geom_smooth(method="lm")  
+
+#plot with raw data and poly smoothner 
+ggplot(data=davies, aes(y = Size, x = median_speed)) +    
+  geom_point()+    
+  geom_smooth(method="lm", formula = y~poly(x,3), se = FALSE)  
+
+#plot with speed as categorical data 
+ggplot(data=davies, aes(y = Size, x = median_speed_cat)) +    
+  geom_point()  
+
+#plot wiht speed log transformed 
+ggplot(data=davies, aes(y = Size_log, x = median_speed)) +   
+  geom_point()+    
+  geom_smooth(method="lm")
+```
+
+Calculate marginal means
+
+```{r}
+library(emmeans) 
+marginal_means<- emmeans(davies_lmer4, ~median_speed) 
+marginal_means_df <- as.data.frame(marginal_means) 
+head(marginal_means_df)
+```
+
+Calculate marginal means for the categorical variable
+
+```{r}
+marginal_means_cat <- emmeans(davies_lmer4cat, ~ median_speed_cat) 
+marginal_means_cat_df <- as.data.frame(marginal_means_cat)  
+
+# Inspect the marginal means dataframe 
+head(marginal_means_cat_df) 
+```
+
+Calculate marginal means for log transformed response variable
+
+```{r}
+marginal_means_log<- emmeans(davies_lmer4log, ~median_speed) 
+marginal_means_log_df <- as.data.frame(marginal_means)  
+head(marginal_means_df)
+```
+
+Vizualize marginal means with median speed as a continuous variable
+
+```{r}
+# Plot raw data with marginal means - RAW DATA SCALE 
+ggplot() +   
+  geom_point(data = davies, aes(x = median_speed, y = Size)) +   
+  geom_line(data = marginal_means_df, 
+            aes(x = median_speed, y = emmean, group = 1), 
+            size = 1) +   
+  geom_pointrange(data = marginal_means_df, 
+                  aes(x = median_speed, y = emmean, ymin = lower.CL, ymax = upper.CL), 
+                  size = 1, 
+                  color = "blue") +   
+  labs(title = "Raw Data and Marginal Means: Size vs. Median Speed - continuous ",        
+       x = "Median Flow velocity (m/s)",        
+       y = "Size") +   
+  theme_modern()  
+
+# Plot raw data with marginal means - LOG TRANSFORMED SCALE 
+ggplot() +   
+  geom_point(data = davies, 
+             aes(x = median_speed, y = Size_log), 
+             alpha = 0.3) +   
+  geom_line(data = marginal_means_log_df, 
+            aes(x = median_speed, y = emmean, group = 1), 
+            size = 1) +   
+  geom_pointrange(data = marginal_means_log_df, 
+                  aes(x = median_speed, y = emmean, ymin = lower.CL, ymax = upper.CL), 
+                  size = 1, 
+                  color = "blue") +  
+  labs(title = "Raw Data and Marginal Means: Log(Size) vs. Median Speed (Continuous)",        
+       x = "Median Flow velocity (m/s)",       
+       y = "log(Size)") +  
+  theme_modern() 
+```
+
+And with median speed as a categorical variable
+
+```{r}
+# Plot raw data with marginal means and confidence intervals for categorical variable 
+ggplot() +   
+  geom_point(data = davies, aes(x = median_speed_cat, y = Size), alpha = 0.3) +  # Raw data points with transparency   
+  geom_line(data = marginal_means_cat_df, aes(x = median_speed_cat, y = emmean, group = 1), color = "blue", size = 1) + 
+  geom_errorbar(data = marginal_means_cat_df, aes(x = median_speed_cat, ymin = lower.CL, ymax = upper.CL), width = 0.2, color = "blue") +   
+  theme_minimal() +   
+  labs(title = "Raw Data and Marginal Means: Size vs. Median Speed (Categorical)",        
+       x = "Median Speed (Categorical)",        
+       y = "Size") +   
+  theme_modern()
+```
+
+### Heron
+
+Make Site and ReefDev (id) as factors
+
+```{r}
+heron$Site <- as.factor(heron$Site) 
+heron$ReefDev<- as.factor(heron$ReefDev)
+```
+
+Cut median speed in bins to make it a factor
+
+```{r}
+# Decide on the number of bins 
+num_bins <- 10  # You can adjust this number based on your needs  
+
+# Convert median_speed to a categorical variable using cut 
+heron$median_speed_cat <- cut(heron$median_speed, breaks = num_bins, labels = FALSE) 
+heron$median_speed_cat <- as.factor(heron$median_speed_cat)  
+
+# Check the result 
+table(heron$median_speed_cat)
+```
+
+```{r}
+heron_lmer1 <- lmer(Size ~ (1|Site), data=heron) 
+heron_lmer2 <- lmer(Size ~ Ub_avrg + (1|Site), data=heron) 
+heron_lmer3 <- lmer(Size ~ WaveEnergyLevel + (1|Site), data=heron)  
+heron_lmer4 <- lmer(Size ~ median_speed + (1|Site), data=heron) 
+heron_lmer4cat <- lmer(Size ~ median_speed_cat + (1|Site), data=heron) 
+heron_lmer4log <- lmer(Size_log ~ median_speed + (1|Site), data = heron) 
+heron_lmer5 <- lmer(Size ~ sedturf_t2 + (1|Site), data=heron)
+heron_lmer6 <- lmer(Size ~ sedconcrete_t2 + (1|Site), data=heron)   
+
+summary(heron_lmer1) 
+summary(heron_lmer2) 
+summary(heron_lmer3) 
+summary(heron_lmer4) 
+summary(heron_lmer4cat) 
+summary(heron_lmer4log) 
+summary(heron_lmer5)
+summary(heron_lmer6) 
+
+AIC(heron_lmer1, heron_lmer2, heron_lmer3, heron_lmer4,heron_lmer4cat, heron_lmer4log, heron_lmer5, heron_lmer6)
+```
+
+Vizualize lmer using Size as predictor
+
+```{r}
+#plot with raw data 
+ggplot(data=heron, aes(y = Size, x = median_speed)) +    
+  geom_point()+   
+  geom_smooth(method="lm")  
+
+#plot with raw data and poly smoothner 
+ggplot(data=heron, aes(y = Size, x = median_speed)) +    
+  geom_point()+    
+  geom_smooth(method="lm", formula = y~poly(x,3), se = FALSE)  
+
+#plot with speed as categorical data 
+ggplot(data=heron, aes(y = Size, x = median_speed_cat)) +    
+  geom_point()  
+
+#plot wiht speed log transformed 
+ggplot(data=heron, aes(y = Size_log, x = median_speed)) +    
+  geom_point()+    
+  geom_smooth(method="lm")
+```
+
+Calculate marginal means
+
+```{r}
+library(emmeans) 
+marginal_means<- emmeans(heron_lmer4, ~median_speed) 
+marginal_means_df <- as.data.frame(marginal_means)  
+head(marginal_means_df)
+```
+
+Calculate marginal means for the categorical variable
+
+```{r}
+marginal_means_cat <- emmeans(heron_lmer4cat, ~ median_speed_cat) 
+marginal_means_cat_df <- as.data.frame(marginal_means_cat)  
+
+# Inspect the marginal means dataframe 
+head(marginal_means_cat_df) 
+```
+
+Calculate marginal means for log transformed response variable
+
+```{r}
+marginal_means_log<- emmeans(heron_lmer4log, ~median_speed) 
+marginal_means_log_df <- as.data.frame(marginal_means)  
+head(marginal_means_df)
+```
+
+Vizualize marginal means with median speed as a continuous variable
+
+```{r}
+# Plot raw data with marginal means - RAW DATA SCALE 
+ggplot() +   geom_point(data = heron, aes(x = median_speed, y = Size)) +  
+  geom_line(data = marginal_means_df, aes(x = median_speed, y = emmean, group = 1), size = 1) +   
+  geom_pointrange(data = marginal_means_df, aes(x = median_speed, y = emmean, ymin = lower.CL, ymax = upper.CL), size = 1, color = "blue") +  
+  labs(title = "Raw Data and Marginal Means: Size vs. Median Speed - continuous ",        
+       x = "Median Flow velocity (m/s)",        
+       y = "Size") +   
+  theme_modern()  
+
+# Plot raw data with marginal means - LOG TRANSFORMED SCALE 
+ggplot() +   
+  geom_point(data = heron, 
+             aes(x = median_speed, y = Size_log), 
+             alpha = 0.3) +   
+  geom_line(data = marginal_means_log_df, 
+            aes(x = median_speed, y = emmean, group = 1), 
+            size = 1) +  
+  geom_pointrange(data = marginal_means_log_df, 
+                  aes(x = median_speed, y = emmean, ymin = lower.CL, ymax = upper.CL), 
+                  size = 1, 
+                  color = "blue") +   
+  labs(title = "Raw Data and Marginal Means: Log(Size) vs. Median Speed (Continuous)",        
+       x = "Median Flow velocity (m/s)",        
+       y = "log(Size)") +   
+  theme_modern() 
+```
+
+And with median speed as a categorical variable
+
+```{r}
+# Plot raw data with marginal means and confidence intervals for categorical variable 
+ggplot() +   
+  geom_point(data = heron, aes(x = median_speed_cat, y = Size), alpha = 0.3) +  # Raw data points with transparency   
+  geom_line(data = marginal_means_cat_df, aes(x = median_speed_cat, y = emmean, group = 1), color = "blue", size = 1) +   
+  geom_errorbar(data = marginal_means_cat_df, aes(x = median_speed_cat, ymin = lower.CL, ymax = upper.CL), width = 0.2, color = "blue") +   
+  theme_minimal() +   
+  labs(title = "Raw Data and Marginal Means: Size vs. Median Speed (Categorical)",        
+       x = "Median Speed (Categorical)",        
+       y = "Size") +   
+  theme_modern()
+```
+
+### 

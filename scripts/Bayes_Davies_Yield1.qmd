@@ -77,10 +77,15 @@ survival <- survival |>
 ### Subset data: davies yield (device level)
 
 ```{r}
-davies_surv <- survival |> filter (Reef == "Davies",
+davies_surv_t6 <- survival |> filter (Reef == "Davies",
                              Census == "t6",
                              Tab_ID == 1) |>
   select(-c(Tab_ID, SurvTab, Spp))
+
+davies_surv <- survival |> filter (Reef == "Davies",
+                             Tab_ID == 1) |>
+  select(-c(Tab_ID, SurvTab, Spp))
+
 
 davies_env <- environment |> 
   filter (Reef == "Davies") |>
@@ -90,7 +95,11 @@ davies_env <- environment |>
 ### Merge survival and environment
 
 ```{r}
-davies_t5 <- merge(davies_env, davies_surv, by = c("Reef", "Site", "ReefDev"), all = TRUE)
+#create one dataset for final timepoint
+davies_t5 <- merge(davies_env, davies_surv_t6, by = c("Reef", "Site", "ReefDev"), all = TRUE)
+
+#create one dataset with all timepoints
+davies <- merge(davies_env, davies_surv, by = c("Reef", "Site", "ReefDev"), all = TRUE)
 
 #free up space
 remove(davies_surv, davies_env)
@@ -100,6 +109,12 @@ davies_t5$SurvDev <- as.numeric(davies_t5$SurvDev)
 davies_t5 <- davies_t5[complete.cases(davies_t5$SurvDev),  ]
 davies_t5 <- davies_t5[complete.cases(davies_t5$PC1),  ]
 davies_t5 <- davies_t5 |> select(-c(sedturf_t2, sedconcrete_t2))
+
+# Remove rows with missing values
+davies$SurvDev <- as.numeric(davies$SurvDev)
+davies <- davies[complete.cases(davies$SurvDev),  ]
+davies <- davies[complete.cases(davies$PC1),  ]
+davies <- davies |> select(-c(sedturf_t2, sedconcrete_t2))
 ```
 
 ### GLM
@@ -165,12 +180,34 @@ ggplot(data=davies_t5, aes(y = SurvDev, x = WaveEnergyLevel)) +
   geom_smooth(method="lm")
 ```
 
+```{r}
+Davies_current <- ggplot(davies_t5, aes(x = median_speed, y = SurvDev)) +
+  geom_point(position = position_jitter(width = 0.2, height = 0)) +
+  geom_smooth(method="lm") +
+  labs(title = "Davies Reef",
+       x = "In-situ current - median speed (m/s)",
+       y = "% Survival (yield)") +
+  theme_bw() +
+  ylim(0,1) +
+  theme(panel.border = element_rect(color = "black", fill = NA),
+        axis.line = element_line(color = "black"),
+        axis.text = element_text(size = 12),
+        axis.title = element_text(size = 14)) 
+
+Davies_current
+
+ggsave("Davies - Survival final census Current - yield.png", plot=Davies_current, width = 4, height = 6, dpi = 600)
+```
+
 # Brm
 
 We need to make sure that the categorical variables and the random effects are defined as factors:
 
 ```{r}
 davies_t5 <- davies_t5 |> mutate(Site = factor(Site),
+                               ReefDev = factor(ReefDev))
+
+davies <- davies |> mutate(Site = factor(Site),
                                ReefDev = factor(ReefDev))
 ```
 
@@ -179,28 +216,24 @@ davies_t5 <- davies_t5 |> mutate(Site = factor(Site),
 Logistic mixed-effects regression model with random intercepts for Site and Device:
 
 ```{r}
-davies_device <- bf(SurvDev ~ (1|Site),  family = bernoulli(link='logit'))
+davies_form <- bf(SurvDev ~ (1|Site), family = bernoulli(link='logit'))
 
-davies_form <- bf(SurvDev ~ (1|Site) + (1|ReefDev), family = bernoulli(link='logit'))
-
-davies_form_speed <- bf(SurvDev ~ median_speed +    (1|Site) + (1|ReefDev), family = bernoulli(link='logit'))
-
-davies_form_Ub <-    bf(SurvDev ~ Ub_avrg +         (1|Site) + (1|ReefDev), family = bernoulli(link='logit'))
-davies_form_turf <-   bf(SurvDev ~ sedturf_t5 +     (1|Site) + (1|ReefDev), family = bernoulli(link='logit'))
-davies_form_concrete <-bf(SurvDev ~ sedconcrete_t5 +(1|Site) + (1|ReefDev), family = bernoulli(link='logit'))
-davies_form_Wave <-  bf(SurvDev ~ WaveEnergyLevel + (1|Site) + (1|ReefDev), family = bernoulli(link='logit'))
-davies_form_PC1 <-   bf(SurvDev ~ PC1 +             (1|Site) + (1|ReefDev), family = bernoulli(link='logit'))
+davies_form_speed <- bf(SurvDev ~ median_speed +    (1|Site), family = bernoulli(link='logit'))
+davies_form_Ub <-    bf(SurvDev ~ Ub_avrg +         (1|Site), family = bernoulli(link='logit'))
+davies_form_turf <-   bf(SurvDev ~ sedturf_t5 +     (1|Site), family = bernoulli(link='logit'))
+davies_form_concrete <-bf(SurvDev ~ sedconcrete_t5 +(1|Site), family = bernoulli(link='logit'))
+davies_form_Wave <-  bf(SurvDev ~ WaveEnergyLevel + (1|Site), family = bernoulli(link='logit'))
+davies_form_PCA <-   bf(SurvDev ~ PC1 + PC2+            (1|Site), family = bernoulli(link='logit'))
 ```
 
 Now with polynomial terms:
 
 ```{r}
-davies_form <- bf(SurvDev ~ (1|Site) + (1|ReefDev), family = bernoulli(link='logit'))
-davies_form_speed_poly <- bf(SurvDev ~ poly(median_speed,3) +    (1|Site) + (1|ReefDev), family = bernoulli(link='logit'))
-davies_form_Ub_poly <-    bf(SurvDev ~ poly(Ub_avrg,3) +         (1|Site) + (1|ReefDev), family = bernoulli(link='logit'))
-davies_form_turf_poly <-   bf(SurvDev ~ poly(sedturf_t5,3) +      (1|Site) + (1|ReefDev), family = bernoulli(link='logit'))
-davies_form_Wave_poly <-  bf(SurvDev ~ poly(WaveEnergyLevel,3) + (1|Site) + (1|ReefDev), family = bernoulli(link='logit'))
-davies_form_PC1_poly <-   bf(SurvDev ~ poly(PC1,3) +             (1|Site) + (1|ReefDev), family = bernoulli(link='logit'))
+davies_form_speed_poly <- bf(SurvDev ~ poly(median_speed,3) +    (1|Site) , family = bernoulli(link='logit'))
+davies_form_Ub_poly <-    bf(SurvDev ~ poly(Ub_avrg,3) +         (1|Site) , family = bernoulli(link='logit'))
+davies_form_turf_poly <-   bf(SurvDev ~ poly(sedturf_t5,3) +      (1|Site) , family = bernoulli(link='logit'))
+davies_form_Wave_poly <-  bf(SurvDev ~ poly(WaveEnergyLevel,3) + (1|Site) , family = bernoulli(link='logit'))
+davies_form_PCA_poly <-   bf(SurvDev ~ poly(PC1,3) +  poly(PC2,3) +           (1|Site) , family = bernoulli(link='logit'))
 ```
 
 ### Priors
@@ -267,22 +300,28 @@ priors_wave <- prior(normal(0, 1.7), class = "Intercept") +
 
 ```
 
-**PC1**
+**PCA**
 
 ```{r}
 2.5 * sd(davies_t5$SurvDev, na.rm = TRUE)/sd(davies_t5$PC1, na.rm = TRUE)
 
-priors_PC1 <- prior(normal(0, 1.7), class = "Intercept") +
+priors_PCA <- prior(normal(0, 1.7), class = "Intercept") +
   prior(normal(0,8), class = "b")  +
    prior(student_t(3, 0, 1.5), class = 'sd')
 ```
 
-### brm- Random effects only
+### brm1- Random effects + time
 
 ```{r}
-davies_brm1 <- brm(davies_device,
-                 data=davies_t5,
-                 prior = priors,
+davies_form_time <- bf(SurvDev ~ Census + (1|Site), family = bernoulli(link='logit'))
+
+priors_time <- prior(normal(0, 1.7), class = "Intercept") +
+  prior(normal(0,5), class = "b") +
+   prior(student_t(3, 0, 1.5), class = 'sd')
+
+davies_brm1_time <- brm(davies_form_time,
+                 data=davies,
+                 prior = priors_time,
                  sample_prior = 'yes',
                  iter = 5000,
                  warmup = 1000,
@@ -292,10 +331,205 @@ davies_brm1 <- brm(davies_device,
                  control = list(adapt_delta = 0.99),
                 backend = "rstan")
 
+# To save the model use >> 
+#save(davies_brm1_time, file = "scripts/models/davies_brm_time.RData")
+
 ```
+### brm2- time * Wave
 
 ```{r}
-davies_brm <- brm(davies_form,
+davies_form_time_wave <-  bf(SurvDev ~ Census + WaveEnergyLevel + (1|Site), family = bernoulli(link='logit'))
+
+priors_time <- prior(normal(0, 1.7), class = "Intercept") +
+  prior(normal(0,5), class = "b") +
+   prior(student_t(3, 0, 1.5), class = 'sd')
+
+davies_brm2_time_wave <- brm(davies_form_time_wave,
+                 data=davies,
+                 prior = priors_time,
+                 sample_prior = 'yes',
+                 iter = 5000,
+                 warmup = 1000,
+                 chains = 3, cores = 3,
+                 thin = 5,
+                 refresh = 0,
+                 control = list(adapt_delta = 0.99),
+                backend = "rstan")
+
+# To save the model use >> 
+#save(davies_brm2_time_wave, file = "scripts/models/davies_brm2_time_wave.RData")
+```
+
+### brm3- time * Ub
+
+```{r}
+davies_form_Ub_time <-    bf(SurvDev ~ Census + Ub_avrg +         (1|Site), family = bernoulli(link='logit'))
+
+priors_time <- prior(normal(0, 1.7), class = "Intercept") +
+  prior(normal(0,5), class = "b") +
+   prior(student_t(3, 0, 1.5), class = 'sd')
+
+davies_brm3_time_Ub <- brm(davies_form_Ub_time,
+                 data=davies,
+                 prior = priors_time,
+                 sample_prior = 'yes',
+                 iter = 5000,
+                 warmup = 1000,
+                 chains = 3, cores = 3,
+                 thin = 5,
+                 refresh = 0,
+                 control = list(adapt_delta = 0.99),
+                 backend = "rstan")
+
+# Save the model
+#save(davies_brm3_time_Ub, file = "scripts/models/davies_brm3_time_Ub.RData")
+```
+
+### brm4- time * Current
+
+```{r}
+davies_form_current_time <-    bf(SurvDev ~ Census + median_speed  +         (1|Site), family = bernoulli(link='logit'))
+
+priors_time <- prior(normal(0, 1.7), class = "Intercept") +
+  prior(normal(0,5), class = "b") +
+   prior(student_t(3, 0, 1.5), class = 'sd')
+
+davies_brm4_time_current <- brm(davies_form_current_time,
+                 data=davies,
+                 prior = priors_time,
+                 sample_prior = 'yes',
+                 iter = 5000,
+                 warmup = 1000,
+                 chains = 3, cores = 3,
+                 thin = 5,
+                 refresh = 0,
+                 control = list(adapt_delta = 0.99),
+                 backend = "rstan")
+
+# Save the model
+#save(davies_brm4_time_current, file = "scripts/models/davies_brm4_time_current.RData")
+```
+### brm5- time * Turf
+
+```{r}
+
+davies_form_turf_time <-    bf(SurvDev ~ Census + sedturf_t5  + (1|Site), family = bernoulli(link='logit'))
+
+priors_time <- prior(normal(0, 1.7), class = "Intercept") +
+  prior(normal(0,5), class = "b") +
+   prior(student_t(3, 0, 1.5), class = 'sd')
+
+davies_brm5_time_turf <- brm(davies_form_turf_time,
+                 data=davies,
+                 prior = priors_time,
+                 sample_prior = 'yes',
+                 iter = 5000,
+                 warmup = 1000,
+                 chains = 3, cores = 3,
+                 thin = 5,
+                 refresh = 0,
+                 control = list(adapt_delta = 0.99),
+                 backend = "rstan")
+
+# Save the model
+#save(davies_brm5_time_turf, file = "scripts/models/davies_brm5_time_turf.RData")
+```
+
+### brm6- time * Concrete
+
+```{r}
+davies_form_concrete_time <-    bf(SurvDev ~ Census + sedconcrete_t5  +         (1|Site), family = bernoulli(link='logit'))
+
+priors_time <- prior(normal(0, 1.7), class = "Intercept") +
+  prior(normal(0,5), class = "b") +
+   prior(student_t(3, 0, 1.5), class = 'sd')
+
+davies_brm6_time_concrete <- brm(davies_form_concrete_time,
+                 data=davies,
+                 prior = priors_time,
+                 sample_prior = 'yes',
+                 iter = 5000,
+                 warmup = 1000,
+                 chains = 3, cores = 3,
+                 thin = 5,
+                 refresh = 0,
+                 control = list(adapt_delta = 0.99),
+                 backend = "rstan")
+
+# Save the model
+#save(davies_brm6_time_concrete, file = "scripts/models/davies_brm6_time_concrete.RData")
+```
+
+### brm7- time * habitat
+
+```{r}
+davies_form_PCA_time <-    bf(SurvDev ~ Census + PC1  + PC2+         (1|Site), family = bernoulli(link='logit'))
+
+priors_time <- prior(normal(0, 1.7), class = "Intercept") +
+  prior(normal(0,5), class = "b") +
+   prior(student_t(3, 0, 1.5), class = 'sd')
+
+davies_brm7_time_PCA <- brm(davies_form_PCA_time,
+                 data=davies,
+                 prior = priors_time,
+                 sample_prior = 'yes',
+                 iter = 5000,
+                 warmup = 1000,
+                 chains = 3, cores = 3,
+                 thin = 5,
+                 refresh = 0,
+                 control = list(adapt_delta = 0.99),
+                 backend = "rstan")
+
+# Save the model
+#save(davies_brm7_time_PCA, file = "scripts/models/davies_brm7_time_PCA.RData")
+```
+
+### Load models
+
+```{r}
+load(file = "scripts/models/davies_brm_time.RData")
+load(file = "scripts/models/davies_brm2_time_wave.RData")
+load(file = "scripts/models/davies_brm3_time_Ub.RData")
+load(file = "scripts/models/davies_brm4_time_current.RData")
+load(file = "scripts/models/davies_brm5_time_turf.RData")
+load(file = "scripts/models/davies_brm6_time_concrete.RData")
+load(file = "scripts/models/davies_brm7_time_PCA.RData")
+```
+
+### loo
+
+```{r}l}
+l_brm <- davies_brm1_time |> loo()
+l_wave <- davies_brm2_time_wave|> loo()
+l_Ub <- davies_brm3_time_Ub |> loo()
+l_current <- davies_brm4_time_current |> loo()
+l_turf <- davies_brm5_time_turf|> loo()
+l_concrete <- davies_brm6_time_concrete|> loo()
+l_PC1 <- davies_brm7_time_PCA|> loo()
+
+looic(davies_brm1_time)           #  LOOIC: 1467.88  [32.60]
+looic(davies_brm2_time_wave)     #  LOOIC: 1468.11  [32.66]
+looic(davies_brm3_time_Ub)      #  LOOIC: 1467.99  [32.65]
+looic(davies_brm4_time_current)  #  LOOIC: 1468.32  [32.62]
+looic(davies_brm5_time_turf)      #  LOOIC: 1467.75  [32.73]
+looic(davies_brm6_time_concrete)       #  LOOIC: 1468.30  [32.70]
+looic(davies_brm7_time_PCA)       #  LOOIC: 1464.33  [32.93]
+
+loo_compare(l_brm, l_current, l_Ub, l_wave, l_turf, l_concrete, l_PC1)
+```
+
+NOTES ON THIS: Prefer the model with the lower LOOIC, as it suggests better expected out-of-sample predictive performance. However, consider the uncertainty (SE) around these estimates. Significance of Differences: Look at the differences in LOOIC and their standard errors. A rule of thumb is that a difference greater than twice its standard error might be considered substantial, but this is not a strict threshold. If two models have similar LOOIC values, the simpler model (the one with fewer parameters) is typically preferred due to the principle of parsimony. This is not directly shown in the loo_compare() output but is an important consideration when interpreting results.
+
+### brm8- Random effects FINAL TIMEPOINT
+
+```{r}
+davies_form_t6 <- bf(SurvDev ~ (1|Site), family = bernoulli(link='logit'))
+
+priors <- prior(normal(0, 1.7), class = "Intercept") +
+    prior(student_t(3, 0, 1.5), class = 'sd')
+
+davies_brm8_t6 <- brm(davies_form_t6,
                  data=davies_t5,
                  prior = priors,
                  sample_prior = 'yes',
@@ -308,13 +542,70 @@ davies_brm <- brm(davies_form,
                 backend = "rstan")
 
 # To save the model use >> 
-#save(davies_brm, file = "scripts/models/davies_brm.RData")
-```
+#save(davies_brm8_t6, file = "scripts/models/davies_brm8_t6.RData")
 
-### brm- speed
+```
+### brm9- t6- Wave
 
 ```{r}
-davies_brm_speed <- brm(davies_form_speed,
+davies_form_t6_wave <-  bf(SurvDev ~ WaveEnergyLevel + (1|Site), family = bernoulli(link='logit'))
+
+priors_wave <- prior(normal(0, 1.7), class = "Intercept") +
+  prior(normal(0,1), class = "b")  +
+   prior(student_t(3, 0, 1.5), class = 'sd')
+
+
+davies_brm9_t6_wave <- brm(davies_form_t6_wave,
+                 data=davies_t5,
+                 prior = priors_wave,
+                 sample_prior = 'yes',
+                 iter = 5000,
+                 warmup = 1000,
+                 chains = 3, cores = 3,
+                 thin = 5,
+                 refresh = 0,
+                 control = list(adapt_delta = 0.99),
+                backend = "rstan")
+
+# To save the model use >> 
+#save(davies_brm9_t6_wave, file = "scripts/models/davies_brm9_t6_wave.RData")
+```
+
+### brm10- t6- Ub
+
+```{r}
+davies_form_t6_Ub <-    bf(SurvDev ~  Ub_avrg +         (1|Site), family = bernoulli(link='logit'))
+
+priors_Ub <- prior(normal(0, 1.7), class = "Intercept") +
+  prior(normal(0,6), class = "b")  +
+   prior(student_t(3, 0, 1.5), class = 'sd')
+
+davies_brm10_t6_Ub <- brm(davies_form_t6_Ub,
+                 data=davies_t5,
+                 prior = priors_Ub,
+                 sample_prior = 'yes',
+                 iter = 5000,
+                 warmup = 1000,
+                 chains = 3, cores = 3,
+                 thin = 5,
+                 refresh = 0,
+                 control = list(adapt_delta = 0.99),
+                 backend = "rstan")
+
+# Save the model
+#save(davies_brm10_t6_Ub, file = "scripts/models/davies_brm10_t6_Ub.RData")
+```
+
+### brm11- t6- current
+
+```{r}
+davies_form_t6_current <-    bf(SurvDev ~  median_speed +         (1|Site), family = bernoulli(link='logit'))
+
+priors_speed <- prior(normal(0, 1.7), class = "Intercept") +
+  prior(normal(0,40), class = "b")  +
+   prior(student_t(3, 0, 1.5), class = 'sd')
+
+davies_brm11_t6_current <- brm(davies_form_t6_current,
                  data=davies_t5,
                  prior = priors_speed,
                  sample_prior = 'yes',
@@ -327,51 +618,19 @@ davies_brm_speed <- brm(davies_form_speed,
                  backend = "rstan")
 
 # Save the model
-#save(davies_brm_speed, file = "scripts/models/davies_brm_speed.RData")
+#save(davies_brm11_t6_current, file = "scripts/models/davies_brm11_t6_current.RData")
 ```
 
-### brm- Ub
+### brm12 - t6- turf
 
 ```{r}
-davies_brm_Ub <- brm(davies_form_Ub,
-                 data=davies_t5,
-                 prior = priors_Ub,
-                 sample_prior = 'yes',
-                 iter = 5000,
-                 warmup = 1000,
-                 chains = 3, cores = 3,
-                 thin = 5,
-                 refresh = 0,
-                 control = list(adapt_delta = 0.99),
-                backend = "rstan")
+davies_form_t6_turf <-    bf(SurvDev ~  sedturf_t5 +         (1|Site), family = bernoulli(link='logit'))
 
-# Save the model
-#save(davies_brm_Ub, file = "scripts/models/davies_brm_Ub.RData")
-```
+priors_turf <- prior(normal(0, 1.7), class = "Intercept") +
+  prior(normal(0,5), class = "b")  +
+   prior(student_t(3, 0, 1.5), class = 'sd')
 
-### brm- wave
-
-```{r}
-davies_brm_wave <- brm(davies_form_Wave,
-                 data=davies_t5,
-                 prior = priors_wave,
-                 sample_prior = 'yes',
-                 iter = 5000,
-                 warmup = 1000,
-                 chains = 3, cores = 3,
-                 thin = 5,
-                 refresh = 0,
-                 control = list(adapt_delta = 0.99),
-                backend = "rstan")
-
-# Save the model
-#save(davies_brm_wave, file = "scripts/models/davies_brm_wave.RData")
-```
-
-### brm- turf
-
-```{r}
-davies_brm_turf <- brm(davies_form_turf,
+davies_brm12_t6_turf <- brm(davies_form_t6_turf,
                  data=davies_t5,
                  prior = priors_turf,
                  sample_prior = 'yes',
@@ -381,16 +640,22 @@ davies_brm_turf <- brm(davies_form_turf,
                  thin = 5,
                  refresh = 0,
                  control = list(adapt_delta = 0.99),
-                backend = "rstan")
+                 backend = "rstan")
 
-# Save the model 
-#save(davies_brm_turf, file = "scripts/models/davies_brm_turf.RData")
+# Save the model
+#save(davies_brm12_t6_turf, file = "scripts/models/davies_brm12_t6_turf.RData")
 ```
 
-### brm- concrete
+### brm13 - t6- concrete
 
 ```{r}
-davies_brm_concrete <- brm(davies_form_concrete,
+davies_form_t6_concrete <-    bf(SurvDev ~  sedconcrete_t5 +         (1|Site), family = bernoulli(link='logit'))
+
+priors_concrete <- prior(normal(0, 1.7), class = "Intercept") +
+  prior(normal(0,5), class = "b")  +
+   prior(student_t(3, 0, 1.5), class = 'sd')
+
+davies_brm13_t6_concrete  <- brm(davies_form_t6_concrete,
                  data=davies_t5,
                  prior = priors_concrete,
                  sample_prior = 'yes',
@@ -400,18 +665,24 @@ davies_brm_concrete <- brm(davies_form_concrete,
                  thin = 5,
                  refresh = 0,
                  control = list(adapt_delta = 0.99),
-                backend = "rstan")
+                 backend = "rstan")
 
-# Save the model 
-#save(davies_brm_concrete, file = "scripts/models/davies_brm_concrete.RData")
+# Save the model
+#save(davies_brm13_t6_concrete, file = "scripts/models/davies_brm13_t6_concrete.RData")
 ```
 
-### brm- PC1
+### brm14- t6 - habitat
 
 ```{r}
-davies_brm_PC1 <- brm(davies_form_PC1,
+davies_form_t6_PCA <-    bf(SurvDev ~  PC1 + PC2 + (1|Site), family = bernoulli(link='logit'))
+
+priors_PCA <- prior(normal(0, 1.7), class = "Intercept") +
+  prior(normal(0,8), class = "b")  +
+   prior(student_t(3, 0, 1.5), class = 'sd')
+
+davies_brm14_t6_PCA  <- brm(davies_form_t6_PCA,
                  data=davies_t5,
-                 prior = priors_PC1,
+                 prior = priors_PCA,
                  sample_prior = 'yes',
                  iter = 5000,
                  warmup = 1000,
@@ -419,46 +690,46 @@ davies_brm_PC1 <- brm(davies_form_PC1,
                  thin = 5,
                  refresh = 0,
                  control = list(adapt_delta = 0.99),
-                backend = "rstan")
+                 backend = "rstan")
 
-# Save the model 
-#save(davies_brm_PC1, file = "scripts/models/davies_brm_PC1.RData")
+# Save the model
+#save(davies_brm14_t6_PCA, file = "scripts/models/davies_brm14_t6_PCA.RData")
 ```
 
 ### Load models
-
 ```{r}
-load(file = "scripts/models/davies_brm.RData")
-load(file = "scripts/models/davies_brm_speed.RData")
-load(file = "scripts/models/davies_brm_Ub.RData")
-load(file = "scripts/models/davies_brm_wave.RData")
-load(file = "scripts/models/davies_brm_turf.RData")
-load(file = "scripts/models/davies_brm_concrete.RData")
-load(file = "scripts/models/davies_brm_PC1.RData")
+load(file = "scripts/models/davies_brm8_t6.RData")
+load(file = "scripts/models/davies_brm9_t6_wave.RData")
+load(file = "scripts/models/davies_brm10_t6_Ub.RData")
+load(file = "scripts/models/davies_brm11_t6_current.RData")
+load(file = "scripts/models/davies_brm12_t6_turf.RData")
+load(file = "scripts/models/davies_brm13_t6_concrete.RData")
+load(file = "scripts/models/davies_brm14_t6_PCA.RData")
+
 ```
 
 ### loo
+```{r}
+l_brm_t6 <- davies_brm8_t6 |> loo()
+l_wave_t6 <- davies_brm9_t6_wave|> loo()
+l_Ub_t6 <- davies_brm10_t6_Ub |> loo()
+l_current_t6 <- davies_brm11_t6_current |> loo()
+l_turf_t6 <- davies_brm12_t6_turf|> loo()
+l_concrete_t6 <- davies_brm13_t6_concrete|> loo()
+l_PCA_t6 <- davies_brm14_t6_PCA|> loo()
 
-```{r}l}
-l_brm <- davies_brm |> loo()
-l_speed <- davies_brm_speed|> loo()
-l_Ub <- davies_brm_Ub |> loo()
-l_wave <- davies_brm_wave |> loo()
-l_turf <- davies_brm_turf|> loo()
-l_concrete <- davies_brm_concrete|> loo()
-l_PC1 <- davies_brm_PC1|> loo()
+looic(davies_brm8_t6)           #  LOOIC: 261.20   [15.93]
+looic(davies_brm9_t6_wave)     #  LOOIC: 262.38   [16.18]
+looic(davies_brm10_t6_Ub)      #  LOOIC: 261.86   [15.96]
+looic(davies_brm11_t6_current)  #  LOOIC: 262.17   [16.19]
+looic(davies_brm12_t6_turf)      #  LOOIC: 262.56   [16.11]
+looic(davies_brm13_t6_concrete)       #  LOOIC: 262.60   [16.21]
+looic(davies_brm14_t6_PCA)       #  LOOIC: 265.15   [16.39]
 
-looic(davies_brm)           #  LOOIC: 257.06 [15.59]
-looic(davies_brm_speed)     #  LOOIC: 256.87 [15.57]
-looic(davies_brm_wave)      #  LOOIC: 253.67 [15.30]
-looic(davies_brm_concrete)  #  LOOIC: 254.73 [15.45]
-looic(davies_brm_turf)      #  LOOIC: 255.66 [15.56]
-looic(davies_brm_PC1)       #  LOOIC: 255.66 [15.56]
-
-loo_compare(l_brm, l_speed, l_Ub, l_wave, l_turf, l_concrete, l_PC1)
+loo_compare(l_brm_t6, l_wave_t6, l_Ub_t6, l_current_t6, l_turf_t6, l_concrete_t6, l_PCA_t6)
 ```
 
-NOTES ON THIS: Prefer the model with the lower LOOIC, as it suggests better expected out-of-sample predictive performance. However, consider the uncertainty (SE) around these estimates. Significance of Differences: Look at the differences in LOOIC and their standard errors. A rule of thumb is that a difference greater than twice its standard error might be considered substantial, but this is not a strict threshold. If two models have similar LOOIC values, the simpler model (the one with fewer parameters) is typically preferred due to the principle of parsimony. This is not directly shown in the loo_compare() output but is an important consideration when interpreting results.
+
 
 # Diagnostics
 
@@ -795,7 +1066,59 @@ print(Fig2)
 
 # Interpretation
 
-### brm
+### brm time:
+
+```{r}
+davies_brm1_time |> summary()
+davies_brm2_time_wave|> summary()
+davies_brm3_time_Ub|> summary()
+davies_brm4_time_current|> summary()
+davies_brm5_time_turf|> summary()
+davies_brm6_time_concrete|> summary()
+davies_brm7_time_PCA|> summary()
+```
+### brm t6:
+```{r}
+davies_brm8_t6 |> summary()
+davies_brm8_t6_wave|> summary()
+davies_brm10_t6_Ub|> summary()
+davies_brm11_t6_current|> summary()
+davies_brm12_t6_turf|> summary()
+davies_brm13_t6_concrete|> summary()
+davies_brm14_t6_PCA|> summary()
+
+```
+
+### R2
+```{r}
+davies_brm1_time |> r2_loo()
+davies_brm2_time_wave|> r2_loo()
+davies_brm3_time_Ub|> r2_loo()
+davies_brm4_time_current|> r2_loo()
+davies_brm5_time_turf|> r2_loo()
+davies_brm6_time_concrete|> r2_loo()
+davies_brm7_time_PCA|> r2_loo()
+
+davies_brm8_t6 |> r2_loo()
+davies_brm8_t6_wave|> r2_loo()
+davies_brm10_t6_Ub|> r2_loo()
+davies_brm11_t6_current|> r2_loo()
+davies_brm12_t6_turf|> r2_loo()
+davies_brm13_t6_concrete|> r2_loo()
+davies_brm14_t6_PCA|> r2_loo()
+```
+###Site specific effects using ranef()
+```{r}
+#davies_form_t6 <- bf(SurvDev ~ (1|Site), family = bernoulli(link='logit'))
+#davies_brm8_t6
+
+davies_site_effects_brm8 <- ranef(davies_brm8_t6)$Site
+davies_site_effects_brm8
+
+davies_site_effects_brm11 <- ranef(davies_brm11_t6_current)$Site
+davies_site_effects_brm11
+```
+
 
 ### speed
 

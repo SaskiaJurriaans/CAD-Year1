@@ -38,47 +38,90 @@ data_survival <- read_excel("2022_Deployment_Saskia_MasterData.xlsx",
         "text", "text", "text", "numeric", 
         "skip", "numeric"),
     na = "NA")
-
-data_tab <- read_excel("Dataframes/survival_wide_tab.xlsx", 
-    col_types = c("text", "text", "text", 
-        "text", "text", "text", "numeric", "numeric", 
-        "numeric", "numeric", "numeric", 
-        "numeric"), na = "TRUE")
-
-data_device <- read_excel("Dataframes/survival_wide_device.xlsx", col_types = c("text", "text", "text", 
-        "skip", "text", "skip", "numeric", "numeric", 
-        "numeric", "numeric", "numeric", 
-        "numeric"), na = "TRUE")
 ```
 
 ### \-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\--
 
 # Data summary
 
-### % survival - dataframes WIDE
-
-Create dataframes that summarises the percentage survival at each site per timepoint for tabs and devices
+### First HERON: summary using species at device level
 
 ```{r}
-survival_perc_Tab <- data_tab |>
-  group_by(Reef, Site, WaveEnergyLevel,Spp) |>
-  summarise(NTabs = sum(t0, na.rm=TRUE),
-            Perc_t0 = sum(t0, na.rm = TRUE)/NTabs,
-            Perc_t1 = sum(t1, na.rm = TRUE)/NTabs,
-            Perc_t2 = sum(t2, na.rm = TRUE)/NTabs,
-            Perc_t3 = sum(t3, na.rm = TRUE)/NTabs,
-            Perc_t4 = sum(t4, na.rm = TRUE)/NTabs,
-            Perc_t6 = sum(t6, na.rm = TRUE)/NTabs)
+data_survival <- data_survival |>
+  select(-c(Observer, CensusT, DeploymentDate, CensusDate, Device_ID, NoRecruits))
+heron_surv <- data_survival |> filter (Reef == "Heron")
 
-survival_perc_dev <- data_device |>
-  group_by(Reef, Site, WaveEnergyLevel) |>
-  summarise(NDev = sum(t0, na.rm=TRUE),
-            Perc_t0 = sum(t0, na.rm = TRUE)/NDev,
-            Perc_t1 = sum(t1, na.rm = TRUE)/NDev,
-            Perc_t2 = sum(t2, na.rm = TRUE)/NDev,
-            Perc_t3 = sum(t3, na.rm = TRUE)/NDev,
-            Perc_t4 = sum(t4, na.rm = TRUE)/NDev,
-            Perc_t6 = sum(t6, na.rm = TRUE)/NDev)
+# first for A tenuis: filter dataset for  A_tenuis, and then add survival and total count at group level
+heron_Aten <- heron_surv |> 
+  filter(Spp == "A. kenti") |>
+  group_by(Census, ReefDev) |>
+  mutate(SurvDev_Spp = ifelse(any(SurvTab == 1), 1, 0),
+         Total_Spp = n()) |>
+  ungroup()
+
+# second: take heron_Aten dataset and make summary for each Census and ReefDev combination, retaining the first occurrence of several variables (thus remove tab2 and tab3 rows) and calculate if there was a survivor on any tab (max(SurvDev_Spp)).
+heron_Aten2 <- heron_Aten |>
+  group_by(Census, ReefDev) |>
+  summarise(ExpDay = first(ExpDay),
+            Reef = first(Reef),
+            Site = first(Site),
+            WaveEnergyLevel = first(WaveEnergyLevel),
+            Spp = first(Spp),
+            Total_Spp = first(Total_Spp),
+            SurvDev_Spp = max(SurvDev_Spp)) |>
+  ungroup()
+
+# now do same for Ahyacinthus
+heron_Ahya <- heron_surv |> 
+  filter(Spp == "A. hyacinthus") |>
+  group_by(Census, ReefDev) |>
+  mutate(SurvDev_Spp = ifelse(any(SurvTab == 1), 1, 0),
+         Total_Spp = n()) |>
+  ungroup()
+
+heron_Ahya2 <- heron_Ahya |>
+  group_by(Census, ReefDev) |>
+  summarise(ExpDay = first(ExpDay),
+            Reef = first(Reef),
+            Site = first(Site),
+            WaveEnergyLevel = first(WaveEnergyLevel),
+            Spp = first(Spp),
+            Total_Spp = first(Total_Spp),
+            SurvDev_Spp = max(SurvDev_Spp)) |>
+  ungroup()
+
+#bind them together to create one dataframe
+heron_Spp <- rbind(heron_Ahya2, heron_Aten2)
+heron_Spp <- heron_Spp |>
+  arrange(Census, Site, Spp, ReefDev)
+
+#free up space
+remove(heron_Aten, heron_Aten2, heron_Ahya, heron_Ahya2)
+```
+
+### Create dataset with % survival Devices
+
+```{r}
+summary_heron <- heron_Spp |>
+  filter(!is.na(SurvDev_Spp)) |>
+  group_by(Reef, Site, WaveEnergyLevel, Spp, Census, ExpDay) |>
+  summarise(SurvivalNDevices = sum(SurvDev_Spp, na.rm=T),
+            DevTot =25,
+            Perc_SurvDev = sum(SurvDev_Spp, na.rm =T)/25)
+```
+
+### Create dataset for final timepoint Heron Spp
+
+```{r}
+heron_Spp_t3 <- heron_Spp |>
+  filter(Census == "t3")
+
+summary_heront3 <- heron_Spp_t3 |>
+  filter(!is.na(SurvDev_Spp)) |>
+  group_by(Reef, Site, WaveEnergyLevel, Spp, Census, ExpDay) |>
+  summarise(SurvivalNDevices = sum(SurvDev_Spp, na.rm=T),
+            DevTot =25,
+            Perc_SurvDev = sum(SurvDev_Spp, na.rm =T)/25)
 ```
 
 ### Summary % survival - dataframes LONG
@@ -88,10 +131,23 @@ Create a summary survival dataframe with a new column that sums up the survival 
 ```{r}
 summary_survival_Dev <- data_survival |>
   filter(!is.na(SurvDev)) |>
-  group_by(Reef, Site, WaveEnergyLevel, Census, ExpDay) |>
+  group_by(Reef, Site, WaveEnergyLevel, Census, ExpDay, Spp) |>
   summarise(SurvivalNDevices = sum(SurvDev, na.rm=T),
             DevTot =25,
             Perc_SurvDev = sum(SurvDev, na.rm =T)/25)
+```
+
+### Combine Heron (yield calculated by Spp) with Moore and Davies (Spp)
+
+```{r}
+summary_daviesmoore <- summary_survival_Dev |>
+  filter(!Reef == "Heron")
+
+#heron dataframe: summary_heron
+#moore davies dataframe: summary_survival_Dev
+
+#bind dataframes together
+summary_survival <- rbind(summary_heron, summary_daviesmoore)
 ```
 
 Create summary dataframe that includes species.
@@ -99,13 +155,12 @@ Create summary dataframe that includes species.
 ```{r}
 summary_survival_Spp <- data_survival |>
   group_by(Reef, Site, WaveEnergyLevel, Census, ExpDay, Spp) |>
-  summarize(SurvivalNTabs = (sum(SurvTab, na.rm = TRUE))) 
+  summarise(SurvivalNTabs = (sum(SurvTab, na.rm = TRUE))) 
 
 summary_survival_Spp_DavMoore <- summary_survival_Spp |>
   filter(!Reef == "Heron") |>
   mutate(TabTot = 75,
          Perc_SurvTab = SurvivalNTabs/TabTot)
-
 
 summary_survival_Spp_Heron37 <- summary_survival_Spp |>
   filter(Reef == "Heron") |>
@@ -134,15 +189,15 @@ summary_survival <- summary_survival_Dev |>
 remove(summary_survival_Dev, summary_survival_Spp)
 ```
 
-[**Filter to last census (t2 for Heron, t6 for Davies and Moore)**]{.underline}
+[**Filter to last census (t3 for Heron, t6 for Davies and Moore)**]{.underline}
 
 ```{r}
 summary_survival_t6 <- summary_survival |>   
   filter(Census == "t6")           #Only show survival at the last timepoint
 
 summary_survival_t2 <- summary_survival |>   
-  filter(Census == "t2") |>
-  filter(Reef == "Heron")         #only show survival for Heron at t2
+  filter(Census == "t3") |>
+  filter(Reef == "Heron")         #only show survival for Heron at t3
 
 summary_survival_finalcensus <- rbind(summary_survival_t6, summary_survival_t2)
 
@@ -167,6 +222,21 @@ survival_mean_dev <- survival_perc_dev |>
   mutate(MeanPerc = mean(c_across(starts_with("Perc")), na.rm = TRUE),
          SDPerc = sd(c_across(starts_with("Perc")), na.rm = TRUE),
          SEPerc = SDPerc/sqrt((NDev)))
+```
+
+Merge summary_heron (with device level percentage survival for species) with summary moore and davies with device level percentage survival
+
+```{r}
+#remove heron from the main dataframe because the device level spp percentages are not accurate
+summary_final <- summary_survival_finalcensus |>
+  filter(Reef %in% c("Davies", "Moore"))
+
+#make WaveEnergyLevel a character in the heron dataframe
+summary_heron$WaveEnergyLevel <- as.character(summary_heron$WaveEnergyLevel)
+
+#bind both summaries together
+summary_final <- summary_final |>
+  rbind(summary_heron)
 ```
 
 ### Fig1a - Boxplot - Mean survival Reef-tabs
@@ -205,7 +275,7 @@ plot1b <- ggplot(summary_survival, aes(x = Reef, y = Perc_SurvDev, color = Reef)
         panel.grid.minor = element_blank(),         
         axis.text = element_text(size = 12),
         axis.title = element_text(size = 14),         
-        legend.text = element_text(size = 12))  
+        legend.text = element_text(size = 12))
 plot1b 
 
 ggsave("Fig1b - Mean survival Reef-yield.png", plot=plot1b, width = 8, height = 6, dpi = 300) 
@@ -239,7 +309,10 @@ ggsave("Fig2a - Mean survival final census Reef-tabs.png", plot=plot2a, width = 
 ### Fig2b - Boxplot - Mean survival final census Reef-yield
 
 ```{r}
-plot2b <- ggplot(summary_survival_finalcensus, aes(x = Reef, y = Perc_SurvDev, color = Reef)) +
+# Reorder the levels of the Reef variable
+summary_survival_finalcensus$Reef <- factor(summary_survival_finalcensus$Reef, levels = c("Moore", "Davies", "Heron"))
+
+plot2b <- ggplot(summary_survival_finalcensus, aes(x = Reef, y = Perc_SurvDev, colour = Reef)) +
   geom_boxplot() +
   labs(title = "Mean Survival final census (yield)",
        x = "Reef",
@@ -250,11 +323,84 @@ plot2b <- ggplot(summary_survival_finalcensus, aes(x = Reef, y = Perc_SurvDev, c
         panel.grid.major = element_line(color = "gray", linetype = "dashed"),
         panel.grid.minor = element_blank(),
         axis.text = element_text(size = 12),  # Adjust font size of axis text
-        axis.title = element_text(size = 14),
-        legend.text = element_text(size = 12))  # Adjust font size of axis titles)
+        axis.title = element_text(size = 14))
 
 plot2b
-ggsave("Fig2b - Mean survival final census Reef-yield.png", plot=plot2b, width = 8, height = 6, dpi = 300)
+ggsave("Fig2b - Mean survival final census Reef-yield.jpeg", plot=plot2b, width = 8, height = 6, dpi = 300)
+
+```
+
+### Fig2c - Boxplot - Mean survival final census Reef-yield per site and species
+
+```{r}
+library(cowplot)
+
+final_moore <- summary_final |>
+  filter(Reef == "Moore")
+final_davies <- summary_final |>
+  filter(Reef == "Davies")
+final_heron <- summary_final |>
+  filter(Reef == "Heron")
+
+
+plot_moore <- ggplot(final_moore, aes(x = Site, y = Perc_SurvDev, colour = Spp)) +
+  geom_boxplot() +
+  labs(title = "Moore Reef",
+       x = "Site",
+       y = "% Survival (yield)") +
+  theme_minimal() +
+  scale_colour_manual(values = c("green")) +
+  theme(panel.border = element_rect(color = "black", fill = NA),
+        axis.line = element_line(color = "black"),
+        panel.grid.major = element_line(color = "gray", linetype = "dashed"),
+        panel.grid.minor = element_blank(),
+        axis.text = element_text(size = 12),  # Adjust font size of axis text
+        axis.title = element_text(size = 14))+
+    theme(legend.position = "bottom") +
+  scale_y_continuous(limits = c(0, 0.8))  # Adjust y-axis range
+
+
+plot_davies <- ggplot(final_davies, aes(x = Site, y = Perc_SurvDev, colour = Spp)) +
+  geom_boxplot() +
+  labs(title = "Davies Reef",
+       x = "Site",
+       y = NULL) +
+  theme_minimal() +
+  scale_colour_manual(values = c("orange")) +
+  theme(panel.border = element_rect(color = "black", fill = NA),
+        axis.line = element_line(color = "black"),
+        panel.grid.major = element_line(color = "gray", linetype = "dashed"),
+        panel.grid.minor = element_blank(),
+        axis.text = element_text(size = 12),  # Adjust font size of axis text
+        axis.title = element_text(size = 14))+
+    theme(legend.position = "bottom") +
+  scale_y_continuous(limits = c(0, 0.8))  # Adjust y-axis range
+
+
+plot_heron <- ggplot(final_heron, aes(x = Site, y = Perc_SurvDev, colour = Spp)) +
+  geom_boxplot() +
+  labs(title = "Heron Reef",
+       x = "Site",
+       y= NULL) +
+  theme_minimal() +
+  scale_colour_manual(values = c("orange", "purple")) + 
+  theme(panel.border = element_rect(color = "black", fill = NA),
+        axis.line = element_line(color = "black"),
+        panel.grid.major = element_line(color = "gray", linetype = "dashed"),
+        panel.grid.minor = element_blank(),
+        axis.text = element_text(size = 12),  # Adjust font size of axis text
+        axis.title = element_text(size = 14)) +
+    theme(legend.position = "bottom") +
+  scale_y_continuous(limits = c(0, 0.8))  # Adjust y-axis range
+
+
+plot_moore
+plot_davies
+plot_heron
+
+ggsave("Fig2c_moore - Moore final census - yield.png", plot=plot_moore, width = 4, height = 6, dpi = 300)
+ggsave("Fig2c_davies - Davies final census - yield.png", plot=plot_davies, width = 4, height = 6, dpi = 300)
+ggsave("Fig2c_heron - Heron final census - yield.png", plot=plot_heron, width = 4, height = 6, dpi = 300)
 
 ```
 
@@ -315,7 +461,7 @@ plot5 <- ggplot(summary_survival, aes(x = ExpDay, y = Perc_SurvDev, color = Reef
        y = "% Survival (device yield)") +
   theme_bw() +
   ylim(0,1) +
-  xlim(0,500) +
+   xlim(0,900) +
   theme(panel.border = element_rect(color = "black", fill = NA),
         axis.line = element_line(color = "black"),
         axis.text = element_text(size = 12),
@@ -338,7 +484,7 @@ plot6 <- ggplot(summary_survival, aes(x = ExpDay, y = Perc_SurvTab, color = Reef
        y = "% Survival (tabs)") +
   theme_bw() +
   ylim(0,1) +
-  xlim(0,500) +
+  xlim(0,900) +
   theme(panel.border = element_rect(color = "black", fill = NA),
         axis.line = element_line(color = "black"),
         axis.text = element_text(size = 12),
@@ -351,43 +497,99 @@ ggsave("Fig6 - Survival Spp over time - tab.png", plot=plot6, width = 14, height
 
 ```
 
-### Fig7- Point - Mean % survival Species (average sites) over ExpDay
+### Fig7a- Point - Mean % survival Species (average sites) over ExpDay
 
 ```{r}
 # Calculate average survival and standard error for each species within each reef at each time point
 summary_survival_stats <- summary_survival |>
   group_by(Reef, Census, Spp) |>
-  summarise(Avg_Survival = mean(Perc_SurvTab, na.rm = TRUE),
-            SE = sd(Perc_SurvTab, na.rm = TRUE) / sqrt(n())) |>
+  summarise(Avg_Survival = mean(Perc_SurvDev, na.rm = TRUE),
+            SE = sd(Perc_SurvDev, na.rm = TRUE) / sqrt(n())) |>
     ungroup() |>
-  mutate(ExpDay = c(0, 103, 163, 255, 326, 527, 0, 0, 71, 71, 415, 415, 0, 92,151,247, 337, 525))
+  mutate(ExpDay = c(0, 103, 163, 255, 326, 527, 0, 0, 71, 71, 415, 415, 843,843,0, 92,151,247, 337, 525))
+
+# Reorder the levels of the Reef variable
+summary_survival_stats$Reef <- factor(summary_survival_stats$Reef, levels = c("Moore", "Davies", "Heron"))
 
 # Plot the average survival over time for each species with standard error bars
-plot7 <- ggplot(summary_survival_stats, aes(x = ExpDay, y = Avg_Survival, color = Reef)) +
-  geom_point(size=3) +
+plot7a <- ggplot(summary_survival_stats, aes(x = ExpDay, y = Avg_Survival, color = Spp)) +
+   geom_point(size=3) +
+  scale_color_manual(values = c("A. millepora" = "green", "A. hyacinthus" = "orange", "A. kenti" = "purple")) +
   geom_errorbar(aes(ymin = Avg_Survival - SE, ymax = Avg_Survival + SE), width = 0.2) +
-  facet_wrap(~Spp, scales = "free") +
+  facet_wrap(~Reef, scales = "free") +
   labs(title = "Mean Survival Over Time by Species and Reef",
        x = "Experiment Day",
-       y = "Average % Survival (tabs)",
-       color = "Reef") +
+       y = "% Survival (yield)",
+       color = "Species") +
   theme_bw() +
   ylim(0,1) +
-  xlim(0,500) +
+  xlim(0,900) +
   theme(panel.border = element_rect(color = "black", fill = NA),
         axis.line = element_line(color = "black"),
         axis.text = element_text(size = 12),
         axis.title = element_text(size = 14), 
         legend.text = element_text(size = 12))
 
-plot7
-ggsave("Fig7 - Mean survival Spp over time - tab.png", plot=plot7, width = 14, height = 6, dpi = 300)
+plot7a
+ggsave("Fig7a - Mean survival Spp over time - tab.png", plot=plot7a, width = 14, height = 6, dpi = 300)
+
+```
+
+### Fig7b- Point - % survival Species over sites at FINAL TIMEPOINTS
+
+```{r}
+final_survival1 <- summary_survival %>%
+  filter(Census == "t6")
+final_survival2 <- summary_survival %>%
+  filter(Reef == "Heron",
+         Census =="t3")
+
+final_survival <- rbind(final_survival1, final_survival2)
+
+remove(final_survival1, final_survival2)
+
+# Reorder the levels of the Reef variable
+final_survival$Reef <- factor(final_survival$Reef, levels = c("Moore", "Davies", "Heron"))
+
+plot7b <- ggplot(final_survival, aes(x = Site, y = Perc_SurvDev, color = Spp))  +
+   geom_point(size=3) +
+  scale_color_manual(values = c("A. millepora" = "green", "A. hyacinthus" = "orange", "A. kenti" = "purple")) +
+  facet_wrap(~Reef, scales = "free") +
+  labs(title = "Final Survival of Species by Site",
+       x = "Site",
+       y = "% Survival (yield)",
+       color = "Species") +
+  theme_bw() +
+  theme(panel.border = element_rect(color = "black", fill = NA),
+        axis.line = element_line(color = "black"),
+        axis.text = element_text(size = 12),
+        axis.title = element_text(size = 14), 
+        legend.text = element_text(size = 12)) +
+  scale_y_continuous(labels = scales::number_format(accuracy = 0.01),  limits = c(0, 0.80))
+
+
+# Display plot
+plot7b
+ggsave("Fig7b - Survival Spp over site FINAL TIMEPOINT - tab.png", plot=plot7b, width = 14, height = 6, dpi = 300)
+
+
 
 ```
 
 ### Fig8- Point - Mean % survival Species grouped by Reef (average sites) over ExpDay
 
 ```{r}
+# Calculate average survival and standard error for each species within each reef at each time point
+
+summary_survival_stats <- summary_survival |>
+  group_by(Reef, Census, Spp) |>
+  summarise(Avg_Survival = mean(Perc_SurvTab, na.rm = TRUE),
+            SE = sd(Perc_SurvTab, na.rm = TRUE) / sqrt(n())) 
+
+|>
+    ungroup() |>
+  mutate(ExpDay = c(0, 103, 163, 255, 326, 527, 0, 0, 71, 71, 415, 415, 843,843,0, 92,151,247, 337, 525))
+
 # Plot the average survival over time for each species with standard error bars
 plot8 <- ggplot(summary_survival_stats, aes(x = ExpDay, y = Avg_Survival, color = Spp)) +
   geom_point(size=3) +
@@ -399,7 +601,7 @@ plot8 <- ggplot(summary_survival_stats, aes(x = ExpDay, y = Avg_Survival, color 
        color = "Species") +
   theme_bw() +
   ylim(0,1) +
-  xlim(0,500) +
+  xlim(0,900) +
   theme(panel.border = element_rect(color = "black", fill = NA),
         axis.line = element_line(color = "black"),
         axis.text = element_text(size = 12),
@@ -415,7 +617,7 @@ ggsave("Fig8 - Mean survival Spp by Reef over time - tab.png", plot=plot8, width
 ```{r}
 # Specify the desired file name and path
 file_name <- "Summary Survival YEAR1.xlsx"
-file_path <- paste0("C:/Users/sjurriaa/Australian Institute of Marine Science/Carly Randall - Randall Lab/CAD/CAD Field Data/2022_Deployment_Saskia_YEAR1/Survival data/Dataframes/", file_name)
+file_path <- paste0("C:/Users/sjurriaa/Australian Institute of Marine Science/Carly Randall - Randall Lab/CAD/CAD Year1/output/", file_name)
 
 # Write the dataset to an Excel file
 write.xlsx(summary_survival, file_path)
@@ -423,7 +625,7 @@ write.xlsx(summary_survival, file_path)
 
 # Specify the desired file name and path
 file_name <- "Summary Survival YEAR1 FinalCensus.xlsx"
-file_path <- paste0("C:/Users/sjurriaa/Australian Institute of Marine Science/Carly Randall - Randall Lab/CAD/CAD Field Data/2022_Deployment_Saskia_YEAR1/Survival data/Dataframes/", file_name)
+file_path <- paste0("C:/Users/sjurriaa/Australian Institute of Marine Science/Carly Randall - Randall Lab/CAD/CAD Year1/output/", file_name)
 
 # Write the dataset to an Excel file
 write.xlsx(summary_survival_finalcensus, file_path)
@@ -462,8 +664,8 @@ merged_data_t6 <- merged_data |>
   filter(Census == "t6")           #Only show survival at the last timepoint
 
 merged_data_t2 <- merged_data |>   
-  filter(Census == "t2") |>
-  filter(Reef == "Heron")         #only show survival for Heron at t2
+  filter(Census == "t3") |>
+  filter(Reef == "Heron")         #only show survival for Heron at t3
 
 merged_data_finalcensus <- rbind(merged_data_t6, merged_data_t2)
 
@@ -473,7 +675,7 @@ remove(merged_data_t2, merged_data_t6)
 
 # Figures
 
-Fig9 - Point - survival final census over nominal Wave Energy Level
+### Fig9a - Point - survival final census over nominal Wave Energy Level
 
 ```{r}
 # Convert WaveEnergyLevel column to numeric
@@ -497,6 +699,31 @@ plot9 <- ggplot(merged_data_finalcensus, aes(x = WaveEnergyLevel, y = Perc_SurvD
 
 plot9
 ggsave("Fig9 - Survival final census WaveEnergyLevel - yield.png", plot=plot9, width = 14, height = 6, dpi = 300)
+```
+
+### Fig9b - Point - survival over time by WaveEnergyLevel and Reef
+
+```{r}
+# Reorder the levels of the Reef variable
+merged_data$Reef <- factor(merged_data$Reef, levels = c("Moore", "Davies", "Heron"))
+
+plot9b <- ggplot(merged_data, aes(x = ExpDay, y = Perc_SurvTab, color = Spp)) +
+  geom_point(size=3) +
+  labs(title = "Survival across nominal Wave Energy Level",
+       x = "Experiment days",
+       y = "% Survival (tabs)") +
+  geom_smooth(method="lm")+
+  theme_bw() +
+  ylim(0,1) +
+  theme(panel.border = element_rect(color = "black", fill = NA),
+        axis.line = element_line(color = "black"),
+        axis.text = element_text(size = 12),
+        axis.title = element_text(size = 14), 
+        legend.text = element_text(size = 12)) +
+  facet_grid(Reef~ WaveEnergyLevel, scales = "free", space = "free")
+
+plot9b
+ggsave("Fig9b - Survival final census WaveEnergyLevel - yield.png", plot=plot9b, width = 14, height = 6, dpi = 600)
 ```
 
 ### Fig10 - Point - survival final census over Ub
