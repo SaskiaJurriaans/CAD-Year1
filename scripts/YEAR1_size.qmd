@@ -51,6 +51,7 @@ source('helperFunctions.R')
 # Read in the data
 
 ```{r}
+#| label: import data
 survival <- read_excel("data/YEAR1_Survival.xlsx", 
     col_types = c("numeric", "skip", "text", 
         "skip", "skip", "numeric", "skip", 
@@ -67,6 +68,7 @@ environment <- read_excel ("data/YEAR1 Benthic Environment ReefDev.xlsx", na="na
 **Create new column for size and remove empty rows with no size data**
 
 ```{r}
+#| label: mutate survival
 survival_size <- survival |>
   mutate(Size = (LinLength_mm * PerpLenght_mm * Height_mm)/1000,
          Size_log = log(Size + 1)) # Adding 1 to avoid log(0) 
@@ -77,6 +79,7 @@ survival_size <- survival |>
 Moore:
 
 ```{r}
+#| label: filter moore
 moore_surv <- survival_size |> filter (Reef == "Moore",
                                   Census =="t6")  
 
@@ -88,6 +91,7 @@ moore_env <- environment |>
 Davies:
 
 ```{r}
+#| label: filter davies
 davies_surv <- survival_size |> filter (Reef == "Davies",
                                    Census == "t6") 
 
@@ -208,9 +212,9 @@ heron <- heron |>
   ungroup()
 ```
 
-# GLM
+# \-\-\-\-\-\-\-\-\-\-\-\-- GLM -------------------
 
-### Moore
+# Moore
 
 Make Site and ReefDev (id) as factors
 
@@ -346,7 +350,7 @@ ggplot() +
   theme_modern()
 ```
 
-### Davies
+# Davies
 
 Make Site and ReefDev (id) as factors
 
@@ -490,7 +494,7 @@ ggplot() +
   theme_modern()
 ```
 
-### Heron
+# Heron
 
 Make Site and ReefDev (id) as factors
 
@@ -630,4 +634,718 @@ ggplot() +
   theme_modern()
 ```
 
-### 
+# \-\-\-\-\-\-\-\-\-\-\-\-- Bayesian-----------------
+
+# Moore
+
+##### brm1 - wave
+
+```{r}
+moore_size_wave <-  bf(Size_log ~ WaveEnergyLevel + (1|Site), family = gaussian())
+
+priors <- prior(normal(0, 5), class = "Intercept") +  # for intercept
+  prior(normal(0,5), class = "b") +                   # for fixed effects - WaveEnergyLevel
+  prior(cauchy(0,2), class = 'sd')                    # for random effects - Site
+
+moore_brm1_size <- brm(moore_size_wave,
+                 data=moore,
+                 prior = priors,
+                 sample_prior = 'yes',
+                 iter = 5000,
+                 warmup = 1000,
+                 chains = 3, cores = 3,
+                 thin = 5,
+                 refresh = 0,
+                 control = list(adapt_delta = 0.99),
+                backend = "rstan")
+
+# To save the model use >> 
+#save(moore_brm1_size, file = "scripts/models/moore/size/moore_brm1_size.RData")
+```
+
+Model diagnostics
+
+```{r}
+moore_brm1_size |> pp_check(type = 'dens_overlay', ndraws = 100)
+moore_brm1_size |> pp_check (type = "error_scatter_avg")
+moore_brm1_size  |> pp_check(group = 'Site', type = 'violin_grouped')
+
+moore.resids1 <- make_brms_dharma_res(moore_brm1_size, integerResponse = FALSE)
+testUniformity(moore.resids1)
+plotResiduals(moore.resids1)
+testDispersion(moore.resids1)
+```
+
+##### brm2 - Ub_avrg
+
+```{r}
+moore_size_Ub <-  bf(Size_log ~ Ub_avrg + (1|Site), family = gaussian())
+
+priors <- prior(normal(0, 5), class = "Intercept") +  # for intercept
+  prior(normal(0,5), class = "b") +                   # for fixed effects - Ub
+  prior(cauchy(0,2), class = 'sd')                    # for random effects - Site
+
+moore_brm2_size <- brm(moore_size_Ub,
+                 data=moore,
+                 prior = priors,
+                 sample_prior = 'yes',
+                 iter = 5000,
+                 warmup = 1000,
+                 chains = 3, cores = 3,
+                 thin = 5,
+                 refresh = 0,
+                 control = list(adapt_delta = 0.99),
+                backend = "rstan")
+
+# To save the model use >> 
+#save(moore_brm2_size, file = "scripts/models/moore/size/moore_brm2_size.RData")
+```
+
+Model diagnostics
+
+```{r}
+moore_brm2_size |> pp_check(type = 'dens_overlay', ndraws = 100)
+moore_brm2_size |> pp_check (type = "error_scatter_avg")
+moore_brm2_size  |> pp_check(group = 'Site', type = 'violin_grouped')
+
+moore.resids2 <- make_brms_dharma_res(moore_brm2_size, integerResponse = FALSE)
+testUniformity(moore.resids2)
+plotResiduals(moore.resids2)
+testDispersion(moore.resids2)
+```
+
+##### brm3 - median_speed
+
+```{r}
+moore_size_speed <-  bf(Size_log ~ median_speed + (1|Site), family = gaussian())
+
+priors <- prior(normal(0, 5), class = "Intercept") +  # for intercept
+  prior(normal(0,5), class = "b") +                   # for fixed effects - speed
+  prior(cauchy(0,2), class = 'sd')                    # for random effects - Site
+
+moore_brm3_size <- brm(moore_size_speed,
+                 data=moore,
+                 prior = priors,
+                 sample_prior = 'yes',
+                 iter = 5000,
+                 warmup = 1000,
+                 chains = 3, cores = 3,
+                 thin = 5,
+                 refresh = 0,
+                 control = list(adapt_delta = 0.99),
+                backend = "rstan")
+
+# To save the model use >> 
+#save(moore_brm3_size, file = "scripts/models/moore/size/moore_brm3_size.RData")
+
+```
+
+Model diagnostics
+
+```{r}
+moore_brm3_size |> pp_check(type = 'dens_overlay', ndraws = 100)
+moore_brm3_size |> pp_check (type = "error_scatter_avg")
+moore_brm3_size  |> pp_check(group = 'Site', type = 'violin_grouped')
+
+moore.resids3 <- make_brms_dharma_res(moore_brm3_size, integerResponse = FALSE)
+testUniformity(moore.resids3)
+plotResiduals(moore.resids3)
+testDispersion(moore.resids3)
+```
+
+##### brm4- sedturf_t5
+
+```{r}
+moore_size_turf <-  bf(Size_log ~ sedturf_t5 + (1|Site), family = gaussian())
+
+priors <- prior(normal(0, 5), class = "Intercept") +  # for intercept
+  prior(normal(0,5), class = "b") +                   # for fixed effects - speed
+  prior(cauchy(0,2), class = 'sd')                    # for random effects - Site
+
+moore_brm4_size <- brm(moore_size_turf,
+                 data=moore,
+                 prior = priors,
+                 sample_prior = 'yes',
+                 iter = 5000,
+                 warmup = 1000,
+                 chains = 3, cores = 3,
+                 thin = 5,
+                 refresh = 0,
+                 control = list(adapt_delta = 0.99),
+                backend = "rstan")
+
+# To save the model use >> 
+#save(moore_brm4_size, file = "scripts/models/moore/size/moore_brm4_size.RData")
+
+```
+
+Model diagnostics
+
+```{r}
+moore_brm4_size |> pp_check(type = 'dens_overlay', ndraws = 100)
+moore_brm4_size |> pp_check (type = "error_scatter_avg")
+moore_brm4_size  |> pp_check(group = 'Site', type = 'violin_grouped')
+
+moore.resids4 <- make_brms_dharma_res(moore_brm4_size, integerResponse = FALSE)
+testUniformity(moore.resids4)
+plotResiduals(moore.resids4)
+testDispersion(moore.resids4)
+```
+
+##### brm5 - sedconcrete_t5
+
+```{r}
+moore_size_concrete <-  bf(Size_log ~ sedconcrete_t5 + (1|Site), family = gaussian())
+
+priors <- prior(normal(0, 5), class = "Intercept") +  # for intercept
+  prior(normal(0,5), class = "b") +                   # for fixed effects - speed
+  prior(cauchy(0,2), class = 'sd')                    # for random effects - Site
+
+moore_brm5_size <- brm(moore_size_concrete,
+                 data=moore,
+                 prior = priors,
+                 sample_prior = 'yes',
+                 iter = 5000,
+                 warmup = 1000,
+                 chains = 3, cores = 3,
+                 thin = 5,
+                 refresh = 0,
+                 control = list(adapt_delta = 0.99),
+                backend = "rstan")
+
+# To save the model use >> 
+#save(moore_brm5_size, file = "scripts/models/moore/size/moore_brm5_size.RData")
+```
+
+Model diagnostics
+
+```{r}
+moore_brm5_size |> pp_check(type = 'dens_overlay', ndraws = 100)
+moore_brm5_size |> pp_check (type = "error_scatter_avg")
+moore_brm5_size  |> pp_check(group = 'Site', type = 'violin_grouped')
+
+moore.resids5 <- make_brms_dharma_res(moore_brm5_size, integerResponse = FALSE)
+testUniformity(moore.resids5)
+plotResiduals(moore.resids5)
+testDispersion(moore.resids5)
+```
+
+##### brm6 - habitat
+
+```{r}
+moore_size_habitat <-  bf(Size_log ~ PC1 + PC2 + (1|Site), family = gaussian())
+
+priors <- prior(normal(0, 5), class = "Intercept") +  # for intercept
+  prior(normal(0,5), class = "b") +                   # for fixed effects - speed
+  prior(cauchy(0,2), class = 'sd')                    # for random effects - Site
+
+moore_brm6_size <- brm(moore_size_habitat,
+                 data=moore,
+                 prior = priors,
+                 sample_prior = 'yes',
+                 iter = 5000,
+                 warmup = 1000,
+                 chains = 3, cores = 3,
+                 thin = 5,
+                 refresh = 0,
+                 control = list(adapt_delta = 0.99),
+                backend = "rstan")
+
+# To save the model use >> 
+#save(moore_brm6_size, file = "scripts/models/moore/size/moore_brm6_size.RData")
+```
+
+Model diagnostics
+
+```{r}
+moore_brm6_size |> pp_check(type = 'dens_overlay', ndraws = 100)
+moore_brm6_size |> pp_check (type = "error_scatter_avg")
+moore_brm6_size  |> pp_check(group = 'Site', type = 'violin_grouped')
+
+moore.resids6 <- make_brms_dharma_res(moore_brm6_size, integerResponse = FALSE)
+testUniformity(moore.resids6)
+plotResiduals(moore.resids6)
+testDispersion(moore.resids6)
+```
+
+INTERPRETATION:
+
+**dens-overlay:** dark blue line represent the density of the observed data, the light blue lines represent the densities of simulated data from the posterior predictive distribution of the model (thus "replicated data"). Reasonable fit, the peak is around zero for the observed and replicated data, also the observed density falls generally within the rand of the replicated densities, suggesting that the model is performing well in capturing the overall distribution of the observed data.
+
+**error-scatter:** x-acis shows the average difference between the observed data and replicated (simulated) data. The y-axis represents the observed data. An ideal fit would be when the points cluster around the diagonal line where y is equal to the average yrep. In this case, the scatter points show a positive trend, indicating that higher observed values (y) correspond to higher average differences (y - yrep). The points are reasonably well aligned with the diagonal line, suggesting that the model's predictions are generally consistent with the observed data. However, there are some deviations at the higher observed values, suggesting that the model might not be fully capturing the variability in these observations.
+
+**violin-plot:** the black line represent the distribution of the observed data within each site. They light blue fill represents the distribution of the simulated data within each site. Wider sections indicate higher density. A good fit would be when the black outlines are well alligned with the light blue fill, indicating that the model's simulated data closely matches the observed data. In this case, the observed data at most sites are well aligned with the predicted data, suggesting that the model captures the general distribution within these sites. However, some sites have a little deviation, for instance site M4A has a wider spread in the observed data compared to the simulated data.
+
+**QQ-residuals:** the red line represents the expected theoretical quantiles if the residuals were perfectly uniform. However, the observed quantiles deviate from the red line, which is consistent with the Kolmogorov-Smirnov test (p-value = 0.02334), indicating significant deviation from uniformity.
+
+**Residuals vs. Predicted**: The black points should ideally scatter around the horizontal line at 0.5 if the model fits well. The black line (trend) should be flat if there are no systematic deviations. The plot shows some deviations from the horizontal line, suggesting possible non-uniformity or other issues. The red curve indicates the detected quantile deviations, suggesting some systematic deviations in certain quantiles of the residuals. However, the combined adjusted quantile test is not significant, suggesting that while there are some deviations, they are not strong enough to be statistically significant.
+
+**Dispersion test:** Evaluates whether the residual variance (dispersion) in the model is consistent with the expected variance under the model's assumptions. The histogram shows the distribution of the simulated residual standard deviations. The red line (fitted model) lies well within the bulk of the simulated values, suggesting that the model does not exhibit significant dispersion issues. Also, the output shows a dispersion of 0.87029. A dispersion parameter close to 1 indicates that the observed residual variance is consistent with the model's expectations. In this case, the dispersion parameter is 0.87029, which is close to 1. Also, the p-value is 0.69, suggesting that there is no significant overdispersion or underdispersion.
+
+### Load models
+
+```{r}
+load(file = "scripts/models/moore/size/moore_brm1_size.RData")
+load(file = "scripts/models/moore/size/moore_brm2_size.RData")
+load(file = "scripts/models/moore/size/moore_brm3_size.RData")
+load(file = "scripts/models/moore/size/moore_brm4_size.RData")
+load(file = "scripts/models/moore/size/moore_brm5_size.RData")
+load(file = "scripts/models/moore/size/moore_brm6_size.RData")
+```
+
+### Loo compare
+
+```{r}
+#Using loo compare, lower value is better
+l_wave <- moore_brm1_size |> loo()
+l_Ub <- moore_brm2_size |> loo()
+l_speed <- moore_brm3_size |> loo()
+l_turf <- moore_brm4_size|> loo()
+l_concrete <- moore_brm5_size|> loo()
+l_habitat <- moore_brm6_size|> loo()
+
+looic(moore_brm1_size)      #  LOOIC: 332.38 [16.84]
+looic(moore_brm2_size)      #  LOOIC: 331.93 [16.93]
+looic(moore_brm3_size)      #  LOOIC: 332.46 [16.88]
+looic(moore_brm4_size)      #  LOOIC: 332.39 [16.73]
+looic(moore_brm5_size)      #  LOOIC: 332.68 [16.80]
+looic(moore_brm6_size)      #  LOOIC: 309.34 [16.93]
+
+l_speed
+l_Ub
+l_wave
+l_turf
+l_concrete
+l_habitat
+```
+
+**NOTES ON THIS:**
+
+**LOOIC (Leave-One-Out Information Criterion)**: A measure of the model's predictive accuracy. Lower LOOIC values indicate a better model.
+
+**ELPD (Expected Log Predictive Density)**: A measure of the model's predictive performance. Higher ELPD values indicate a better model.
+
+**Standard Error (SE)**: The standard error of the LOOIC or ELPD estimates.
+
+**\*\* Best Model**: `moore_brm6_size` ([l_habitat]{.underline}) has the highest ELPD(-154.67) and the lowest LOOIC (309.34), indicating the best predictive performance among the models compared.
+
+**\*\* Worst Model**: `moore_brm5_size` ([l_concrete]{.underline}) has the lowest ELPD and the highest LOOIC, indicating the worst predictive performance among the models compared.
+
+### Summary
+
+```{r}
+summary(moore_brm1_size)
+summary(moore_brm2_size)
+summary(moore_brm3_size)
+summary(moore_brm4_size)
+summary(moore_brm5_size)
+summary(moore_brm6_size)
+```
+
+**NOTES ON THIS:** None of the predictors (PC1, PC2, WaveEnergyLevel, Ub_avrg, median_speed, sedturf_t5, sedconcrete_t5) have credible intervals that exclude zero, suggesting that these predictors are not significantly associated with `Size_log`. According to the LOOIC and ELPD values above, moore_brm6_size (with PC1 and PC2) seems to be the best model.
+
+All models have good convergence diagnostics (Rhat = 1.00) and sufficient effect sample sizes (Bulk_ESS and Tail_ESS) indicating reliable parameter estimates.
+
+# \-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\--
+
+# Davies
+
+##### brm1 - wave
+
+```{r}
+davies_size_wave <-  bf(Size_log ~ WaveEnergyLevel + (1|Site), family = gaussian())  
+
+priors <- prior(normal(0, 5), class = "Intercept") +  # for intercept   
+  prior(normal(0,5), class = "b") +                   # for fixed effects - WaveEnergyLevel   
+  prior(cauchy(0,2), class = 'sd')                    # for random effects - Site  
+
+davies_brm1_size <- brm(davies_size_wave,                  
+                       data=davies,                  
+                       prior = priors,                  
+                       sample_prior = 'yes',                  
+                       iter = 5000,                  
+                       warmup = 1000,                  
+                       chains = 3, cores = 3,                  
+                       thin = 5,                  
+                       refresh = 0,                  
+                       control = list(adapt_delta = 0.99),                 
+                       backend = "rstan")  
+
+# To save the model use >>  
+#save(davies_brm1_size, file = "scripts/models/davies/size/davies_brm1_size.RData")
+```
+
+Model diagnostics
+
+```{r}
+davies_brm1_size |> pp_check(type = 'dens_overlay', ndraws = 100) 
+davies_brm1_size |> pp_check (type = "error_scatter_avg") 
+davies_brm1_size  |> pp_check(group = 'Site', type = 'violin_grouped') 
+
+davies.resids1 <- make_brms_dharma_res(davies_brm1_size, integerResponse = FALSE) 
+testUniformity(davies.resids1) 
+plotResiduals(davies.resids1) 
+testDispersion(davies.resids1)
+```
+
+##### brm2 - Ub_avrg
+
+```{r}
+davies_size_Ub <-  bf(Size_log ~ Ub_avrg + (1|Site), family = gaussian())  
+priors <- prior(normal(0, 5), class = "Intercept") +  # for intercept   
+  prior(normal(0,5), class = "b") +                   # for fixed effects - Ub   
+  prior(cauchy(0,2), class = 'sd')                    # for random effects - Site  
+
+davies_brm2_size <- brm(davies_size_Ub,                  
+                       data=davies,                  
+                       prior = priors,                  
+                       sample_prior = 'yes',               
+                       iter = 5000,                  
+                       warmup = 1000,                
+                       chains = 3, 
+                       cores = 3,     
+                       thin = 5,   
+                       refresh = 0,              
+                       control = list(adapt_delta = 0.99),  
+                       backend = "rstan")  
+
+# To save the model use >>  
+#save(davies_brm2_size, file = "scripts/models/davies/size/davies_brm2_size.RData")
+```
+
+Model diagnostics
+
+```{r}
+davies_brm2_size |> pp_check(type = 'dens_overlay', ndraws = 100) 
+davies_brm2_size |> pp_check (type = "error_scatter_avg") 
+davies_brm2_size  |> pp_check(group = 'Site', type = 'violin_grouped')  
+
+davies.resids2 <- make_brms_dharma_res(davies_brm2_size, integerResponse = FALSE) 
+testUniformity(davies.resids2) 
+plotResiduals(davies.resids2) 
+testDispersion(davies.resids2)
+```
+
+##### brm3 - median_speed
+
+```{r}
+davies_size_speed <-  bf(Size_log ~ median_speed + (1|Site), family = gaussian())  
+priors <- prior(normal(0, 5), class = "Intercept") +  # for intercept   
+  prior(normal(0,5), class = "b") +                   # for fixed effects - speed   
+  prior(cauchy(0,2), class = 'sd')                    # for random effects - Site  
+
+davies_brm3_size <- brm(davies_size_speed,               
+                       data=davies,              
+                       prior = priors,    
+                       sample_prior = 'yes',           
+                       iter = 5000,     
+                       warmup = 1000,         
+                       chains = 3, 
+                       cores = 3,       
+                       thin = 5,                 
+                       refresh = 0,          
+                       control = list(adapt_delta = 0.99),     
+                       backend = "rstan")  
+
+# To save the model use >>  
+#save(davies_brm3_size, file = "scripts/models/davies/size/davies_brm3_size.RData") 
+```
+
+Model diagnostics
+
+```{r}
+davies_brm3_size |> pp_check(type = 'dens_overlay', ndraws = 100)
+davies_brm3_size |> pp_check (type = "error_scatter_avg")
+davies_brm3_size  |> pp_check(group = 'Site', type = 'violin_grouped') 
+
+davies.resids3 <- make_brms_dharma_res(davies_brm3_size, integerResponse = FALSE)
+testUniformity(davies.resids3) 
+plotResiduals(davies.resids3) 
+testDispersion(davies.resids3)
+```
+
+##### brm4- sedturf_t2
+
+```{r}
+davies_size_turf2 <-  bf(Size_log ~ sedturf_t2 + (1|Site), family = gaussian()) 
+
+priors <- prior(normal(0, 5), class = "Intercept") +  # for intercept  
+  prior(normal(0,5), class = "b") +                   # for fixed effects - speed 
+  prior(cauchy(0,2), class = 'sd')                    # for random effects - Site 
+
+davies_brm4_size <- brm(davies_size_turf2,                
+                       data=davies,           
+                       prior = priors,             
+                       sample_prior = 'yes',             
+                       iter = 5000,         
+                       warmup = 1000,    
+                       chains = 3, 
+                       cores = 3,    
+                       thin = 5,             
+                       refresh = 0,                 
+                       control = list(adapt_delta = 0.99),      
+                       backend = "rstan") 
+
+# To save the model use >>  
+#save(davies_brm4_size, file = "scripts/models/davies/size/davies_brm4_size.RData") 
+```
+
+Model diagnostics
+
+```{r}
+davies_brm4_size |> pp_check(type = 'dens_overlay', ndraws = 100) 
+davies_brm4_size |> pp_check (type = "error_scatter_avg") 
+davies_brm4_size  |> pp_check(group = 'Site', type = 'violin_grouped') 
+
+davies.resids4 <- make_brms_dharma_res(davies_brm4_size, integerResponse = FALSE) 
+testUniformity(davies.resids4) 
+plotResiduals(davies.resids4) 
+testDispersion(davies.resids4)
+```
+
+##### brm5 - sedconcrete_t2
+
+```{r}
+davies_size_concrete2 <-  bf(Size_log ~ sedconcrete_t2 + (1|Site), family = gaussian()) 
+priors <- prior(normal(0, 5), class = "Intercept") +  # for intercept  
+  prior(normal(0,5), class = "b") +                   # for fixed effects - speed   
+  prior(cauchy(0,2), class = 'sd')                    # for random effects - Site  
+
+davies_brm5_size <- brm(davies_size_concrete2,            
+                       data=davies,              
+                       prior = priors,               
+                       sample_prior = 'yes',              
+                       iter = 5000,            
+                       warmup = 1000,     
+                       chains = 3, 
+                       cores = 3,       
+                       thin = 5,            
+                       refresh = 0,               
+                       control = list(adapt_delta = 0.99), 
+                       backend = "rstan")  
+
+# To save the model use >>  
+#save(davies_brm5_size, file = "scripts/models/davies/size/davies_brm5_size.RData")
+```
+
+Model diagnostics
+
+```{r}
+davies_brm5_size |> pp_check(type = 'dens_overlay', ndraws = 100) 
+davies_brm5_size |> pp_check (type = "error_scatter_avg") 
+davies_brm5_size  |> pp_check(group = 'Site', type = 'violin_grouped') 
+
+davies.resids5 <- make_brms_dharma_res(davies_brm5_size, integerResponse = FALSE) 
+testUniformity(davies.resids5) 
+plotResiduals(davies.resids5)
+testDispersion(davies.resids5)
+```
+
+##### brm6 - sedturf_t5
+
+```{r}
+davies_size_turf5 <-  bf(Size_log ~ sedturf_t5 + (1|Site), family = gaussian()) 
+
+priors <- prior(normal(0, 5), class = "Intercept") +  # for intercept  
+  prior(normal(0,5), class = "b") +                   # for fixed effects - speed 
+  prior(cauchy(0,2), class = 'sd')                    # for random effects - Site 
+
+davies_brm6_size <- brm(davies_size_turf5,                
+                       data=davies,           
+                       prior = priors,             
+                       sample_prior = 'yes',             
+                       iter = 5000,         
+                       warmup = 1000,    
+                       chains = 3, 
+                       cores = 3,    
+                       thin = 5,             
+                       refresh = 0,                 
+                       control = list(adapt_delta = 0.99),      
+                       backend = "rstan") 
+
+# To save the model use >>  
+#save(davies_brm6_size, file = "scripts/models/davies/size/davies_brm6_size.RData") 
+```
+
+Model diagnostics
+
+```{r}
+davies_brm6_size |> pp_check(type = 'dens_overlay', ndraws = 100)
+davies_brm6_size |> pp_check (type = "error_scatter_avg") 
+davies_brm6_size  |> pp_check(group = 'Site', type = 'violin_grouped') 
+
+davies.resids6 <- make_brms_dharma_res(davies_brm6_size, integerResponse = FALSE) 
+testUniformity(davies.resids6) 
+plotResiduals(davies.resids6)
+testDispersion(davies.resids6)
+```
+
+##### brm7 - sedconcrete_t5
+
+```{r}
+davies_size_concrete5 <-  bf(Size_log ~ sedconcrete_t5 + (1|Site), family = gaussian()) 
+priors <- prior(normal(0, 5), class = "Intercept") +  # for intercept  
+  prior(normal(0,5), class = "b") +                   # for fixed effects - speed   
+  prior(cauchy(0,2), class = 'sd')                    # for random effects - Site  
+
+davies_brm7_size <- brm(davies_size_concrete5,            
+                       data=davies,              
+                       prior = priors,               
+                       sample_prior = 'yes',              
+                       iter = 5000,            
+                       warmup = 1000,     
+                       chains = 3, 
+                       cores = 3,       
+                       thin = 5,            
+                       refresh = 0,               
+                       control = list(adapt_delta = 0.99), 
+                       backend = "rstan")  
+
+# To save the model use >>  
+#save(davies_brm7_size, file = "scripts/models/davies/size/davies_brm7_size.RData")
+```
+
+Model diagnostics
+
+```{r}
+davies_brm7_size |> pp_check(type = 'dens_overlay', ndraws = 100)
+davies_brm7_size |> pp_check (type = "error_scatter_avg") 
+davies_brm7_size  |> pp_check(group = 'Site', type = 'violin_grouped') 
+
+davies.resids7 <- make_brms_dharma_res(davies_brm7_size, integerResponse = FALSE) 
+testUniformity(davies.resids7) 
+plotResiduals(davies.resids7)
+testDispersion(davies.resids7)
+```
+
+##### brm8 - habitat
+
+```{r}
+davies_size_habitat <-  bf(Size_log ~ PC1 + PC2 + (1|Site), family = gaussian())  
+priors <- prior(normal(0, 5), class = "Intercept") +  # for intercept 
+  prior(normal(0,5), class = "b") +                   # for fixed effects - speed   
+  prior(cauchy(0,2), class = 'sd')                    # for random effects - Site  
+
+davies_brm8_size <- brm(davies_size_habitat, 
+                       data=davies,             
+                       prior = priors,  
+                       sample_prior = 'yes',        
+                       iter = 5000,            
+                       warmup = 1000,          
+                       chains = 3, 
+                       cores = 3,  
+                       thin = 5,           
+                       refresh = 0,         
+                       control = list(adapt_delta = 0.99),      
+                       backend = "rstan")  
+
+# To save the model use >> 
+#save(davies_brm8_size, file = "scripts/models/davies/size/davies_brm8_size.RData")
+```
+
+Model diagnostics
+
+```{r}
+davies_brm8_size |> pp_check(type = 'dens_overlay', ndraws = 100)
+davies_brm8_size |> pp_check (type = "error_scatter_avg") 
+davies_brm8_size  |> pp_check(group = 'Site', type = 'violin_grouped') 
+
+davies.resids8 <- make_brms_dharma_res(davies_brm8_size, integerResponse = FALSE) 
+testUniformity(davies.resids8) 
+plotResiduals(davies.resids8)
+testDispersion(davies.resids8)
+```
+
+INTERPRETATION:
+
+**dens-overlay:** dark blue line represent the density of the observed data, the light blue lines represent the densities of simulated data from the posterior predictive distribution of the model (thus "replicated data"). Reasonable fit, the peak is around zero for the observed and replicated data, also the observed density falls generally within the rand of the replicated densities, suggesting that the model is performing well in capturing the overall distribution of the observed data.
+
+**error-scatter:** x-acis shows the average difference between the observed data and replicated (simulated) data. The y-axis represents the observed data. An ideal fit would be when the points cluster around the diagonal line where y is equal to the average yrep. In this case, the scatter points show a positive trend, indicating that higher observed values (y) correspond to higher average differences (y - yrep). The points are reasonably well aligned with the diagonal line, suggesting that the model's predictions are generally consistent with the observed data. However, there are some deviations at the higher observed values, suggesting that the model might not be fully capturing the variability in these observations.
+
+**violin-plot:** the black line represent the distribution of the observed data within each site. They light blue fill represents the distribution of the simulated data within each site. Wider sections indicate higher density. A good fit would be when the black outlines are well alligned with the light blue fill, indicating that the model's simulated data closely matches the observed data. In this case, the observed data at most sites are well aligned with the predicted data, suggesting that the model captures the general distribution within these sites. However, some sites have a little deviation, for instance site M4A has a wider spread in the observed data compared to the simulated data.
+
+**QQ-residuals:** the red line represents the expected theoretical quantiles if the residuals were perfectly uniform. However, the observed quantiles deviate from the red line, which is consistent with the Kolmogorov-Smirnov test, indicating significant deviation from uniformity.
+
+**Residuals vs. Predicted**: The black points should ideally scatter around the horizontal line at 0.5 if the model fits well. The black line (trend) should be flat if there are no systematic deviations. The plot shows some deviations from the horizontal line, suggesting possible non-uniformity or other issues. The red curve indicates the detected quantile deviations, suggesting some systematic deviations in certain quantiles of the residuals. However, the combined adjusted quantile test is not significant, suggesting that while there are some deviations, they are not strong enough to be statistically significant.
+
+**Dispersion test:** Evaluates whether the residual variance (dispersion) in the model is consistent with the expected variance under the model's assumptions. The histogram shows the distribution of the simulated residual standard deviations. The red line (fitted model) lies well within the bulk of the simulated values, suggesting that the model does not exhibit significant dispersion issues. Also, the output shows a dispersion of 0.87029. A dispersion parameter close to 1 indicates that the observed residual variance is consistent with the model's expectations. In this case, the dispersion parameter is 0.87029, which is close to 1. Also, the p-value is 0.69, suggesting that there is no significant overdispersion or underdispersion.
+
+#### Load models
+
+```{r}
+load(file = "scripts/models/davies/size/davies_brm1_size.RData") 
+load(file = "scripts/models/davies/size/davies_brm2_size.RData")
+load(file = "scripts/models/davies/size/davies_brm3_size.RData")
+load(file = "scripts/models/davies/size/davies_brm4_size.RData") 
+load(file = "scripts/models/davies/size/davies_brm5_size.RData")
+load(file = "scripts/models/davies/size/davies_brm6_size.RData")
+```
+
+#### Loo compare
+
+```{r}
+#Using loo compare, lower value is better 
+l_wave <- davies_brm1_size |> loo() 
+l_Ub <- davies_brm2_size |> loo() 
+l_speed <- davies_brm3_size |> loo() 
+l_turf2 <- davies_brm4_size|> loo() 
+l_concrete2 <- davies_brm5_size|> loo()
+l_turf5 <- davies_brm6_size|> loo() 
+l_concrete5 <- davies_brm7_size|> loo()
+l_habitat <- davies_brm8_size|> loo() 
+
+looic(davies_brm1_size)      #  LOOIC: 133.64 [10.01] 
+looic(davies_brm2_size)      #  LOOIC: 133.35 [9.87]
+looic(davies_brm3_size)      #  LOOIC: 133.41 [10.20]
+looic(davies_brm4_size)      #  LOOIC: 133.06 [10.48]
+looic(davies_brm5_size)      #  LOOIC: 131.72 [10.51]
+looic(davies_brm6_size)      #  LOOIC: 133.71 [10.12]
+looic(davies_brm7_size)      #  LOOIC: 133.31 [10.11] 
+looic(davies_brm8_size)      #  LOOIC: 134.95 [9.71]
+
+l_speed 
+l_Ub
+l_wave
+l_turf2 
+l_concrete2
+l_turf5 
+l_concrete5 
+l_habitat
+```
+
+**NOTES ON THIS:**
+
+**LOOIC (Leave-One-Out Information Criterion)**: A measure of the model's predictive accuracy. Lower LOOIC values indicate a better model.
+
+**ELPD (Expected Log Predictive Density)**: A measure of the model's predictive performance. Higher ELPD values indicate a better model.
+
+**Standard Error (SE)**: The standard error of the LOOIC or ELPD estimates.
+
+**\*\* Best Model**: `davies_brm5_size` ([l_concrete_t2]{.underline}) has the highest ELPD(-65.86) and the lowest LOOIC (131.72), indicating the best predictive performance among the models compared. However, davies_brm4_size (l_turf_t2) is in a close second place.
+
+**\*\* Worst Model**: `davies_brm8_size` ([l_habitat]{.underline}) has the lowest ELPD and the highest LOOIC, indicating the worst predictive performance among the models compared.
+
+#### Summary
+
+```{r}
+summary(davies_brm1_size)
+summary(davies_brm2_size)
+summary(davies_brm3_size)
+summary(davies_brm4_size)
+summary(davies_brm5_size)
+summary(davies_brm6_size)
+summary(davies_brm7_size)
+summary(davies_brm8_size)
+```
+
+**NOTES ON THIS:**
+
+-   **Random Effects**: The standard deviation for the intercepts across all models suggests some variability among the sites.
+
+-   **Fixed Effects**: None of the predictors (WaveEnergyLevel, Ub_avrg, median_speed, sedturf_t2, sedconcrete_t2, sedturf_t5) are statistically significant in predicting `Size_log`.
+
+-   **Residuals**: The residual standard deviation (sigma) is consistent across models, indicating a similar level of unexplained variance.
+
+Based on the LOOIC and ELPD values, **davies_brm5_size** appears to be the best-fitting model among those evaluated. However, since none of the fixed effects are significant, it suggests that these predictors may not be strong influencers of `Size_log` in this dataset.
+
+All models have good convergence diagnostics (Rhat = 1.00) and sufficient effect sample sizes (Bulk_ESS and Tail_ESS) indicating reliable parameter estimates.

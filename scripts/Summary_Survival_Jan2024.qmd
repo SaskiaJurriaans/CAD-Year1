@@ -53,7 +53,7 @@ heron_surv <- data_survival |> filter (Reef == "Heron")
 
 # first for A tenuis: filter dataset for  A_tenuis, and then add survival and total count at group level
 heron_Aten <- heron_surv |> 
-  filter(Spp == "A. kenti") |>
+  filter(Spp == "A_tenuis") |>
   group_by(Census, ReefDev) |>
   mutate(SurvDev_Spp = ifelse(any(SurvTab == 1), 1, 0),
          Total_Spp = n()) |>
@@ -73,7 +73,7 @@ heron_Aten2 <- heron_Aten |>
 
 # now do same for Ahyacinthus
 heron_Ahya <- heron_surv |> 
-  filter(Spp == "A. hyacinthus") |>
+  filter(Spp == "A_hyacinthus") |>
   group_by(Census, ReefDev) |>
   mutate(SurvDev_Spp = ifelse(any(SurvTab == 1), 1, 0),
          Total_Spp = n()) |>
@@ -116,7 +116,7 @@ summary_heron <- heron_Spp |>
 heron_Spp_t3 <- heron_Spp |>
   filter(Census == "t3")
 
-summary_heront3 <- heron_Spp_t3 |>
+summary_heron <- heron_Spp_t3 |>
   filter(!is.na(SurvDev_Spp)) |>
   group_by(Reef, Site, WaveEnergyLevel, Spp, Census, ExpDay) |>
   summarise(SurvivalNDevices = sum(SurvDev_Spp, na.rm=T),
@@ -148,6 +148,8 @@ summary_daviesmoore <- summary_survival_Dev |>
 
 #bind dataframes together
 summary_survival <- rbind(summary_heron, summary_daviesmoore)
+
+
 ```
 
 Create summary dataframe that includes species.
@@ -514,7 +516,7 @@ summary_survival_stats$Reef <- factor(summary_survival_stats$Reef, levels = c("M
 # Plot the average survival over time for each species with standard error bars
 plot7a <- ggplot(summary_survival_stats, aes(x = ExpDay, y = Avg_Survival, color = Spp)) +
    geom_point(size=3) +
-  scale_color_manual(values = c("A. millepora" = "green", "A. hyacinthus" = "orange", "A. kenti" = "purple")) +
+  scale_color_manual(values = c("A_millepora" = "green", "A_hyacinthus" = "orange", "A_tenuis" = "purple")) +
   geom_errorbar(aes(ymin = Avg_Survival - SE, ymax = Avg_Survival + SE), width = 0.2) +
   facet_wrap(~Reef, scales = "free") +
   labs(title = "Mean Survival Over Time by Species and Reef",
@@ -553,7 +555,7 @@ final_survival$Reef <- factor(final_survival$Reef, levels = c("Moore", "Davies",
 
 plot7b <- ggplot(final_survival, aes(x = Site, y = Perc_SurvDev, color = Spp))  +
    geom_point(size=3) +
-  scale_color_manual(values = c("A. millepora" = "green", "A. hyacinthus" = "orange", "A. kenti" = "purple")) +
+  scale_color_manual(values = c("A_millepora" = "green", "A_hyacinthus" = "orange", "A_tenuis" = "purple")) +
   facet_wrap(~Reef, scales = "free") +
   labs(title = "Final Survival of Species by Site",
        x = "Site",
@@ -617,7 +619,7 @@ ggsave("Fig8 - Mean survival Spp by Reef over time - tab.png", plot=plot8, width
 ```{r}
 # Specify the desired file name and path
 file_name <- "Summary Survival YEAR1.xlsx"
-file_path <- paste0("C:/Users/sjurriaa/Australian Institute of Marine Science/Carly Randall - Randall Lab/CAD/CAD Year1/output/", file_name)
+file_path <- paste0("C:/Users/sjurriaa/Australian Institute of Marine Science/Carly Randall - Randall Lab/CAD/CAD Field Data/2022_Deployment_Saskia_YEAR1/Survival data/Dataframes/", file_name)
 
 # Write the dataset to an Excel file
 write.xlsx(summary_survival, file_path)
@@ -625,7 +627,7 @@ write.xlsx(summary_survival, file_path)
 
 # Specify the desired file name and path
 file_name <- "Summary Survival YEAR1 FinalCensus.xlsx"
-file_path <- paste0("C:/Users/sjurriaa/Australian Institute of Marine Science/Carly Randall - Randall Lab/CAD/CAD Year1/output/", file_name)
+file_path <- paste0("C:/Users/sjurriaa/Australian Institute of Marine Science/Carly Randall - Randall Lab/CAD/CAD Field Data/2022_Deployment_Saskia_YEAR1/Survival data/Dataframes/", file_name)
 
 # Write the dataset to an Excel file
 write.xlsx(summary_survival_finalcensus, file_path)
