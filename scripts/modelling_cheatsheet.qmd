@@ -58,6 +58,96 @@ options(tinytex.engine = "xelatex")
     one predictor averaged across all levels (or combinations) of other
     predictors.
 
+### **Predicted Values vs. Fitted Values**
+
+**Predicted Values:**
+
+-   Predicted values are the outputs from a statistical model using new
+    or unseen data.
+
+-   They represent what the model estimates the response variable to be,
+    given the values of the predictor variables.
+
+-   Often used to make forecasts or predictions about future
+    observations.
+
+**Fitted Values:**
+
+-   Fitted values are the outputs from a statistical model using the
+    same data that was used to fit (train) the model.
+
+-   They represent the model's estimates of the response variable for
+    the observed data.
+
+-   Used to assess how well the model fits the training data by
+    comparing these values to the actual observed values.
+
+### **Conditional Effects vs. Marginal Effects**
+
+**Conditional Effects:**
+
+-   Conditional effects refer to the predicted changes in the response
+    variable given specific levels or combinations of other predictor
+    variables.
+
+-   These effects are "conditioned" on certain values of the other
+    predictors, typically the reference level or a specific combination.
+
+-   For example, the effect of a treatment at a specific level of
+    another variable (like age or gender).
+
+**Marginal Effects:**
+
+-   Marginal effects refer to the average predicted changes in the
+    response variable, averaged over all levels of other predictor
+    variables.
+
+-   These effects give a more generalized view by considering the
+    average effect of a predictor across the entire dataset.
+
+-   For example, the average effect of a treatment across all age groups
+    or both genders.
+
+### Examples for Better Understanding
+
+**Predicted Values:**
+
+\- If you have a model predicting house prices based on features like
+size, location, and number of bedrooms, a predicted value is what the
+model says a house with specific features will cost.
+
+**Fitted Values:**
+
+\- Using the same model, the fitted values are what the model estimates
+the prices to be for the houses in the training dataset. These can be
+compared to the actual prices to check the model's accuracy.
+
+**Conditional Effects:**
+
+\- If you're looking at the effect of education level on salary, a
+conditional effect might show the predicted salary increase for each
+additional year of education, assuming the individual is at the
+reference level of experience and gender (e.g., 0 years of experience
+and male).
+
+**Marginal Effects:**
+
+\- In the same salary model, a marginal effect would show the average
+predicted salary increase for each additional year of education,
+averaged across all levels of experience and gender in your dataset.
+
+### **Key Takeaways**
+
+-   **Predicted values** are used for new data.
+
+-   **Fitted values** are used for the training data.
+
+-   **Conditional effects s**how how predictors affect the response
+    variable under specific conditions.
+
+-   **Marginal effects s**how how predictors affect the response
+    variable on average across all conditions.
+
 # Visualising models
 
 | Package     | Function                   | Type              | Notes             |

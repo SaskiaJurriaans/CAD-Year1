@@ -47,7 +47,7 @@ data_survival <- read_excel("2022_Deployment_Saskia_MasterData.xlsx",
 ### First HERON: summary using species at device level
 
 ```{r}
-data_survival <- data_survival |>
+data_survival <- survival |>
   select(-c(Observer, CensusT, DeploymentDate, CensusDate, Device_ID, NoRecruits))
 heron_surv <- data_survival |> filter (Reef == "Heron")
 
@@ -499,7 +499,7 @@ ggsave("Fig6 - Survival Spp over time - tab.png", plot=plot6, width = 14, height
 
 ```
 
-### Fig7a- Point - Mean % survival Species (average sites) over ExpDay
+### Fig7a- MANUSCRIPT - Point - Mean % survival Species (average sites) over ExpDay
 
 ```{r}
 # Calculate average survival and standard error for each species within each reef at each time point
