@@ -6,6 +6,11 @@ format: html
 editor: visual
 ---
 
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_knit$set(root.dir = "C:/Users/sjurriaa/Australian Institute of Marine Science/Carly Randall - Randall Lab/CAD/CAD Year1")
+```
+
 # Preparations
 
 Load the necessary libraries
@@ -69,7 +74,7 @@ Remove some unnecessary columns
 
 ```{r}
 survival <- survival |>
-  select(-c(ID, Observer, CensusT, DeploymentDate, CensusDate, Device_ID, NoRecruits))
+  select(-c(ID, Observer, CensusT, DeploymentDate, CensusDate, Device_ID))
 ```
 
 # Moore Yield
@@ -80,11 +85,11 @@ survival <- survival |>
 moore_surv_t6 <- survival |> filter (Reef == "Moore",
                              Census == "t6",
                              Tab_ID == 1) |>
-  select(-c(Tab_ID, SurvTab, Spp))
+  select(-c(Tab_ID, SurvTab))
 
 moore_surv <- survival |> filter (Reef == "Moore",
                              Tab_ID == 1) |>
-  select(-c(Tab_ID, SurvTab, Spp))
+  select(-c(Tab_ID, SurvTab))
 
 moore_env <- environment |> 
   filter (Reef == "Moore") |>
@@ -123,7 +128,8 @@ moore_t5$ReefDev<- as.factor(moore_t5$ReefDev)
 moore$Site <- as.factor(moore$Site)
 moore$ReefDev<- as.factor(moore$ReefDev)
 
-moore_glmer1<- glmer(SurvDev ~ (1|Site) + (1|ReefDev), data=moore_t5, family = binomial(link = "logit")) #allowing for random intercepts but not random slopes --> accounting for potential variability in survival beteeen different sites and devices, but assuming that the effect of device on  survival is constant across different sites.
+moore_glmer1a<- glmer(SurvDev ~ (1|Site) + (1|ReefDev), data=moore_t5, family = binomial(link = "logit")) #allowing for random intercepts but not random slopes --> accounting for potential variability in survival beteeen different sites and devices, but assuming that the effect of device on  survival is constant across different sites.
+moore_glmer1b<- glmer(SurvDev ~ (1|Site), data=moore_t5, family = binomial(link = "logit"))
 
 moore_glmer2<- glmer(SurvDev ~ Ub_avrg + (1|Site) + (1|ReefDev), data=moore_t5, family = binomial(link = "logit")) 
 moore_glmer3<- glmer(SurvDev ~ WaveEnergyLevel + (1|Site) + (1|ReefDev), data=moore_t5, family = binomial(link = "logit")) 
@@ -136,7 +142,7 @@ summary(moore_glmer3)
 summary(moore_glmer4)
 summary(moore_glmer5)
 
-AIC(moore_glmer1, moore_glmer2, moore_glmer3, moore_glmer4, moore_glmer5)
+AIC(moore_glmer1a,moore_glmer1b, moore_glmer2, moore_glmer3, moore_glmer4, moore_glmer5)
 ```
 
 OUTPUT: all models behave very similar
@@ -147,7 +153,7 @@ OUTPUT: all models behave very similar
 
 ```{r}
 ggplot(data=moore_t5, aes(y = SurvDev, x = median_speed)) + 
-  geom_point(position = position_jitter(width = 0.2, height = 0)) +
+  geom_point(position = position_jitter(width = 0.005, height = 0)) +
   geom_smooth(method="lm")
 
 ggplot(data=moore_t5, aes(y = SurvDev, x = median_speed)) + 
