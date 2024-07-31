@@ -52,7 +52,11 @@ library(openxlsx)    # to write excel documents
 #library(INLAutils)  #for additional INLA outputs
 theme_set(theme_grey()) #put the default ggplot theme back
 library(lme4)
-source('helperFunctions.R')
+#source('helperFunctions.R')
+library(gridExtra)
+library(gtable)
+library(grid)
+library(egg)
 ```
 
 # Read in the data
@@ -1944,7 +1948,7 @@ size_allreef$Reef <- factor(size_allreef$Reef, levels = c("Moore", "Davies", "He
 # Plot the average growth for each reef and species - BOXPLOT
 plot_size_site <- ggplot(size_allreef, aes(x= Site, y = Size, color = Spp)) +
    geom_boxplot() +
-  scale_color_manual(values = c("A_millepora" = "green", "A_hyacinthus" = "orange", "A_tenuis" = "purple")) +
+  scale_color_manual(values = c("A. millepora" = "green", "A. hyacinthus" = "orange", "A. kenti" = "purple")) +
   facet_wrap(~Reef, scales = "free") +
   labs(title = "Coral Size Distribution Across Sites and Reefs",
        x = "Site",
@@ -1959,7 +1963,7 @@ plot_size_site <- ggplot(size_allreef, aes(x= Site, y = Size, color = Spp)) +
         legend.text = element_text(size = 12))
 
 plot_size_site
-ggsave("Fig3b - Coral Size by site.png", plot=plot_size_site, width = 14, height = 6, dpi = 300)
+ggsave("Fig3b - Coral Size by site.jpeg", plot=plot_size_site, width = 14, height = 6, dpi = 300)
 ```
 
 ### Boxplot - growth for each reef (ignoring site)
@@ -1971,7 +1975,7 @@ size_allreef$Reef <- factor(size_allreef$Reef, levels = c("Moore", "Davies", "He
 # Plot the average growth for each reef and species - BOXPLOT
 plot_size_reef <- ggplot(size_allreef, aes(x= Reef, y = Size, color = Spp)) +
    geom_boxplot() +
-  scale_color_manual(values = c("A_millepora" = "green", "A_hyacinthus" = "orange", "A_tenuis" = "purple")) +
+  scale_color_manual(values = c("A. millepora" = "green", "A. hyacinthus" = "orange", "A. kenti" = "purple")) +
   facet_wrap(~Reef, scales = "free") +
   labs(title = "Coral Size Distribution by Reef",
         y = "Coral Size (mm3)",
@@ -1992,9 +1996,58 @@ ggsave("Fig3c - Coral Size by reef.png", plot=plot_size_reef, width = 14, height
 
 ### \-\-\-\-- Moore\-\-\-\--
 
+Select the environmental predictors for the plots, then create empty entries for Ahya and Aten so that they appear in the figure legends (for complete species representation), and then combine the new species data with the selected moore data.
+
+```{r}
+moore_variables <- moore |>
+  select(c(Spp, Size_log, Ub_avrg, WaveEnergyLevel, sedturf_t5, sedconcrete_t5, median_speed))
+
+moore_variables_new <- data.frame(
+  Ub_avrg = NA,  # Use NA since there are no actual values
+  WaveEnergyLevel = NA,
+  sedturf_t5 = NA,
+  sedconcrete_t5 = NA,
+  median_speed = NA,
+  Size_log = NA, 
+  Spp = c("A_hyacinthus", "A_tenuis")
+)
+
+# Combine the new species data with the original moore data
+moore_combined <- rbind(moore_variables, moore_variables_new)
+
+remove(moore_variables)
+remove(moore_variables_new)
+```
+
+```{r}
+# Add a new species entry for predictor dataframe
+new_species_moore <- data.frame(
+  Ub_avrg = rep(NA, length(10)),
+  WaveEnergyLevel = rep(NA, length(10)),
+  sedturf_t5 = rep(NA, length(10)),
+  sedconcrete_t5 = rep(NA, length(10)),
+  median_speed = rep(NA, length(10)),
+  Spp = c("A_hyacinthus", "A_tenuis"),
+  Fitted = NA,  
+  Lower = NA,   
+  Upper = NA    
+)
+
+moore_brm1 <- new_species_moore |>
+  select(c(WaveEnergyLevel, Spp, Fitted, Lower, Upper))
+moore_brm2 <- new_species_moore |>
+  select(c(Ub_avrg, Spp, Fitted, Lower, Upper))
+moore_brm3 <- new_species_moore |>
+  select(c(median_speed, Spp, Fitted, Lower, Upper))
+moore_brm4 <- new_species_moore |>
+  select(c(sedturf_t5, Spp, Fitted, Lower, Upper))
+moore_brm5 <- new_species_moore |>
+  select(c(sedconcrete_t5, Spp, Fitted, Lower, Upper))
+```
+
 ##### Bottom Stress
 
-Extract fitted values and predictors:
+Extract fitted values and predictors and create empty entries for Aten and Ahya for complete species representation in the figure legends:
 
 ```{r}
 # Extract fitted values and predictors 
@@ -2006,51 +2059,32 @@ predicted_data_moore_brm2 <- data.frame(
   Fitted = apply(fitted_values_moore_brm2, 2, mean), 
   Lower = apply(fitted_values_moore_brm2, 2, function(x) quantile(x, 0.025)), 
   Upper = apply(fitted_values_moore_brm2, 2, function(x) quantile(x, 0.975)) )
+
+# Combine the new species data with the original predicted data
+predicted_data_moore_brm2 <- rbind(predicted_data_moore_brm2, moore_brm2)
 ```
 
 Create plot:
 
 ```{r}
-# Create the plot with points, error bars, and raw data 
-ggplot() +  
-  geom_point(data = moore, aes(x = Ub_avrg, y = Size_log), alpha = 0.5, color = "green") +    
-  geom_point(data = predicted_data_moore_brm2, aes(x = Ub_avrg, y = Fitted, color = Spp), alpha = 0.5) +    
-  geom_line(data = predicted_data_moore_brm2, aes(x = Ub_avrg, y = Fitted, group = Spp, color = Spp)) +   
-  geom_ribbon(data = predicted_data_moore_brm2, aes(x = Ub_avrg, ymin = Lower, ymax = Upper, fill = Spp), alpha = 0.2) +   
-  labs(title = "Moore Reef",    
-       x = "Bottom stress (m/s)",    
-       y = "Predicted growth (mm3)", 
-       color = "Species", 
-       fill = "Species") +  
-  scale_color_manual(values = c("A_millepora" = "darkgreen")) +
-  scale_fill_manual(values = c("A_millepora" = "green")) +
-  theme_minimal() + 
-  theme(panel.border = element_rect(color = "black", fill = NA, linewidth=0.5),     
-        axis.ticks = element_line(color = "black", linewidth = 0.5), 
-        axis.ticks.length = unit(0.25, "cm") # Adjust tick length as needed  
-  )
-```
-
-```{r}
 # Create the plot with points, error bars, and raw data
-plot_moore_Ub <- ggplot() +
-  # Plot the raw data points, colored in green
-  geom_point(data = moore, aes(x = Ub_avrg, y = Size_log), color = "green", alpha = 0.5) +
-  # Plot the predicted values with error bars, colored in dark green
-  geom_point(data = predicted_data_moore_brm2, aes(x = Ub_avrg, y = Fitted), color = "darkgreen") +
-  geom_errorbar(data = predicted_data_moore_brm2, aes(x = Ub_avrg, ymin = Lower, ymax = Upper), color = "darkgreen", width = 0.01, alpha = 0.5) +
-  labs(
-    title = "Moore Reef",
-    x = "Bottom stress (m/s)",
-    y = "Predicted growth (mm3)",
-    color = "Species"
-  ) +
+plot_moore_Ub<- ggplot() +
+  geom_jitter(data = moore_combined, aes(x = Ub_avrg, y = Size_log, color = Spp), alpha = 0.5, width = 0.008, height = 0) +
+  geom_errorbar(data = predicted_data_moore_brm2, aes(x = Ub_avrg, ymin = Lower, ymax = Upper), color = "black", width = 0.01, alpha = 0.5) +
+  geom_point(data = predicted_data_moore_brm2, aes(x = Ub_avrg, y = Fitted), color = "black") +
+   labs(
+     color = "Species",
+    fill = "Species") +
+    scale_color_manual(values = c("A_hyacinthus" = "orange", "A_tenuis" = "purple", "A_millepora" = "green")) +
   theme_minimal() +
   theme(
     panel.border = element_rect(color = "black", fill = NA, size = 0.5),
     axis.ticks = element_line(color = "black", size = 0.5),
-    axis.ticks.length = unit(0.25, "cm") # Adjust tick length as needed
+    axis.ticks.length = unit(0.25, "cm"),
+    axis.title.x = element_blank(), # Remove x-axis title
+    axis.title.y = element_blank() 
   )
+ 
 
 plot(plot_moore_Ub)
 ```
@@ -2069,50 +2103,35 @@ predicted_data_moore_brm1 <- data.frame(
   Fitted = apply(fitted_values_moore_brm1, 2, mean), 
   Lower = apply(fitted_values_moore_brm1, 2, function(x) quantile(x, 0.025)), 
   Upper = apply(fitted_values_moore_brm1, 2, function(x) quantile(x, 0.975)) )
+
+# Combine the new species data with the original predicted data
+predicted_data_moore_brm1 <- rbind(predicted_data_moore_brm1, moore_brm1)
 ```
 
 Create plot:
 
 ```{r}
-# Create the plot with points, error bars, and raw data 
-ggplot() +  
-  geom_point(data = moore, aes(x = WaveEnergyLevel, y = Size_log), alpha = 0.5, color = "green") +    
-  geom_point(data = predicted_data_moore_brm1, aes(x = WaveEnergyLevel, y = Fitted, color = Spp), alpha = 0.5) +    
-  geom_line(data = predicted_data_moore_brm1, aes(x = WaveEnergyLevel, y = Fitted, group = Spp, color = Spp)) +   
-  geom_ribbon(data = predicted_data_moore_brm1, aes(x = WaveEnergyLevel, ymin = Lower, ymax = Upper, fill = Spp), alpha = 0.2) +   
-  labs(title = "Moore Reef",    
-       x = "Nominal Wave Energy Level",    
-       y = "Predicted growth (mm3)", 
-       color = "Species", 
-       fill = "Species") +  
-  scale_color_manual(values = c("A_millepora" = "darkgreen")) +
-  scale_fill_manual(values = c("A_millepora" = "green")) +
-  theme_minimal() + 
-  theme(panel.border = element_rect(color = "black", fill = NA, size = 0.5),     
-        axis.ticks = element_line(color = "black", size = 0.5), 
-        axis.ticks.length = unit(0.25, "cm") # Adjust tick length as needed  
-  )
-```
-
-```{r}
 # Create the plot with points, error bars, and raw data
 plot_moore_WaveEnergyLevel <- ggplot() +
   # Plot the raw data points, colored in green
-  geom_point(data = moore, aes(x = WaveEnergyLevel, y = Size_log), color = "green", alpha = 0.5) +
-  # Plot the predicted values with error bars, colored in dark green
-  geom_point(data = predicted_data_moore_brm1, aes(x = WaveEnergyLevel, y = Fitted), color = "darkgreen") +
-  geom_errorbar(data = predicted_data_moore_brm1, aes(x = WaveEnergyLevel, ymin = Lower, ymax = Upper), color = "darkgreen", width = 0.1, alpha = 0.5) +
-  labs(
-    title = "Moore Reef",
-    x = "Nominal Wave Energy Level",
-    y = "Predicted growth (mm3)",
-    color = "Species"
-  ) +
+  geom_jitter(data = moore_combined, aes(x = WaveEnergyLevel, y = Size_log, color = Spp), alpha = 0.5, width = 0.1, height = 0) +
+  geom_errorbar(data = predicted_data_moore_brm1, aes(x = WaveEnergyLevel, ymin = Lower, ymax = Upper), color = "black", width = 0.1, alpha = 0.5) +
+  geom_point(data = predicted_data_moore_brm1, aes(x = WaveEnergyLevel, y = Fitted), color = "black") +
+   labs(
+    
+    x = "Wave Energy Level",
+    y = "Predicted growth log (mm3)",
+    color = "Species",
+    fill = "Species") +
+   scale_color_manual(values = c("A_hyacinthus" = "orange", "A_tenuis" = "purple", "A_millepora" = "green")) +
   theme_minimal() +
   theme(
     panel.border = element_rect(color = "black", fill = NA, size = 0.5),
     axis.ticks = element_line(color = "black", size = 0.5),
-    axis.ticks.length = unit(0.25, "cm") # Adjust tick length as needed
+    axis.ticks.length = unit(0.25, "cm") ,
+    axis.title.x = element_blank(), # Remove x-axis title
+    axis.title.y = element_blank()  # Remove y-axis title
+    
   )
 
 plot(plot_moore_WaveEnergyLevel)
@@ -2133,52 +2152,35 @@ predicted_data_moore_brm3 <- data.frame(
   Lower = apply(fitted_values_moore_brm3, 2, function(x) quantile(x, 0.025)), 
   Upper = apply(fitted_values_moore_brm3, 2, function(x) quantile(x, 0.975)) 
 )
+
+# Combine the new species data with the original predicted data
+predicted_data_moore_brm3 <- rbind(predicted_data_moore_brm3, moore_brm3)
 ```
 
 Create plot:
 
 ```{r}
-# Create the plot with points, error bars, and raw data 
-ggplot() +  
-  geom_point(data = moore, aes(x = median_speed, y = Size_log), alpha = 0.5, color = "green") +    
-  geom_point(data = predicted_data_moore_brm3, aes(x = median_speed, y = Fitted, color = Spp), alpha = 0.5) +    
-  geom_line(data = predicted_data_moore_brm3, aes(x = median_speed, y = Fitted, group = Spp, color = Spp)) +   
-  geom_ribbon(data = predicted_data_moore_brm3, aes(x = median_speed, ymin = Lower, ymax = Upper, fill = Spp), alpha = 0.2) +   
-  labs(title = "Moore Reef",    
-       x = "Median Flow velocity (m/s)",    
-       y = "Predicted growth (mm3)", 
-       color = "Species", 
-       fill = "Species") +  
-  scale_color_manual(values = c("A_millepora" = "darkgreen")) +
-  scale_fill_manual(values = c("A_millepora" = "green")) +
-  theme_minimal() + 
-  theme(panel.border = element_rect(color = "black", fill = NA, size = 0.5),     
-        axis.ticks = element_line(color = "black", size = 0.5), 
-        axis.ticks.length = unit(0.25, "cm") # Adjust tick length as needed  
-  )
-```
-
-```{r}
 # Create the plot with points, error bars, and raw data
-plot_moore_speed <- ggplot() +
-  # Plot the raw data points, colored in green
-  geom_point(data = moore, aes(x = median_speed, y = Size_log), color = "green", alpha = 0.5) +
-  # Plot the predicted values with error bars, colored in dark green
-  geom_point(data = predicted_data_moore_brm3, aes(x = median_speed, y = Fitted), color = "darkgreen") +
-  geom_errorbar(data = predicted_data_moore_brm3, aes(x = median_speed, ymin = Lower, ymax = Upper), color = "darkgreen", width = 0.002, alpha = 0.5) +
-  labs(
-    title = "Moore Reef",
-    x = "Median Flow velocity (m s-1)",
+plot_moore_speed<- ggplot() +
+  geom_jitter(data = moore_combined, aes(x = median_speed, y = Size_log, color = Spp), alpha = 0.5, width = 0.0025, height = 0) +
+  geom_errorbar(data = predicted_data_moore_brm3, aes(x = median_speed, ymin = Lower, ymax = Upper), color = "black", width = 0.0025, alpha = 0.5) +
+  geom_point(data = predicted_data_moore_brm3, aes(x = median_speed, y = Fitted), color = "black") +
+   labs(
+     
+    x = "Median flow velocity (m/s)",
     y = "Predicted growth (mm3)",
-    color = "Species"
-  ) +
+    color = "Species",
+    fill = "Species") +
+    scale_color_manual(values = c("A_hyacinthus" = "orange", "A_tenuis" = "purple", "A_millepora" = "green")) +
   theme_minimal() +
   theme(
     panel.border = element_rect(color = "black", fill = NA, size = 0.5),
     axis.ticks = element_line(color = "black", size = 0.5),
-    axis.ticks.length = unit(0.25, "cm") # Adjust tick length as needed
-  )
-
+    axis.ticks.length = unit(0.25, "cm") ,
+    axis.title.x = element_blank(), # Remove x-axis title
+    axis.title.y = element_blank()  # Remove y-axis title
+       )
+ 
 plot(plot_moore_speed)
 ```
 
@@ -2197,50 +2199,35 @@ predicted_data_moore_brm4 <- data.frame(
   Lower = apply(fitted_values_moore_brm4, 2, function(x) quantile(x, 0.025)), 
   Upper = apply(fitted_values_moore_brm4, 2, function(x) quantile(x, 0.975)) 
   )
+
+# Combine the new species data with the original predicted data
+predicted_data_moore_brm4 <- rbind(predicted_data_moore_brm4, moore_brm4)
 ```
 
 Create plot:
 
 ```{r}
-# Create the plot with points, error bars, and raw data 
-ggplot() +  
-  geom_point(data = moore, aes(x = sedturf_t5, y = Size_log), alpha = 0.5, color = "green") +    
-  geom_point(data = predicted_data_moore_brm4, aes(x = sedturf_t5, y = Fitted, color = Spp), alpha = 0.5) +    
-  geom_line(data = predicted_data_moore_brm4, aes(x = sedturf_t5, y = Fitted, group = Spp, color = Spp)) +   
-  geom_ribbon(data = predicted_data_moore_brm4, aes(x = sedturf_t5, ymin = Lower, ymax = Upper, fill = Spp), alpha = 0.2) +   
-  labs(title = "Moore Reef",    
-       x = "Sedimentation on turf (mg cm-2)",    
-       y = "Predicted growth (mm3)", 
-       color = "Species", 
-       fill = "Species") +  
-  scale_color_manual(values = c("A_millepora" = "darkgreen")) +
-  scale_fill_manual(values = c("A_millepora" = "green")) +
-  theme_minimal() + 
-  theme(panel.border = element_rect(color = "black", fill = NA, size = 0.5),     
-        axis.ticks = element_line(color = "black", size = 0.5), 
-        axis.ticks.length = unit(0.25, "cm") # Adjust tick length as needed  
-  )
-```
-
-```{r}
 # Create the plot with points, error bars, and raw data
 plot_moore_turf <- ggplot() +
   # Plot the raw data points, colored in green
-  geom_point(data = moore, aes(x = sedturf_t5, y = Size_log), color = "green", alpha = 0.5) +
-  # Plot the predicted values with error bars, colored in dark green
-  geom_point(data = predicted_data_moore_brm4, aes(x = sedturf_t5, y = Fitted), color = "darkgreen") +
-  geom_errorbar(data = predicted_data_moore_brm4, aes(x = sedturf_t5, ymin = Lower, ymax = Upper), color = "darkgreen", width = 0.05, alpha = 0.5) +
-  labs(
-    title = "Moore Reef",
-    x = "Sedimentation on turf (mg cm-2)",    
+  geom_jitter(data = moore_combined, aes(x = sedturf_t5, y = Size_log, color = Spp), alpha = 0.5, width = 0.08, height = 0) +
+  geom_errorbar(data = predicted_data_moore_brm4, aes(x = sedturf_t5, ymin = Lower, ymax = Upper), color = "black", width = 0.08, alpha = 0.5) +
+  geom_point(data = predicted_data_moore_brm4, aes(x = sedturf_t5, y = Fitted), color = "black") +
+   labs(
+     
+     x = "Sedimentation on turf (mg cm-2",
     y = "Predicted growth (mm3)",
-    color = "Species"
-  ) +
+    color = "Species",
+    fill = "Species") +
+    scale_color_manual(values = c("A_hyacinthus" = "orange", "A_tenuis" = "purple", "A_millepora" = "green")) +
   theme_minimal() +
   theme(
     panel.border = element_rect(color = "black", fill = NA, size = 0.5),
     axis.ticks = element_line(color = "black", size = 0.5),
-    axis.ticks.length = unit(0.25, "cm") # Adjust tick length as needed
+    axis.ticks.length = unit(0.25, "cm"),
+    axis.title.x = element_blank(), # Remove x-axis title
+    axis.title.y = element_blank()  # Remove y-axis title
+    
   )
 
 plot(plot_moore_turf)
@@ -2259,53 +2246,94 @@ predicted_data_moore_brm5 <- data.frame(
   Lower = apply(fitted_values_moore_brm5, 2, function(x) quantile(x, 0.025)), 
   Upper = apply(fitted_values_moore_brm5, 2, function(x) quantile(x, 0.975)) 
 )
-```
 
-```{r}
-# Create the plot with points, error bars, and raw data 
-ggplot() +  
-  geom_point(data = moore, aes(x = sedconcrete_t5, y = Size_log), alpha = 0.5, color = "green") +    
-  geom_point(data = predicted_data_moore_brm5, aes(x = sedconcrete_t5, y = Fitted, color = Spp), alpha = 0.5) +    
-  geom_line(data = predicted_data_moore_brm5, aes(x = sedconcrete_t5, y = Fitted, group = Spp, color = Spp)) +   
-  geom_ribbon(data = predicted_data_moore_brm5, aes(x = sedconcrete_t5, ymin = Lower, ymax = Upper, fill = Spp), alpha = 0.2) +   
-  labs(title = "Moore Reef",    
-       x = "Sedimentation on concrete (mg cm-2)",    
-       y = "Predicted growth (mm3)", 
-       color = "Species", 
-       fill = "Species") +  
-  scale_color_manual(values = c("A_millepora" = "darkgreen")) +
-  scale_fill_manual(values = c("A_millepora" = "green")) +
-  theme_minimal() + 
-  theme(panel.border = element_rect(color = "black", fill = NA, size = 0.5),     
-        axis.ticks = element_line(color = "black", size = 0.5), 
-        axis.ticks.length = unit(0.25, "cm") # Adjust tick length as needed  
-  )
+# Combine the new species data with the original predicted data
+predicted_data_moore_brm5 <- rbind(predicted_data_moore_brm5, moore_brm5)
 ```
 
 ```{r}
 # Create the plot with points, error bars, and raw data
 plot_moore_concrete <- ggplot() +
   # Plot the raw data points, colored in green
-  geom_point(data = moore, aes(x = sedconcrete_t5, y = Size_log), color = "green", alpha = 0.5) +
-  # Plot the predicted values with error bars, colored in dark green
-  geom_point(data = predicted_data_moore_brm5, aes(x = sedconcrete_t5, y = Fitted), color = "darkgreen") +
-  geom_errorbar(data = predicted_data_moore_brm5, aes(x = sedconcrete_t5, ymin = Lower, ymax = Upper), color = "darkgreen", width = 0.02, alpha = 0.5) +
-  labs(
-    title = "Moore Reef",
-    x = "Sedimentation on concrete (mg cm-2)",
+  geom_jitter(data = moore_combined, aes(x = sedconcrete_t5, y = Size_log, color = Spp), alpha = 0.5, width = 0.02, height = 0) +
+  geom_errorbar(data = predicted_data_moore_brm5, aes(x = sedconcrete_t5, ymin = Lower, ymax = Upper), color = "black", width = 0.05, alpha = 0.5) +
+  geom_point(data = predicted_data_moore_brm5, aes(x = sedconcrete_t5, y = Fitted), color = "black") +
+   labs(
+  
+    x = "Sedimentation on concrete (mg cm-2",
     y = "Predicted growth (mm3)",
-    color = "Species"
-  ) +
+    color = "Species",
+    fill = "Species") +
+    scale_color_manual(values = c("A_hyacinthus" = "orange", "A_tenuis" = "purple", "A_millepora" = "green")) +
   theme_minimal() +
   theme(
     panel.border = element_rect(color = "black", fill = NA, size = 0.5),
     axis.ticks = element_line(color = "black", size = 0.5),
-    axis.ticks.length = unit(0.25, "cm") # Adjust tick length as needed
+    axis.ticks.length = unit(0.25, "cm"),
+    axis.title.x = element_blank(), # Remove x-axis title
+    axis.title.y = element_blank()  # Remove y-axis title
+    
   )
+
 plot(plot_moore_concrete)
 ```
 
 ### \-\-\-\-- Davies\-\-\-\--
+
+```{r}
+davies_variables <- davies |>
+  select(c(Spp, Size_log, Ub_avrg, WaveEnergyLevel, sedturf_t5, sedconcrete_t5, sedturf_t2, sedconcrete_t2,median_speed))
+
+davies_variables_new <- data.frame(
+  Ub_avrg = NA,  # Use NA since there are no actual values
+  WaveEnergyLevel = NA,
+  sedturf_t5 = NA,
+  sedconcrete_t5 = NA,
+  sedturf_t2 = NA,
+  sedconcrete_t2 = NA,
+  median_speed = NA,
+  Size_log = NA, 
+  Spp = c("A_millepora", "A_tenuis")
+)
+
+# Combine the new species data with the original davies data
+davies_combined <- rbind(davies_variables, davies_variables_new)
+
+remove(davies_variables)
+remove(davies_variables_new)
+```
+
+```{r}
+# Add a new species entry for predictor dataframe
+new_species_davies <- data.frame(
+  Ub_avrg = rep(NA, length(10)),
+  WaveEnergyLevel = rep(NA, length(10)),
+  sedturf_t5 = rep(NA, length(10)),
+  sedconcrete_t5 = rep(NA, length(10)),
+  sedturf_t2 = rep(NA, length(10)),
+  sedconcrete_t2 = rep(NA, length(10)),
+  median_speed = rep(NA, length(10)),
+  Spp = c("A_millepora", "A_tenuis"),
+  Fitted = NA,  
+  Lower = NA,   
+  Upper = NA    
+)
+
+davies_brm1 <- new_species_davies |>
+  select(c(WaveEnergyLevel, Spp, Fitted, Lower, Upper))
+davies_brm2 <- new_species_davies |>
+  select(c(Ub_avrg, Spp, Fitted, Lower, Upper))
+davies_brm3 <- new_species_davies |>
+  select(c(median_speed, Spp, Fitted, Lower, Upper))
+davies_brm4 <- new_species_davies |>
+  select(c(sedturf_t2, Spp, Fitted, Lower, Upper))
+davies_brm5 <- new_species_davies |>
+  select(c(sedconcrete_t2, Spp, Fitted, Lower, Upper))
+davies_brm6 <- new_species_davies |>
+  select(c(sedturf_t5, Spp, Fitted, Lower, Upper))
+davies_brm7 <- new_species_davies |>
+  select(c(sedconcrete_t5, Spp, Fitted, Lower, Upper))
+```
 
 ##### Bottom Stress
 
@@ -2321,49 +2349,32 @@ predicted_data_davies_brm2 <- data.frame(
   Fitted = apply(fitted_values_davies_brm2, 2, mean), 
   Lower = apply(fitted_values_davies_brm2, 2, function(x) quantile(x, 0.025)), 
   Upper = apply(fitted_values_davies_brm2, 2, function(x) quantile(x, 0.975)) )
+
+# Combine the new species data with the original predicted data
+predicted_data_davies_brm2 <- rbind(predicted_data_davies_brm2, davies_brm2)
 ```
 
 Create plot:
 
 ```{r}
-# Create the plot with points, error bars, and raw data 
-ggplot() +  
-  geom_point(data = davies, aes(x = Ub_avrg, y = Size_log), alpha = 0.5, color = "orange") +    
-  geom_point(data = predicted_data_davies_brm2, aes(x = Ub_avrg, y = Fitted, color = Spp), alpha = 0.5) +    
-  geom_line(data = predicted_data_davies_brm2, aes(x = Ub_avrg, y = Fitted, group = Spp, color = Spp)) +   
-  geom_ribbon(data = predicted_data_davies_brm2, aes(x = Ub_avrg, ymin = Lower, ymax = Upper, fill = Spp), alpha = 0.2) +   
-  labs(title = "Davies Reef",    
-       x = "Bottom stress (m/s)",    
-       y = "Predicted growth (mm3)", 
-       color = "Species", 
-       fill = "Species") +  
-  scale_color_manual(values = c("A_hyacinthus" = "darkorange")) +
-  scale_fill_manual(values = c("A_hyacinthus" = "orange")) +
-  theme_minimal() + 
-  theme(panel.border = element_rect(color = "black", fill = NA, linewidth = 0.5),           axis.ticks = element_line(color = "black", linewidth = 0.5), 
-        axis.ticks.length = unit(0.25, "cm") # Adjust tick length as needed  
-  )
-```
-
-```{r}
 # Create the plot with points, error bars, and raw data
-plot_davies_Ub <- ggplot() +
-  # Plot the raw data points, colored in orange
-  geom_point(data = davies, aes(x = Ub_avrg, y = Size_log), color = "orange", alpha = 0.5) +
-  # Plot the predicted values with error bars, colored in dark orange
-  geom_point(data = predicted_data_davies_brm2, aes(x = Ub_avrg, y = Fitted), color = "darkorange") +
-  geom_errorbar(data = predicted_data_davies_brm2, aes(x = Ub_avrg, ymin = Lower, ymax = Upper), color = "darkorange", width = 0.02, alpha = 0.5) +
-  labs(
-    title = "Davies Reef",
-    x = "Bottom stress (m/s)",
+plot_davies_Ub<- ggplot() +
+  geom_jitter(data = davies_combined, aes(x = Ub_avrg, y = Size_log, color = Spp), alpha = 0.5, width = 0.008, height = 0) +
+  geom_errorbar(data = predicted_data_davies_brm2, aes(x = Ub_avrg, ymin = Lower, ymax = Upper), color = "black", width = 0.01, alpha = 0.5) +
+  geom_point(data = predicted_data_davies_brm2, aes(x = Ub_avrg, y = Fitted), color = "black") +
+   labs(
+       x = "Bottom stress (m/s)",
     y = "Predicted growth (mm3)",
-    color = "Species"
-  ) +
+    color = "Species",
+    fill = "Species") +
+    scale_color_manual(values = c("A_hyacinthus" = "orange", "A_tenuis" = "purple", "A_millepora" = "green")) +
   theme_minimal() +
   theme(
     panel.border = element_rect(color = "black", fill = NA, size = 0.5),
     axis.ticks = element_line(color = "black", size = 0.5),
-    axis.ticks.length = unit(0.25, "cm") # Adjust tick length as needed
+    axis.ticks.length = unit(0.25, "cm"),
+     axis.title.x = element_blank(), # Remove x-axis title
+    axis.title.y = element_blank()  # Remove y-axis title
   )
 
 plot(plot_davies_Ub)
@@ -2383,51 +2394,35 @@ predicted_data_davies_brm1 <- data.frame(
   Fitted = apply(fitted_values_davies_brm2, 2, mean), 
   Lower = apply(fitted_values_davies_brm2, 2, function(x) quantile(x, 0.025)), 
   Upper = apply(fitted_values_davies_brm2, 2, function(x) quantile(x, 0.975)) )
+
+# Combine the new species data with the original predicted data
+predicted_data_davies_brm1 <- rbind(predicted_data_davies_brm1, davies_brm1)
 ```
 
 Create plot:
 
 ```{r}
-# Create the plot with points, error bars, and raw data 
-ggplot() +  
-  geom_point(data = davies, aes(x = WaveEnergyLevel, y = Size_log), alpha = 0.5, color = "orange") +    
-  geom_point(data = predicted_data_davies_brm1, aes(x = WaveEnergyLevel, y = Fitted, color = Spp), alpha = 0.5) +    
-  geom_line(data = predicted_data_davies_brm1, aes(x = WaveEnergyLevel, y = Fitted, group = Spp, color = Spp)) +   
-  geom_ribbon(data = predicted_data_davies_brm1, aes(x = WaveEnergyLevel, ymin = Lower, ymax = Upper, fill = Spp), alpha = 0.2) +   
-  labs(title = "Davies Reef",    
-       x = "Nominal Wave Energy Level",    
-       y = "Predicted growth (mm3)", 
-       color = "Species", 
-       fill = "Species") +  
-  scale_color_manual(values = c("A_hyacinthus" = "darkorange")) +
-  scale_fill_manual(values = c("A_hyacinthus" = "orange")) +
-  theme_minimal() + 
-  theme(panel.border = element_rect(color = "black", fill = NA, linewidth = 0.5),     
-        axis.ticks = element_line(color = "black", linewidth = 0.5), 
-        axis.ticks.length = unit(0.25, "cm") # Adjust tick length as needed  
-  )
-```
-
-```{r}
 # Create the plot with points, error bars, and raw data
 plot_davies_WaveEnergyLevel <- ggplot() +
-  # Plot the raw data points, colored in orange
-  geom_point(data = davies, aes(x = WaveEnergyLevel, y = Size_log), color = "orange", alpha = 0.5) +
-  # Plot the predicted values with error bars, colored in dark orange
-  geom_point(data = predicted_data_davies_brm1, aes(x = WaveEnergyLevel, y = Fitted), color = "darkorange") +
-  geom_errorbar(data = predicted_data_davies_brm1, aes(x = WaveEnergyLevel, ymin = Lower, ymax = Upper), color = "darkorange", width = 0.1, alpha = 0.5) +
-  labs(
-    title = "Davies Reef",
-    x = "Nominal Wave Energy Level",    
+  # Plot the raw data points, colored in green
+  geom_jitter(data = davies_combined, aes(x = WaveEnergyLevel, y = Size_log, color = Spp), alpha = 0.5, width = 0.1, height = 0) +
+  geom_errorbar(data = predicted_data_davies_brm1, aes(x = WaveEnergyLevel, ymin = Lower, ymax = Upper), color = "black", width = 0.1, alpha = 0.5) +
+  geom_point(data = predicted_data_davies_brm1, aes(x = WaveEnergyLevel, y = Fitted), color = "black") +
+   labs(
+        x = "Wave Energy Level",
     y = "Predicted growth (mm3)",
-    color = "Species"
-  ) +
+    color = "Species",
+    fill = "Species") +
+   scale_color_manual(values = c("A_hyacinthus" = "orange", "A_tenuis" = "purple", "A_millepora" = "green")) +
   theme_minimal() +
   theme(
     panel.border = element_rect(color = "black", fill = NA, size = 0.5),
     axis.ticks = element_line(color = "black", size = 0.5),
-    axis.ticks.length = unit(0.25, "cm") # Adjust tick length as needed
+    axis.ticks.length = unit(0.25, "cm"),
+     axis.title.x = element_blank(), # Remove x-axis title
+    axis.title.y = element_blank()  # Remove y-axis title
   )
+
 plot(plot_davies_WaveEnergyLevel)
 ```
 
@@ -2445,55 +2440,38 @@ predicted_data_davies_brm3 <- data.frame(
   Fitted = apply(fitted_values_davies_brm2, 2, mean), 
   Lower = apply(fitted_values_davies_brm2, 2, function(x) quantile(x, 0.025)), 
   Upper = apply(fitted_values_davies_brm2, 2, function(x) quantile(x, 0.975)) )
+
+# Combine the new species data with the original predicted data
+predicted_data_davies_brm3 <- rbind(predicted_data_davies_brm3, davies_brm3)
 ```
 
 Create plot:
 
 ```{r}
-# Create the plot with points, error bars, and raw data 
-ggplot() +  
-  geom_point(data = davies, aes(x = median_speed, y = Size_log), alpha = 0.5, color = "orange") +    
-  geom_point(data = predicted_data_davies_brm3, aes(x = median_speed, y = Fitted, color = Spp), alpha = 0.5) +    
-  geom_line(data = predicted_data_davies_brm3, aes(x = median_speed, y = Fitted, group = Spp, color = Spp)) +   
-  geom_ribbon(data = predicted_data_davies_brm3, aes(x = median_speed, ymin = Lower, ymax = Upper, fill = Spp), alpha = 0.2) +   
-  labs(title = "Davies Reef",    
-       x = "Median Flow velocity (m/s)",    
-       y = "Predicted growth (mm3)", 
-       color = "Species", 
-       fill = "Species") +  
-  scale_color_manual(values = c("A_hyacinthus" = "darkorange")) +
-  scale_fill_manual(values = c("A_hyacinthus" = "orange")) +
-  theme_minimal() + 
-  theme(panel.border = element_rect(color = "black", fill = NA, linewidth = 0.5),     
-        axis.ticks = element_line(color = "black", linewidth = 0.5), 
-        axis.ticks.length = unit(0.25, "cm") # Adjust tick length as needed  
-  )
-```
-
-```{r}
 # Create the plot with points, error bars, and raw data
-plot_davies_speed <- ggplot() +
-  # Plot the raw data points, colored in orange
-  geom_point(data = davies, aes(x = median_speed, y = Size_log), color = "orange", alpha = 0.5) +
-  # Plot the predicted values with error bars, colored in dark orange
-  geom_point(data = predicted_data_davies_brm3, aes(x = median_speed, y = Fitted), color = "darkorange") +
-  geom_errorbar(data = predicted_data_davies_brm3, aes(x = median_speed, ymin = Lower, ymax = Upper), color = "darkorange", width = 0.005, alpha = 0.5) +
-  labs(
-    title = "Davies Reef",
-    x = "Median Flow velocity (m/s)",    
+plot_davies_speed<- ggplot() +
+  geom_jitter(data = davies_combined, aes(x = median_speed, y = Size_log, color = Spp), alpha = 0.5, width = 0.0025, height = 0) +
+  geom_errorbar(data = predicted_data_davies_brm3, aes(x = median_speed, ymin = Lower, ymax = Upper), color = "black", width = 0.0025, alpha = 0.5) +
+  geom_point(data = predicted_data_davies_brm3, aes(x = median_speed, y = Fitted), color = "black") +
+   labs(
+       x = "Median flow velocity (m/s)",
     y = "Predicted growth (mm3)",
-    color = "Species"
-  ) +
+    color = "Species",
+    fill = "Species") +
+    scale_color_manual(values = c("A_hyacinthus" = "orange", "A_tenuis" = "purple", "A_millepora" = "green")) +
   theme_minimal() +
   theme(
     panel.border = element_rect(color = "black", fill = NA, size = 0.5),
     axis.ticks = element_line(color = "black", size = 0.5),
-    axis.ticks.length = unit(0.25, "cm") # Adjust tick length as needed
+    axis.ticks.length = unit(0.25, "cm"),
+     axis.title.x = element_blank(), # Remove x-axis title
+    axis.title.y = element_blank()  # Remove y-axis title
   )
+
 plot(plot_davies_speed)
 ```
 
-##### Sedturf
+##### Sedturf t2
 
 Extract fitted values and predictors:
 
@@ -2507,55 +2485,39 @@ predicted_data_davies_brm4 <- data.frame(
   Fitted = apply(fitted_values_davies_brm4, 2, mean), 
   Lower = apply(fitted_values_davies_brm4, 2, function(x) quantile(x, 0.025)), 
   Upper = apply(fitted_values_davies_brm4, 2, function(x) quantile(x, 0.975)) )
+
+# Combine the new species data with the original predicted data
+predicted_data_davies_brm4 <- rbind(predicted_data_davies_brm4, davies_brm4)
 ```
 
 Create plot:
 
 ```{r}
-# Create the plot with points, error bars, and raw data 
-ggplot() +  
-  geom_point(data = davies, aes(x = sedturf_t2, y = Size_log), alpha = 0.5, color = "orange") +    
-  geom_point(data = predicted_data_davies_brm4, aes(x = sedturf_t2, y = Fitted, color = Spp), alpha = 0.5) +    
-  geom_line(data = predicted_data_davies_brm4, aes(x = sedturf_t2, y = Fitted, group = Spp, color = Spp)) +   
-  geom_ribbon(data = predicted_data_davies_brm4, aes(x = sedturf_t2, ymin = Lower, ymax = Upper, fill = Spp), alpha = 0.2) +   
-  labs(title = "Davies Reef",    
-       x = "Sedimentation on turf (mg cm-2)",    
-       y = "Predicted growth (mm3)", 
-       color = "Species", 
-       fill = "Species") +  
-  scale_color_manual(values = c("A_hyacinthus" = "darkorange")) +
-  scale_fill_manual(values = c("A_hyacinthus" = "orange")) +
-  theme_minimal() + 
-  theme(panel.border = element_rect(color = "black", fill = NA, size = 0.5),     
-        axis.ticks = element_line(color = "black", size = 0.5), 
-        axis.ticks.length = unit(0.25, "cm") # Adjust tick length as needed  
-  )
-```
-
-```{r}
 # Create the plot with points, error bars, and raw data
-plot_davies_turf <- ggplot() +
-  # Plot the raw data points, colored in orange
-  geom_point(data = davies, aes(x = sedturf_t2, y = Size_log), color = "orange", alpha = 0.5) +
-  # Plot the predicted values with error bars, colored in dark orange
-  geom_point(data = predicted_data_davies_brm4, aes(x = sedturf_t2, y = Fitted), color = "darkorange") +
-  geom_errorbar(data = predicted_data_davies_brm4, aes(x = sedturf_t2, ymin = Lower, ymax = Upper), color = "darkorange", width = 0.05, alpha = 0.5) +
-  labs(
-    title = "Davies Reef",
-    x = "Sedimentation on turf (mg cm-2)",    
+plot_davies_turf2 <- ggplot() +
+  # Plot the raw data points, colored in green
+  geom_jitter(data = davies_combined, aes(x = sedturf_t2, y = Size_log, color = Spp), alpha = 0.5, width = 0.08, height = 0) +
+  geom_errorbar(data = predicted_data_davies_brm4, aes(x = sedturf_t2, ymin = Lower, ymax = Upper), color = "black", width = 0.08, alpha = 0.5) +
+  geom_point(data = predicted_data_davies_brm4, aes(x = sedturf_t2, y = Fitted), color = "black") +
+   labs(
+    x = "Sedimentation on turf (mg cm-2",
     y = "Predicted growth (mm3)",
-    color = "Species"
-  ) +
+    color = "Species",
+    fill = "Species") +
+    scale_color_manual(values = c("A_hyacinthus" = "orange", "A_tenuis" = "purple", "A_millepora" = "green")) +
   theme_minimal() +
   theme(
     panel.border = element_rect(color = "black", fill = NA, size = 0.5),
     axis.ticks = element_line(color = "black", size = 0.5),
-    axis.ticks.length = unit(0.25, "cm") # Adjust tick length as needed
+    axis.ticks.length = unit(0.25, "cm"),
+     axis.title.x = element_blank(), # Remove x-axis title
+    axis.title.y = element_blank()  # Remove y-axis title
   )
-plot(plot_davies_turf)
+
+plot(plot_davies_turf2)
 ```
 
-##### Sedconcrete
+##### Sedconcrete t2
 
 ```{r}
 # Extract fitted values and predictors 
@@ -2567,55 +2529,179 @@ predicted_data_davies_brm5 <- data.frame(
   Fitted = apply(fitted_values_davies_brm5, 2, mean), 
   Lower = apply(fitted_values_davies_brm5, 2, function(x) quantile(x, 0.025)), 
   Upper = apply(fitted_values_davies_brm5, 2, function(x) quantile(x, 0.975)) )
+
+# Combine the new species data with the original predicted data
+predicted_data_davies_brm5 <- rbind(predicted_data_davies_brm5, davies_brm5)
 ```
 
 Create plot:
 
 ```{r}
-# Create the plot with points, error bars, and raw data 
-ggplot() +  
-  geom_point(data = davies, aes(x = sedconcrete_t2, y = Size_log), alpha = 0.5, color = "orange") +    
-  geom_point(data = predicted_data_davies_brm5, aes(x = sedconcrete_t2, y = Fitted, color = Spp), alpha = 0.5) +    
-  geom_line(data = predicted_data_davies_brm5, aes(x = sedconcrete_t2, y = Fitted, group = Spp, color = Spp)) +   
-  geom_ribbon(data = predicted_data_davies_brm5, aes(x = sedconcrete_t2, ymin = Lower, ymax = Upper, fill = Spp), alpha = 0.2) +   
-  labs(title = "Davies Reef",    
-       x = "Sedimentation on concrete (mg cm-2)",    
-       y = "Predicted growth (mm3)", 
-       color = "Species", 
-       fill = "Species") +  
-  scale_color_manual(values = c("A_hyacinthus" = "darkorange")) +
-  scale_fill_manual(values = c("A_hyacinthus" = "orange")) +
-  theme_minimal() + 
-  theme(panel.border = element_rect(color = "black", fill = NA, size = 0.5),     
-        axis.ticks = element_line(color = "black", size = 0.5), 
-        axis.ticks.length = unit(0.25, "cm") # Adjust tick length as needed  
-  )
-```
-
-```{r}
 # Create the plot with points, error bars, and raw data
-plot_davies_concrete <- ggplot() +
-  # Plot the raw data points, colored in orange
-  geom_point(data = davies, aes(x = sedconcrete_t2, y = Size_log), color = "orange", alpha = 0.5) +
-  # Plot the predicted values with error bars, colored in dark orange
-  geom_point(data = predicted_data_davies_brm5, aes(x = sedconcrete_t2, y = Fitted), color = "darkorange") +
-  geom_errorbar(data = predicted_data_davies_brm5, aes(x = sedconcrete_t2, ymin = Lower, ymax = Upper), color = "darkorange", width = 0.02, alpha = 0.5) +
-  labs(
-    title = "Davies Reef",
-    x = "Sedimentation on concrete (mg cm-2)",    
+plot_davies_concrete2 <- ggplot() +
+  # Plot the raw data points, colored in green
+  geom_jitter(data = davies_combined, aes(x = sedconcrete_t2, y = Size_log, color = Spp), alpha = 0.5, width = 0.02, height = 0) +
+  geom_errorbar(data = predicted_data_davies_brm5, aes(x = sedconcrete_t2, ymin = Lower, ymax = Upper), color = "black", width = 0.025, alpha = 0.5) +
+  geom_point(data = predicted_data_davies_brm5, aes(x = sedconcrete_t2, y = Fitted), color = "black") +
+   labs(
+        x = "Sedimentation on concrete (mg cm-2",
     y = "Predicted growth (mm3)",
-    color = "Species"
-  ) +
+    color = "Species",
+    fill = "Species") +
+    scale_color_manual(values = c("A_hyacinthus" = "orange", "A_tenuis" = "purple", "A_millepora" = "green")) +
   theme_minimal() +
   theme(
     panel.border = element_rect(color = "black", fill = NA, size = 0.5),
     axis.ticks = element_line(color = "black", size = 0.5),
-    axis.ticks.length = unit(0.25, "cm") # Adjust tick length as needed
+    axis.ticks.length = unit(0.25, "cm"),
+     axis.title.x = element_blank(), # Remove x-axis title
+    axis.title.y = element_blank()  # Remove y-axis title
   )
+
+plot(plot_davies_concrete2)
+```
+
+##### Sedturf t5
+
+Extract fitted values and predictors:
+
+```{r}
+# Extract fitted values and predictors 
+fitted_values_davies_brm6 <- fitted(davies_brm6_size, summary = FALSE)
+
+predicted_data_davies_brm6 <- data.frame(  
+  sedturf_t5 = davies$sedturf_t5,  
+  Spp = davies$Spp,  
+  Fitted = apply(fitted_values_davies_brm6, 2, mean), 
+  Lower = apply(fitted_values_davies_brm6, 2, function(x) quantile(x, 0.025)), 
+  Upper = apply(fitted_values_davies_brm6, 2, function(x) quantile(x, 0.975)) )
+
+# Combine the new species data with the original predicted data
+predicted_data_davies_brm6 <- rbind(predicted_data_davies_brm6, davies_brm6)
+```
+
+Create plot:
+
+```{r}
+# Create the plot with points, error bars, and raw data
+plot_davies_turf5 <- ggplot() +
+  # Plot the raw data points, colored in green
+  geom_jitter(data = davies_combined, aes(x = sedturf_t5, y = Size_log, color = Spp), alpha = 0.5, width = 0.08, height = 0) +
+  geom_errorbar(data = predicted_data_davies_brm6, aes(x = sedturf_t5, ymin = Lower, ymax = Upper), color = "black", width = 0.025, alpha = 0.5) +
+  geom_point(data = predicted_data_davies_brm6, aes(x = sedturf_t5, y = Fitted), color = "black") +
+   labs(
+        x = "Sedimentation on turf (mg cm-2",
+    y = "Predicted growth (mm3)",
+    color = "Species",
+    fill = "Species") +
+    scale_color_manual(values = c("A_hyacinthus" = "orange", "A_tenuis" = "purple", "A_millepora" = "green")) +
+  theme_minimal() +
+  theme(
+    panel.border = element_rect(color = "black", fill = NA, size = 0.5),
+    axis.ticks = element_line(color = "black", size = 0.5),
+    axis.ticks.length = unit(0.25, "cm"),
+     axis.title.x = element_blank(), # Remove x-axis title
+    axis.title.y = element_blank()  # Remove y-axis title
+  )
+
+plot(plot_davies_turf5)
+```
+
+##### Sedconcrete t5
+
+Extract fitted values and predictors:
+
+```{r}
+# Extract fitted values and predictors 
+fitted_values_davies_brm7 <- fitted(davies_brm7_size, summary = FALSE)
+
+predicted_data_davies_brm7 <- data.frame(  
+  sedconcrete_t5 = davies$sedconcrete_t5,  
+  Spp = davies$Spp,  
+  Fitted = apply(fitted_values_davies_brm7, 2, mean), 
+  Lower = apply(fitted_values_davies_brm7, 2, function(x) quantile(x, 0.025)), 
+  Upper = apply(fitted_values_davies_brm7, 2, function(x) quantile(x, 0.975)) )
+
+# Combine the new species data with the original predicted data
+predicted_data_davies_brm7 <- rbind(predicted_data_davies_brm7, davies_brm7)
+```
+
+Create plot:
+
+```{r}
+# Create the plot with points, error bars, and raw data
+plot_davies_concrete <- ggplot() +
+  # Plot the raw data points, colored in green
+  geom_jitter(data = davies_combined, aes(x = sedconcrete_t5, y = Size_log, color = Spp), alpha = 0.5, width = 0.02, height = 0) +
+  geom_errorbar(data = predicted_data_davies_brm7, aes(x = sedconcrete_t5, ymin = Lower, ymax = Upper), color = "black", width = 0.05, alpha = 0.5) +
+  geom_point(data = predicted_data_davies_brm7, aes(x = sedconcrete_t5, y = Fitted), color = "black") +
+   labs(
+    
+    x = "Sedimentation on concrete (mg cm-2",
+    y = "Predicted growth (mm3)",
+    color = "Species",
+    fill = "Species") +
+    scale_color_manual(values = c("A_hyacinthus" = "orange", "A_tenuis" = "purple", "A_millepora" = "green")) +
+  theme_minimal() +
+  theme(
+    panel.border = element_rect(color = "black", fill = NA, size = 0.5),
+    axis.ticks = element_line(color = "black", size = 0.5),
+    axis.ticks.length = unit(0.25, "cm"),
+     axis.title.x = element_blank(), # Remove x-axis title
+    axis.title.y = element_blank()  # Remove y-axis title
+  )
+
 plot(plot_davies_concrete)
 ```
 
 ### \-\-\-\-- Heron\-\-\-\--
+
+```{r}
+heron_variables <- heron |>
+  select(c(Spp, Size_log, Ub_avrg, WaveEnergyLevel, sedturf_t2, sedconcrete_t2,median_speed))
+
+heron_variables_new <- data.frame(
+  Ub_avrg = NA,  # Use NA since there are no actual values
+  WaveEnergyLevel = NA,
+  sedturf_t2 = NA,
+  sedconcrete_t2 = NA,
+  median_speed = NA,
+  Size_log = NA, 
+  Spp = c("A_millepora")
+)
+
+# Combine the new species data with the original heron data
+heron_combined <- rbind(heron_variables, heron_variables_new)
+
+remove(heron_variables)
+remove(heron_variables_new)
+```
+
+```{r}
+# Add a new species entry for predictor dataframe
+new_species_heron <- data.frame(
+  Ub_avrg = rep(NA, length(10)),
+  WaveEnergyLevel = rep(NA, length(10)),
+  sedturf_t2 = rep(NA, length(10)),
+  sedconcrete_t2 = rep(NA, length(10)),
+  median_speed = rep(NA, length(10)),
+  Spp = c("A_millepora"),
+  Fitted = NA,  
+  Lower = NA,   
+  Upper = NA    
+)
+
+heron_brm1 <- new_species_heron |>
+  select(c(WaveEnergyLevel, Spp, Fitted, Lower, Upper))
+heron_brm2 <- new_species_heron |>
+  select(c(Ub_avrg, Spp, Fitted, Lower, Upper))
+heron_brm3 <- new_species_heron |>
+  select(c(median_speed, Spp, Fitted, Lower, Upper))
+heron_brm4 <- new_species_heron |>
+  select(c(sedturf_t2, Spp, Fitted, Lower, Upper))
+heron_brm5 <- new_species_heron |>
+  select(c(sedconcrete_t2, Spp, Fitted, Lower, Upper))
+```
 
 ##### Bottom Stress
 
@@ -2631,59 +2717,36 @@ predicted_data_heron_brm2 <- data.frame(
   Lower = apply(fitted_values_heron_brm2, 2, function(x) quantile(x, 0.025)),
   Upper = apply(fitted_values_heron_brm2, 2, function(x) quantile(x, 0.975))
 )
+
+# Combine the new species data with the original predicted data
+predicted_data_heron_brm2 <- rbind(predicted_data_heron_brm2, heron_brm2)
 ```
 
 Create plot:
 
 ```{r}
 # Create the plot with points, error bars, and raw data
-ggplot() +
-  # Plot the raw data points, colored by species
-  geom_point(data = heron, aes(x = Ub_avrg, y = Size_log, color = Spp), alpha = 0.5) +
-  # Plot the predicted data points, colored by species
-  geom_point(data = predicted_data_heron_brm2, aes(x = Ub_avrg, y = Fitted, color = Spp), alpha = 0.5) + 
-  # Line for fitted values, colored by species
-  geom_line(data = predicted_data_heron_brm2, aes(x = Ub_avrg, y = Fitted, color = Spp, group = Spp)) +  
-  # CI ribbon, filled by species
-  geom_ribbon(data = predicted_data_heron_brm2, aes(x = Ub_avrg, ymin = Lower, ymax = Upper, fill = Spp), alpha = 0.2) +  
-  labs(
-    title = "Heron Reef",
-    x = "Bottom stress (m/s)",
-    y = "Predicted growth (mm3)",
-    color = "Species",  # Rename color legend title
-    fill = "Species"    # Rename fill legend title
-  ) +
-  scale_color_manual(values = c("A_hyacinthus" = "orange", "A_tenuis" = "purple")) +
-  scale_fill_manual(values = c("A_hyacinthus" = "orange", "A_tenuis" = "purple")) +
-  theme_minimal() +
-  theme(
-    panel.border = element_rect(color = "black", fill = NA, size = 0.5),
-    axis.ticks = element_line(color = "black", size = 0.5),
-    axis.ticks.length = unit(0.25, "cm") # Adjust tick length as needed
-  )
-```
-
-```{r}
-# Create the plot with points, error bars, and raw data
 plot_heron_Ub<- ggplot() +
-  # Plot the raw data points, colored by species
-  geom_point(data = heron, aes(x = Ub_avrg, y = Size_log, color = Spp), alpha = 0.5) +
-  # Plot the predicted values with error bars, colored by species
-  geom_point(data = predicted_data_heron_brm2, aes(x = Ub_avrg, y = Fitted, color = Spp)) +
-  geom_errorbar(data = predicted_data_heron_brm2, aes(x = Ub_avrg, ymin = Lower, ymax = Upper, color = Spp), width = 0.02, alpha = 0.5) +
-  labs(
-    title = "Heron Reef",
+  geom_jitter(data = heron_combined, aes(x = Ub_avrg, y = Size_log, color = Spp), alpha = 0.5, width = 0.008, height = 0) +
+  geom_errorbar(data = predicted_data_heron_brm2, aes(x = Ub_avrg, ymin = Lower, ymax = Upper), color = "black", width = 0.01, alpha = 0.5) +
+  geom_point(data = predicted_data_heron_brm2, aes(x = Ub_avrg, y = Fitted), color = "black") +
+   labs(
+   
     x = "Bottom stress (m/s)",
     y = "Predicted growth (mm3)",
-    color = "Species"
-  ) +
-  scale_color_manual(values = c("A_hyacinthus" = "orange", "A_tenuis" = "purple")) +
+    color = "Species",
+    fill = "Species") +
+    scale_color_manual(values = c("A_hyacinthus" = "orange", "A_tenuis" = "purple", "A_millepora" = "green")) +
   theme_minimal() +
   theme(
     panel.border = element_rect(color = "black", fill = NA, size = 0.5),
     axis.ticks = element_line(color = "black", size = 0.5),
-    axis.ticks.length = unit(0.25, "cm") # Adjust tick length as needed
+    axis.ticks.length = unit(0.25, "cm"),
+     axis.title.x = element_blank(), # Remove x-axis title
+    axis.title.y = element_blank()  # Remove y-axis title
   )
+
+plot(plot_heron_Ub)
 ```
 
 ##### WaveEnergyLevel
@@ -2700,59 +2763,37 @@ predicted_data_heron_brm1 <- data.frame(
   Lower = apply(fitted_values_heron_brm1, 2, function(x) quantile(x, 0.025)),
   Upper = apply(fitted_values_heron_brm1, 2, function(x) quantile(x, 0.975))
 )
+
+# Combine the new species data with the original predicted data
+predicted_data_heron_brm1 <- rbind(predicted_data_heron_brm1, heron_brm1)
 ```
 
 Create plot:
 
 ```{r}
 # Create the plot with points, error bars, and raw data
-ggplot() +
-  # Plot the raw data points, colored by species
-  geom_point(data = heron, aes(x = WaveEnergyLevel, y = Size_log, color = Spp), alpha = 0.5) +
-  # Plot the predicted data points, colored by species
-  geom_point(data = predicted_data_heron_brm1, aes(x = WaveEnergyLevel, y = Fitted, color = Spp), alpha = 0.5) + 
-  # Line for fitted values, colored by species
-  geom_line(data = predicted_data_heron_brm1, aes(x = WaveEnergyLevel, y = Fitted, color = Spp, group = Spp)) +  
-  # CI ribbon, filled by species
-  geom_ribbon(data = predicted_data_heron_brm1, aes(x = WaveEnergyLevel, ymin = Lower, ymax = Upper, fill = Spp), alpha = 0.2) +  
-  labs(
-    title = "Predicted Values with 95% Confidence Intervals",
-    x = "WaveEnergyLevel",
-    y = "Predicted growth (mm3)",
-    color = "Species",  # Rename color legend title
-    fill = "Species"    # Rename fill legend title
-  ) +
-  scale_color_manual(values = c("A_hyacinthus" = "orange", "A_tenuis" = "purple")) +
-  scale_fill_manual(values = c("A_hyacinthus" = "orange", "A_tenuis" = "purple")) +
-  theme_minimal() +
-  theme(
-    panel.border = element_rect(color = "black", fill = NA, size = 0.5),
-    axis.ticks = element_line(color = "black", size = 0.5),
-    axis.ticks.length = unit(0.25, "cm") # Adjust tick length as needed
-  )
-```
-
-```{r}
-# Create the plot with points, error bars, and raw data
 plot_heron_WaveEnergyLevel <- ggplot() +
-  # Plot the raw data points, colored by species
-  geom_point(data = heron, aes(x = WaveEnergyLevel, y = Size_log, color = Spp), alpha = 0.4) +
-  # Plot the predicted values with error bars, colored by species
-  geom_point(data = predicted_data_heron_brm1, aes(x = WaveEnergyLevel, y = Fitted, color = Spp)) +
-  geom_errorbar(data = predicted_data_heron_brm1, aes(x = WaveEnergyLevel, ymin = Lower, ymax = Upper, color = Spp), width = 0.05) +
-  labs(
-    title = "Heron Reef",
-    x = "Nominal Wave Energy Level",
+  # Plot the raw data points, colored in green
+  geom_jitter(data = heron_combined, aes(x = WaveEnergyLevel, y = Size_log, color = Spp), alpha = 0.5, width = 0.1, height = 0) +
+  geom_errorbar(data = predicted_data_heron_brm1, aes(x = WaveEnergyLevel, ymin = Lower, ymax = Upper), color = "black", width = 0.1, alpha = 0.5) +
+  geom_point(data = predicted_data_heron_brm1, aes(x = WaveEnergyLevel, y = Fitted), color = "black") +
+   labs(
+    
+    x = "Wave Energy Level",
     y = "Predicted growth (mm3)",
-    color = "Species"
-  ) +
-  scale_color_manual(values = c("A_hyacinthus" = "orange", "A_tenuis" = "purple")) +
+    color = "Species",
+    fill = "Species") +
+   scale_color_manual(values = c("A_hyacinthus" = "orange", "A_tenuis" = "purple", "A_millepora" = "green")) +
   theme_minimal() +
   theme(
     panel.border = element_rect(color = "black", fill = NA, size = 0.5),
     axis.ticks = element_line(color = "black", size = 0.5),
-    axis.ticks.length = unit(0.25, "cm") # Adjust tick length as needed
+    axis.ticks.length = unit(0.25, "cm"),
+     axis.title.x = element_blank(), # Remove x-axis title
+    axis.title.y = element_blank()  # Remove y-axis title
   )
+
+plot(plot_heron_WaveEnergyLevel)
 ```
 
 ##### Flow velocity
@@ -2769,59 +2810,36 @@ predicted_data_heron_brm3 <- data.frame(
   Lower = apply(fitted_values_heron_brm3, 2, function(x) quantile(x, 0.025)),
   Upper = apply(fitted_values_heron_brm3, 2, function(x) quantile(x, 0.975))
 )
+
+# Combine the new species data with the original predicted data
+predicted_data_heron_brm3 <- rbind(predicted_data_heron_brm3, heron_brm3)
 ```
 
 Create plot:
 
 ```{r}
 # Create the plot with points, error bars, and raw data
-ggplot() +
-  # Plot the raw data points, colored by species
-  geom_point(data = heron, aes(x = median_speed, y = Size_log, color = Spp), alpha = 0.4) +
-  # Plot the predicted data points, colored by species
-  geom_point(data = predicted_data_heron_brm3, aes(x = median_speed, y = Fitted, color = Spp), alpha = 0.5) + 
-  # Line for fitted values, colored by species
-  geom_line(data = predicted_data_heron_brm3, aes(x = median_speed, y = Fitted, color = Spp, group = Spp)) +  
-  # CI ribbon, filled by species
-  geom_ribbon(data = predicted_data_heron_brm3, aes(x = median_speed, ymin = Lower, ymax = Upper, fill = Spp), alpha = 0.2) +  
-  labs(
-    title = "Predicted Values with 95% Confidence Intervals",
+plot_heron_speed<- ggplot() +
+  geom_jitter(data = heron_combined, aes(x = median_speed, y = Size_log, color = Spp), alpha = 0.5, width = 0.0025, height = 0) +
+  geom_errorbar(data = predicted_data_heron_brm3, aes(x = median_speed, ymin = Lower, ymax = Upper), color = "black", width = 0.0025, alpha = 0.5) +
+  geom_point(data = predicted_data_heron_brm3, aes(x = median_speed, y = Fitted), color = "black") +
+   labs(
+   
     x = "Median flow velocity (m/s)",
     y = "Predicted growth (mm3)",
-    color = "Species",  # Rename color legend title
-    fill = "Species"    # Rename fill legend title
-  ) +
-  scale_color_manual(values = c("A_hyacinthus" = "orange", "A_tenuis" = "purple")) +
-  scale_fill_manual(values = c("A_hyacinthus" = "orange", "A_tenuis" = "purple")) +
+    color = "Species",
+    fill = "Species") +
+    scale_color_manual(values = c("A_hyacinthus" = "orange", "A_tenuis" = "purple", "A_millepora" = "green")) +
   theme_minimal() +
   theme(
     panel.border = element_rect(color = "black", fill = NA, size = 0.5),
     axis.ticks = element_line(color = "black", size = 0.5),
-    axis.ticks.length = unit(0.25, "cm") # Adjust tick length as needed
+    axis.ticks.length = unit(0.25, "cm"),
+     axis.title.x = element_blank(), # Remove x-axis title
+    axis.title.y = element_blank()  # Remove y-axis title
   )
-```
 
-```{r}
-# Create the plot with points, error bars, and raw data
-plot_heron_speed <- ggplot() +
-  # Plot the raw data points, colored by species
-  geom_point(data = heron, aes(x = median_speed, y = Size_log, color = Spp), alpha = 0.5) +
-  # Plot the predicted values with error bars, colored by species
-  geom_point(data = predicted_data_heron_brm3, aes(x = median_speed, y = Fitted, color = Spp)) +
-  geom_errorbar(data = predicted_data_heron_brm3, aes(x = median_speed, ymin = Lower, ymax = Upper, color = Spp), width = 0.005, alpha = 0.5) +
-  labs(
-    title = "Heron Reef",
-    x = "Median flow velocity stress (m/s)",
-    y = "Predicted growth (mm3)",
-    color = "Species"
-  ) +
-  scale_color_manual(values = c("A_hyacinthus" = "orange", "A_tenuis" = "purple")) +
-  theme_minimal() +
-  theme(
-    panel.border = element_rect(color = "black", fill = NA, size = 0.5),
-    axis.ticks = element_line(color = "black", size = 0.5),
-    axis.ticks.length = unit(0.25, "cm") # Adjust tick length as needed
-  )
+plot(plot_heron_speed)
 ```
 
 ##### Sedturf
@@ -2838,59 +2856,37 @@ predicted_data_heron_brm4 <- data.frame(
   Lower = apply(fitted_values_heron_brm4, 2, function(x) quantile(x, 0.025)),
   Upper = apply(fitted_values_heron_brm4, 2, function(x) quantile(x, 0.975))
 )
+
+# Combine the new species data with the original predicted data
+predicted_data_heron_brm4 <- rbind(predicted_data_heron_brm4, heron_brm4)
 ```
 
 Create plot:
 
 ```{r}
 # Create the plot with points, error bars, and raw data
-ggplot() +
-  # Plot the raw data points, colored by species
-  geom_point(data = heron, aes(x = sedturf_t2, y = Size_log, color = Spp), alpha = 0.4) +
-  # Plot the predicted data points, colored by species
-  geom_point(data = predicted_data_heron_brm4, aes(x = sedturf_t2, y = Fitted, color = Spp), alpha = 0.5) + 
-  # Line for fitted values, colored by species
-  geom_line(data = predicted_data_heron_brm4, aes(x = sedturf_t2, y = Fitted, color = Spp, group = Spp)) +  
-  # CI ribbon, filled by species
-  geom_ribbon(data = predicted_data_heron_brm4, aes(x = sedturf_t2, ymin = Lower, ymax = Upper, fill = Spp), alpha = 0.2) +  
-  labs(
-    title = "Predicted Values with 95% Confidence Intervals",
-    x = "Sedimentation on turf (mg cm-2)",
-    y = "Predicted growth (mm3)",
-    color = "Species",  # Rename color legend title
-    fill = "Species"    # Rename fill legend title
-  ) +
-  scale_color_manual(values = c("A_hyacinthus" = "orange", "A_tenuis" = "purple")) +
-  scale_fill_manual(values = c("A_hyacinthus" = "orange", "A_tenuis" = "purple")) +
-  theme_minimal() +
-  theme(
-    panel.border = element_rect(color = "black", fill = NA, size = 0.5),
-    axis.ticks = element_line(color = "black", size = 0.5),
-    axis.ticks.length = unit(0.25, "cm") # Adjust tick length as needed
-  )
-```
-
-```{r}
-# Create the plot with points, error bars, and raw data
 plot_heron_turf <- ggplot() +
-  # Plot the raw data points, colored by species
-  geom_point(data = heron, aes(x = sedturf_t2, y = Size_log, color = Spp), alpha = 0.5) +
-  # Plot the predicted values with error bars, colored by species
-  geom_point(data = predicted_data_heron_brm4, aes(x = sedturf_t2, y = Fitted, color = Spp)) +
-  geom_errorbar(data = predicted_data_heron_brm4, aes(x = sedturf_t2, ymin = Lower, ymax = Upper, color = Spp), width = 0.8, alpha = 0.5) +
-  labs(
-    title = "Heron Reef",
+  # Plot the raw data points, colored in green
+  geom_jitter(data = heron_combined, aes(x = sedturf_t2, y = Size_log, color = Spp), alpha = 0.5, width = 0.08, height = 0) +
+  geom_errorbar(data = predicted_data_heron_brm4, aes(x = sedturf_t2, ymin = Lower, ymax = Upper), color = "black", width = 0.5, alpha = 0.5) +
+  geom_point(data = predicted_data_heron_brm4, aes(x = sedturf_t2, y = Fitted), color = "black") +
+   labs(
+    
     x = "Sedimentation on turf (mg cm-2)",
     y = "Predicted growth (mm3)",
-    color = "Species"
-  ) +
-  scale_color_manual(values = c("A_hyacinthus" = "orange", "A_tenuis" = "purple")) +
+    color = "Species",
+    fill = "Species") +
+    scale_color_manual(values = c("A_hyacinthus" = "orange", "A_tenuis" = "purple", "A_millepora" = "green")) +
   theme_minimal() +
   theme(
     panel.border = element_rect(color = "black", fill = NA, size = 0.5),
     axis.ticks = element_line(color = "black", size = 0.5),
-    axis.ticks.length = unit(0.25, "cm") # Adjust tick length as needed
+    axis.ticks.length = unit(0.25, "cm"),
+     axis.title.x = element_blank(), # Remove x-axis title
+    axis.title.y = element_blank()  # Remove y-axis title
   )
+
+plot(plot_heron_turf)
 ```
 
 ##### Sedconcrete
@@ -2905,57 +2901,35 @@ predicted_data_heron_brm5 <- data.frame(
   Lower = apply(fitted_values_heron_brm4, 2, function(x) quantile(x, 0.025)),
   Upper = apply(fitted_values_heron_brm4, 2, function(x) quantile(x, 0.975))
 )
-```
 
-```{r}
-# Create the plot with points, error bars, and raw data
-ggplot() +
-  # Plot the raw data points, colored by species
-  geom_point(data = heron, aes(x = sedconcrete_t2, y = Size_log, color = Spp), alpha = 0.4) +
-  # Plot the predicted data points, colored by species
-  geom_point(data = predicted_data_heron_brm5, aes(x = sedconcrete_t2, y = Fitted, color = Spp), alpha = 0.5) + 
-  # Line for fitted values, colored by species
-  geom_line(data = predicted_data_heron_brm5, aes(x = sedconcrete_t2, y = Fitted, color = Spp, group = Spp)) +  
-  # CI ribbon, filled by species
-  geom_ribbon(data = predicted_data_heron_brm5, aes(x = sedconcrete_t2, ymin = Lower, ymax = Upper, fill = Spp), alpha = 0.2) +  
-  labs(
-    title = "Predicted Values with 95% Confidence Intervals",
-    x = "Sedimentation on concrete (mg cm-2)",
-    y = "Predicted growth (mm3)",
-    color = "Species",  # Rename color legend title
-    fill = "Species"    # Rename fill legend title
-  ) +
-  scale_color_manual(values = c("A_hyacinthus" = "orange", "A_tenuis" = "purple")) +
-  scale_fill_manual(values = c("A_hyacinthus" = "orange", "A_tenuis" = "purple")) +
-  theme_minimal() +
-  theme(
-    panel.border = element_rect(color = "black", fill = NA, size = 0.5),
-    axis.ticks = element_line(color = "black", size = 0.5),
-    axis.ticks.length = unit(0.25, "cm") # Adjust tick length as needed
-  )
+# Combine the new species data with the original predicted data
+predicted_data_heron_brm5 <- rbind(predicted_data_heron_brm5, heron_brm5)
 ```
 
 ```{r}
 # Create the plot with points, error bars, and raw data
 plot_heron_concrete <- ggplot() +
-  # Plot the raw data points, colored by species
-  geom_point(data = heron, aes(x = sedconcrete_t2, y = Size_log, color = Spp), alpha = 0.5) +
-  # Plot the predicted values with error bars, colored by species
-  geom_point(data = predicted_data_heron_brm5, aes(x = sedconcrete_t2, y = Fitted, color = Spp)) +
-  geom_errorbar(data = predicted_data_heron_brm5, aes(x = sedconcrete_t2, ymin = Lower, ymax = Upper, color = Spp), width = 0.1, alpha = 0.5) +
-  labs(
-    title = "Heron Reef",
+  # Plot the raw data points, colored in green
+  geom_jitter(data = heron_combined, aes(x = sedconcrete_t2, y = Size_log, color = Spp), alpha = 0.5, width = 0.05, height = 0) +
+  geom_errorbar(data = predicted_data_heron_brm5, aes(x = sedconcrete_t2, ymin = Lower, ymax = Upper), color = "black", width = 0.1, alpha = 0.5) +
+  geom_point(data = predicted_data_heron_brm5, aes(x = sedconcrete_t2, y = Fitted), color = "black") +
+   labs(
+   
     x = "Sedimentation on concrete (mg cm-2)",
     y = "Predicted growth (mm3)",
-    color = "Species"
-  ) +
-  scale_color_manual(values = c("A_hyacinthus" = "orange", "A_tenuis" = "purple")) +
+    color = "Species",
+    fill = "Species") +
+    scale_color_manual(values = c("A_hyacinthus" = "orange", "A_tenuis" = "purple", "A_millepora" = "green")) +
   theme_minimal() +
   theme(
     panel.border = element_rect(color = "black", fill = NA, size = 0.5),
     axis.ticks = element_line(color = "black", size = 0.5),
-    axis.ticks.length = unit(0.25, "cm") # Adjust tick length as needed
+    axis.ticks.length = unit(0.25, "cm"),
+     axis.title.x = element_blank(), # Remove x-axis title
+    axis.title.y = element_blank()  # Remove y-axis title
   )
+
+plot(plot_heron_concrete)
 ```
 
 ### \_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_
@@ -2965,12 +2939,6 @@ plot_heron_concrete <- ggplot() +
 ### Moore
 
 ```{r}
-plot_moore_Ub
-plot_moore_WaveEnergyLevel
-plot_moore_speed
-plot_moore_turf
-plot_moore_concrete
-
 ggsave("output/figures growth/Moore Predicted growth Ub.jpeg", plot_moore_Ub, width = 10, height = 6)
 ggsave("output/figures growth/Moore Predicted growth WaveEnergyLevel.jpeg", plot_moore_WaveEnergyLevel, width = 10, height = 6)
 ggsave("output/figures growth/Moore Predicted growth Median Speed.jpeg", plot_moore_speed, width = 10, height = 6)
@@ -2981,31 +2949,87 @@ ggsave("output/figures growth/Moore Predicted growth Concrete.jpeg", plot_moore_
 ### Davies
 
 ```{r}
-plot_davies_Ub
-plot_davies_WaveEnergyLevel
-plot_davies_speed
-plot_davies_turf
-plot_davies_concrete
-
-ggsave("output/figures bayes growth/Davies Predicted growth Ub.jpeg", plot_davies_Ub, width = 10, height = 6)
-ggsave("output/figures bayes growth/Davies Predicted growth WaveEnergyLevel.jpeg", plot_davies_WaveEnergyLevel, width = 10, height = 6)
-ggsave("output/figures bayes growth/Davies Predicted growth Median Speed.jpeg", plot_davies_speed, width = 10, height = 6)
-ggsave("output/figures bayes growth/Davies Predicted growth Turf.jpeg", plot_davies_turf, width = 10, height = 6)
-ggsave("output/figures bayes growth/Davies Predicted growth Concrete.jpeg", plot_davies_concrete, width = 10, height = 6)
+ggsave("output/figures growth/Davies Predicted growth Ub.jpeg", plot_davies_Ub, width = 10, height = 6)
+ggsave("output/figures growth/Davies Predicted growth WaveEnergyLevel.jpeg", plot_davies_WaveEnergyLevel, width = 10, height = 6)
+ggsave("output/figures growth/Davies Predicted growth Median Speed.jpeg", plot_davies_speed, width = 10, height = 6)
+ggsave("output/figures growth/Davies Predicted growth Turf2.jpeg", plot_davies_turf2, width = 10, height = 6)
+ggsave("output/figures growth/Davies Predicted growth Turf5.jpeg", plot_davies_turf5, width = 10, height = 6)
+ggsave("output/figures growth/Davies Predicted growth Concrete5.jpeg", plot_davies_concrete, width = 10, height = 6)
+ggsave("output/figures growth/Davies Predicted growth Concrete2.jpeg", plot_davies_concrete2, width = 10, height = 6)
 ```
 
 ### Heron
 
 ```{r}
-plot_heron_Ub
-plot_heron_WaveEnergyLevel
-plot_heron_speed
-plot_heron_turf
-plot_heron_concrete
+ggsave("output/figures growth/Heron Predicted growth Ub.jpeg", plot_heron_Ub, width = 4, height = 4)
+ggsave("output/figures growth/Heron Predicted growth WaveEnergyLevel.jpeg", plot_heron_WaveEnergyLevel, width = 4, height = 4)
+ggsave("output/figures growth/Heron Predicted growth Median Speed.jpeg", plot_heron_speed, width = 4, height = 4)
+ggsave("output/figures growth/Heron Predicted growth Turf.jpeg", plot_heron_turf, width = 4, height = 4)
+ggsave("output/figures growth/Heron Predicted growth Concrete.jpeg", plot_heron_concrete, width = 4, height = 4)
+```
 
-ggsave("output/figures bayes growth/Heron Predicted growth Ub.jpeg", plot_heron_Ub, width = 4, height = 4)
-ggsave("output/figures bayes growth/Heron Predicted growth WaveEnergyLevel.jpeg", plot_heron_WaveEnergyLevel, width = 4, height = 4)
-ggsave("output/figures bayes growth/Heron Predicted growth Median Speed.jpeg", plot_heron_speed, width = 4, height = 4)
-ggsave("output/figures bayes growth/Heron Predicted growth Turf.jpeg", plot_heron_turf, width = 4, height = 4)
-ggsave("output/figures bayes growth/Heron Predicted growth Concrete.jpeg", plot_heron_concrete, width = 4, height = 4)
+### Multiplot figure
+
+Shared legend
+
+```{r}
+grid_arrange_shared_legend <-
+  function(...,
+           ncol = length(list(...)),
+           nrow = 1,
+           position = c("bottom", "right")) {
+    
+    plots <- list(...)
+    position <- match.arg(position)
+    g <-
+      ggplotGrob(plots[[1]] + theme(legend.position = position))$grobs
+    legend <- g[[which(sapply(g, function(x)
+      x$name) == "guide-box")]]
+    lheight <- sum(legend$height)
+    lwidth <- sum(legend$width)
+    gl <- lapply(plots, function(x)
+      x + theme(legend.position = "none"))
+    gl <- c(gl, ncol = ncol, nrow = nrow)
+    
+    combined <- switch(
+      position,
+      "bottom" = arrangeGrob(
+        do.call(arrangeGrob, gl),
+        legend,
+        ncol = 1,
+        heights = unit.c(unit(1, "npc") - lheight, lheight)
+      ),
+      "right" = arrangeGrob(
+        do.call(arrangeGrob, gl),
+        legend,
+        ncol = 2,
+        widths = unit.c(unit(1, "npc") - lwidth, lwidth)
+      )
+    )
+    
+    grid.newpage()
+    grid.draw(combined)
+    
+    # return gtable invisibly
+    invisible(combined)
+    
+  }
+```
+
+```{r}
+capture_plot <- function() {
+  grid_arrange_shared_legend(
+  plot_moore_WaveEnergyLevel,plot_moore_Ub,plot_moore_speed,plot_moore_turf,plot_moore_concrete,
+  plot_davies_WaveEnergyLevel,plot_davies_Ub,plot_davies_speed,plot_davies_turf2,plot_davies_concrete2,
+  plot_heron_WaveEnergyLevel,plot_heron_Ub,plot_heron_speed,plot_heron_turf,plot_heron_concrete,
+             ncol = 5, 
+             nrow = 3)
+}
+
+capture_plot()
+```
+
+```{r}
+# Save the plot using ggsave
+ggsave("Figure Growth AllReefs.jpeg", plot = capture_plot(), width = 8, height = 6)
 ```
