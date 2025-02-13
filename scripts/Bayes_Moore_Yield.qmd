@@ -77,39 +77,31 @@ survival <- survival |>
   select(-c(ID, Observer, CensusT, DeploymentDate, CensusDate, Device_ID))
 ```
 
-# Moore Yield
-
-### Subset data: moore yield (device level)
+Subset data: moore yield (device level)
 
 ```{r}
-moore_surv_t6 <- survival |> filter (Reef == "Moore",
-                             Census == "t6",
-                             Tab_ID == 1) |>
-  select(-c(Tab_ID, SurvTab))
-
 moore_surv <- survival |> filter (Reef == "Moore",
                              Tab_ID == 1) |>
-  select(-c(Tab_ID, SurvTab))
+  select(-c(Tab_ID, SurvTab, LinLength_mm, Height_mm, PerpLenght_mm)) |>
+  mutate(Site = as.factor(Site),
+         ReefDev = as.factor(ReefDev),
+         Census = as.factor(Census))
 
 moore_env <- environment |> 
   filter (Reef == "Moore") |>
-  select(-c(Reef1, Device_ID))
+  select(-c(Reef1, Device_ID)) |>
+  rename(turf = sedturf_t5,
+         concrete = sedconcrete_t5)
 ```
 
-### Merge survival and environment
+Merge survival and environment
 
 ```{r}
-moore_t5 <- merge(moore_env, moore_surv_t6, by = c("Reef", "Site", "ReefDev"), all = TRUE)
+# create one dataset - merge survival and environmental data
 moore <- merge(moore_env, moore_surv, by = c("Reef", "Site", "ReefDev"), all = TRUE)
 
 #free up space
 remove(moore_surv, moore_env)
-
-# Remove rows with missing values
-moore_t5$SurvDev <- as.numeric(moore_t5$SurvDev)
-moore_t5 <- moore_t5[complete.cases(moore_t5$SurvDev),  ]
-moore_t5 <- moore_t5[complete.cases(moore_t5$PC1),  ]
-moore_t5 <- moore_t5 |> select(-c(sedturf_t2, sedconcrete_t2))
 
 # Remove rows with missing values
 moore$SurvDev <- as.numeric(moore$SurvDev)
@@ -118,158 +110,158 @@ moore <- moore[complete.cases(moore$PC1),  ]
 moore <- moore |> select(-c(sedturf_t2, sedconcrete_t2))
 ```
 
-### GLM
+Create subsets
+
+```{r}
+#subset data to have survival at final timepoint only
+moore_t6 <- moore |>
+  filter(Census == "t6")
+
+#subset data to have survival for all census points except t0 at which survival is 100%, and census t2, t3 and t5 at whihc not all sites were censused
+moore_subset <- moore |>
+  filter(!Census %in% c("t0", "t2", "t3", "t5"))
+```
+
+# GLM
 
 ```{r}
 library(lme4)
-moore_t5$Site <- as.factor(moore_t5$Site)
-moore_t5$ReefDev<- as.factor(moore_t5$ReefDev)
 
-moore$Site <- as.factor(moore$Site)
-moore$ReefDev<- as.factor(moore$ReefDev)
+moore_glm_census<- glm(SurvDev ~ Census, data=moore_subset, family = binomial(link = "logit"))
+moore_glmer_site<- glmer(SurvDev ~ (1|Site), data=moore_subset, family = binomial(link = "logit"))
+moore_glmer<- glmer(SurvDev ~ Census + (1|Site), data=moore_subset, family = binomial(link = "logit"))
 
-moore_glmer1a<- glmer(SurvDev ~ (1|Site) + (1|ReefDev), data=moore_t5, family = binomial(link = "logit")) #allowing for random intercepts but not random slopes --> accounting for potential variability in survival beteeen different sites and devices, but assuming that the effect of device on  survival is constant across different sites.
-moore_glmer1b<- glmer(SurvDev ~ (1|Site), data=moore_t5, family = binomial(link = "logit"))
+moore_glmer_speed <- glmer(SurvDev ~ median_speed + (1|Site), data = moore_t6, family = binomial(link = "logit"))
+moore_glmer_speed_interaction <- glmer(SurvDev ~ Census * median_speed + (1|Site), data=moore_subset, family = binomial(link = "logit"))
 
-moore_glmer2<- glmer(SurvDev ~ Ub_avrg + (1|Site) + (1|ReefDev), data=moore_t5, family = binomial(link = "logit")) 
-moore_glmer3<- glmer(SurvDev ~ WaveEnergyLevel + (1|Site) + (1|ReefDev), data=moore_t5, family = binomial(link = "logit")) 
-moore_glmer4<- glmer(SurvDev ~ median_speed + (1|Site) + (1|ReefDev), data=moore_t5, family = binomial(link = "logit")) 
-moore_glmer5<- glmer(SurvDev ~ sedturf_t5 + (1|Site) + (1|ReefDev), data=moore_t5, family = binomial(link = "logit")) 
 
-summary(moore_glmer1)
-summary(moore_glmer2)
-summary(moore_glmer3)
-summary(moore_glmer4)
-summary(moore_glmer5)
-
-AIC(moore_glmer1a,moore_glmer1b, moore_glmer2, moore_glmer3, moore_glmer4, moore_glmer5)
+AIC(moore_glm_census, moore_glmer_site,moore_glmer, moore_glmer_speed, moore_glmer_speed_interaction)
 ```
 
-OUTPUT: all models behave very similar
-
-### Visualize data
-
-### **median_speed**
+GLMs with environmental paramaters + census time (main effects)
 
 ```{r}
-ggplot(data=moore_t5, aes(y = SurvDev, x = median_speed)) + 
-  geom_point(position = position_jitter(width = 0.005, height = 0)) +
+moore_glmer_speed_main <- glmer(SurvDev ~ Census + median_speed + (1|Site), 
+                                        data=moore_subset, 
+                                        family = binomial(link = "logit"))
+moore_glmer_wave_main <- glmer(SurvDev ~ Census + WaveEnergyLevel + (1|Site), 
+                                       data=moore_subset, 
+                                       family = binomial(link = "logit"))
+moore_glmer_ub_main <- glmer(SurvDev ~ Census + Ub_avrg + (1|Site), 
+                                     data=moore_subset, 
+                                     family = binomial(link = "logit"))
+moore_glmer_turf_main <- glmer(SurvDev ~ Census + turf + (1|Site), 
+                                data = moore_subset, 
+                                family = binomial(link = "logit"))
+moore_glmer_concrete_main <- glmer(SurvDev ~ Census + concrete + (1|Site), 
+                                           data=moore_subset, 
+                                           family = binomial(link = "logit"))
+moore_glmer_PCA_main <- glmer(SurvDev ~ Census + PC1 + PC2 + (1|Site),
+                                      data=moore_subset, 
+                                      family = binomial(link = "logit"))
+```
+
+GLMs with environmental paramaters \* census time (interactions)
+
+```{r}
+moore_glmer_speed_interaction <- glmer(SurvDev ~ Census * median_speed + (1|Site), 
+                                        data=moore_subset, 
+                                        family = binomial(link = "logit"))
+moore_glmer_wave_interaction <- glmer(SurvDev ~ Census * WaveEnergyLevel + (1|Site), 
+                                       data=moore_subset, 
+                                       family = binomial(link = "logit"))
+moore_glmer_ub_interaction <- glmer(SurvDev ~ Census * Ub_avrg + (1|Site), 
+                                     data=moore_subset, 
+                                     family = binomial(link = "logit"))
+moore_glmer_turf_interaction <- glmer(SurvDev ~ Census * turf + (1|Site), 
+                                       data=moore_subset, 
+                                       family = binomial(link = "logit"))
+moore_glmer_concrete_interaction <- glmer(SurvDev ~ Census * concrete + (1|Site), 
+                                           data=moore_subset, 
+                                           family = binomial(link = "logit"))
+moore_glmer_PCA_interaction <- glmer(SurvDev ~ (Census * PC1) + (Census * PC2) + (1|Site),
+                                      data=moore_subset, 
+                                      family = binomial(link = "logit"))
+```
+
+```{r}
+AIC(moore_glmer_speed_main, moore_glmer_wave_main, moore_glmer_ub_main, moore_glmer_turf_main, moore_glmer_concrete_main, moore_glmer_PCA_main, 
+  moore_glmer_speed_interaction, moore_glmer_wave_interaction, moore_glmer_ub_interaction, moore_glmer_turf_interaction,  moore_glmer_concrete_interaction, moore_glmer_PCA_interaction)
+```
+
+**OUTPUT**: Main effects models have fewer parameters than the interaction models, but the interaction models generally have a lower AIC, with wave, PCA and Ub interactions having the lowest AIC values (\~825). It makes biological sense to keep the interaction in. Also note that I have removed the census timepoints t2, t3 and t5 because not all sites were censused (if running the models with these timepoints included, there are convergence issues with the interaction models).
+
+### Speed
+
+```{r}
+summary(moore_glmer_speed_main)
+summary(moore_glmer_speed_interaction)
+```
+
+For flow velocity (speed), census time has a significant negative effect on survival - meaining that survival decreases with time (duh). In the main effect model, median speed does not have a significant effect on survival, but in the interaction model, median speed does have a significant effect on survival, and also in interaction with census time: Census**t4** \* medianspeed (p=0.039) and Census**t6** \* median speed (p = 0.004). Suggesting that the effect of flow changes across the different census time points. Indeed, when looking at the ggplot (below) with census time facet wrapped, we can see that at **t6**, the plot shows almost no effect of flow on survival, whereas at earlier t1 and t4 the effect is clearly negative. Thus, the statistical significance of the interaction for t6 highlights the fact that there is a more distinct change in the relationship between flow and survival at t6 compared to the earlier timepoints, with the magnitude to fthe effect of flow being much weaker at t6 cpmparer to at t1 and t4 (where survival decreased with increasing flow).
+
+```{r}
+ggplot(data=moore_t6, aes(y = SurvDev, x = median_speed)) + 
+  geom_point(position = position_jitter(width = 0.01, height = 0)) +
   geom_smooth(method="lm")
 
-ggplot(data=moore_t5, aes(y = SurvDev, x = median_speed)) + 
-  geom_point(position = position_jitter(width = 0.2, height = 0)) +
-  geom_smooth(method="lm", formula = y~poly(x,3), se = FALSE)
-
-#with facetwrap by site
-ggplot(data=moore_t5, aes(y = SurvDev, x = median_speed)) + 
-  geom_point(position = position_jitter(width = 0.2, height = 0)) +
-  facet_wrap(~Site) +
+#with facetwrap by Census time
+ggplot(data=moore_subset, aes(y = SurvDev, x = median_speed)) + 
+  geom_point(position = position_jitter(width = 0.01, height = 0)) +
+  facet_wrap(~Census) +
   geom_smooth(method="lm")
 ```
 
-Wave Energy Level
+-   **T1**: There's a clear negative relationship between `median_speed` and `SurvDev`. As `median_speed` increases, survival decreases.
+
+-   **T4**: The relationship between `median_speed` and `SurvDev` is also negative, similar to `t1`, but the survival starts at a lower point.
+
+-   **T6**: The effect looks much weaker here, with the line almost flat. The survival rate doesn't seem to change much across different `median_speed` values, suggesting that the effect is minimal at this timepoint.
+
+### Wave Energy Level
 
 ```{r}
-ggplot(data=moore_t5, aes(y = SurvDev, x = WaveEnergyLevel)) + 
-  geom_point(position = position_jitter(width = 0.2, height = 0)) +
+summary(moore_glmer_ub_main)
+summary(moore_glmer_ub_interaction)
+```
+
+Output: similar patterns for Ub as for flow velocity above. With interaction affects between census and Ub_avrerage showing significant change over time.
+
+```{r}
+ggplot(data=moore_t6, aes(y = SurvDev, x = Ub_avrg)) + 
+  geom_point(position = position_jitter(width = 0.01, height = 0)) +
   geom_smooth(method="lm")
 
-ggplot(data=moore_t5, aes(y = SurvDev, x = WaveEnergyLevel)) + 
-  geom_point(position = position_jitter(width = 0.2, height = 0)) +
-  geom_smooth(method="lm", formula = y~poly(x,3), se = FALSE)
-
-#with facetwrap by site
-ggplot(data=moore_t5, aes(y = SurvDev, x = WaveEnergyLevel)) + 
-  geom_point(position = position_jitter(width = 0.2, height = 0)) +
-  facet_wrap(~Site) +
+#with facetwrap by Census time
+ggplot(data=moore_subset, aes(y = SurvDev, x = Ub_avrg)) + 
+  geom_point(position = position_jitter(width = 0.01, height = 0)) +
+  facet_wrap(~Census) +
   geom_smooth(method="lm")
 ```
 
-```{r}
-Moore_current <- ggplot(moore_t5, aes(x = median_speed, y = SurvDev)) +
-  geom_point(position = position_jitter(width = 0.2, height = 0)) +
-  geom_smooth(method="lm") +
-  labs(title = "Moore Reef",
-       x = "In-situ current - median speed (m/s)",
-       y = "% Survival (yield)") +
-  theme_bw() +
-  ylim(0,1) +
-  theme(panel.border = element_rect(color = "black", fill = NA),
-        axis.line = element_line(color = "black"),
-        axis.text = element_text(size = 12),
-        axis.title = element_text(size = 14)) 
+-   **T1** - There's a clear negative relationship between `Ub_avrg` and survival (`SurvDev`). As `Ub_avrg` increases, survival decreases substantially, which is consistent with the negative effect seen in the model.
 
-Moore_current
+-   **T4** - The slope is still negative, but the starting point is much lower. The range of survival values is wider at `t4`, and the confidence interval (grey ribbon) becomes larger, suggesting more uncertainty in the effect of `Ub_avrg` on survival at this timepoint.
 
-ggsave("Moore - Survival final census Current - yield.png", plot=Moore_current, width = 4, height = 6, dpi = 600)
-```
+-   **T6** - The effect of `Ub_avrg` is weaker at `t6`. The slope of the line is nearly flat, and survival appears to be mostly independent of `Ub_avrg`. The large confidence interval also indicates a lot of variability in the data.
 
-# Brm
+# \-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\--
 
-We need to make sure that the categorical variables and the random effects are defined as factors:
+# Brm with census
+
+##### Census
 
 ```{r}
-moore_t5 <- moore_t5 |> mutate(Site = factor(Site),
-                               ReefDev = factor(ReefDev))
+moore_form_census <- bf(SurvDev ~ Census + (1|Site), family = bernoulli(link='logit'))
 
-moore <- moore |> mutate(Site = factor(Site),
-                               ReefDev = factor(ReefDev))
-```
-
-### Formulas
-
-Logistic mixed-effects regression model with random intercepts for Site and Device:
-
-```{r}
-
-moore_form <- bf(SurvDev ~ (1|Site), family = bernoulli(link='logit'))
-moore_form_speed <- bf(SurvDev ~ median_speed +    (1|Site), family = bernoulli(link='logit'))
-moore_form_Ub <-    bf(SurvDev ~ Ub_avrg +         (1|Site), family = bernoulli(link='logit'))
-moore_form_turf <-   bf(SurvDev ~ sedturf_t5 +     (1|Site), family = bernoulli(link='logit'))
-moore_form_concrete <-bf(SurvDev ~ sedconcrete_t5 +(1|Site), family = bernoulli(link='logit'))
-moore_form_Wave <-  bf(SurvDev ~ WaveEnergyLevel + (1|Site), family = bernoulli(link='logit'))
-moore_form_PCA <-   bf(SurvDev ~ PC1 +   PC2 +          (1|Site), family = bernoulli(link='logit'))
-```
-
-Now with polynomial terms:
-
-```{r}
-moore_form <- bf(SurvDev ~ (1|Site), family = bernoulli(link='logit'))
-moore_form_speed_poly <- bf(SurvDev ~ poly(median_speed,3) +    (1|Site) , family = bernoulli(link='logit'))
-moore_form_Ub_poly <-    bf(SurvDev ~ poly(Ub_avrg,3) +         (1|Site) , family = bernoulli(link='logit'))
-moore_form_turf_poly <-   bf(SurvDev ~ poly(sedturf_t5,3) +      (1|Site) , family = bernoulli(link='logit'))
-moore_form_Wave_poly <-  bf(SurvDev ~ poly(WaveEnergyLevel,3) + (1|Site) , family = bernoulli(link='logit'))
-moore_form_PC1_poly <-   bf(SurvDev ~ poly(PC1,3) +       poly(PC2,3)  +    (1|Site) , family = bernoulli(link='logit'))
-```
-
-### Priors
-
-class "Intercept" -\> for random effects
-
-class "b" -\> for regression coefficent
-
-class "sd" -\> for standard deviations of random effects
-
-```{r}
-priors <- prior(normal(0, 1.7), class = "Intercept") +
-   prior(student_t(3, 0, 1.5), class = 'sd')
-```
-
-```         
-```
-
-### brm1- Random effects + time
-
-```{r}
-moore_form_time <- bf(SurvDev ~ Census + (1|Site), family = bernoulli(link='logit'))
-
-priors_time <- prior(normal(0, 1.7), class = "Intercept") +
+priors_census <- 
+  prior(normal(0, 1.7), class = "Intercept") +
   prior(normal(0,5), class = "b") +
-   prior(student_t(3, 0, 1.5), class = 'sd')
+  prior(student_t(3, 0, 1.5), class = 'sd')
 
-moore_brm1_time <- brm(moore_form_time,
-                 data=moore,
-                 prior = priors_time,
+moore_brm_census <- brm(moore_form_census,
+                 data=moore_subset,
+                 prior = priors_census,
                  sample_prior = 'yes',
                  iter = 5000,
                  warmup = 1000,
@@ -280,22 +272,40 @@ moore_brm1_time <- brm(moore_form_time,
                 backend = "rstan")
 
 # To save the model use >> 
-#save(moore_brm1_time, file = "scripts/models/moore_brm1_time.RData")
-
+#save(moore_brm_census, file = "scripts/models/moore/moore_brm_census.RData")
 ```
 
-### brm2- time \* Wave
+Model diagnostics
 
 ```{r}
-moore_form_time_wave <-  bf(SurvDev ~ Census + WaveEnergyLevel + (1|Site), family = bernoulli(link='logit'))
+moore_brm_census |> pp_check(type = 'dens_overlay', ndraws = 100)
+moore_brm_census |> pp_check (type = "error_scatter_avg")
+moore_brm_census  |> pp_check(group = 'Site', type = 'violin_grouped')
 
-priors_time <- prior(normal(0, 1.7), class = "Intercept") +
-  prior(normal(0,5), class = "b") +
-   prior(student_t(3, 0, 1.5), class = 'sd')
+moore.resids_census<- make_brms_dharma_res(moore_brm_census, integerResponse = FALSE)
+testUniformity(moore.resids_census)
+plotResiduals(moore.resids_census)
+testDispersion(moore.resids_census)
+```
 
-moore_brm2_time_wave <- brm(moore_form_time_wave,
-                 data=moore,
-                 prior = priors_time,
+##### Wave interaction
+
+```{r}
+moore_form_wave_interaction <-  bf(SurvDev ~ WaveEnergyLevel * Census + (1|Site), family = bernoulli(link='logit'))
+
+prior <- c(
+  set_prior("normal(-3, 1)", class = "b", coef = "WaveEnergyLevel"),             # Tighter prior for median_speed
+  set_prior("normal(-2, 1)", class = "b", coef = "Censust4"),            # Tighter prior for Census t4 effect
+  set_prior("normal(-4, 1)", class = "b", coef = "Censust6"),            # Tighter prior for Census t6 effect
+  set_prior("normal(5, 2)", class = "b", coef = "WaveEnergyLevel:Censust4"),     # Prior for interaction at t4
+  set_prior("normal(10, 2)", class = "b", coef = "WaveEnergyLevel:Censust6"),    # Prior for interaction at t6
+  set_prior("normal(0, 1)", class = "Intercept"),                        # Stronger prior for intercept
+  set_prior("student_t(3, 0, 2)", class = "sd", group = "Site")          # Prior for random effect on Site
+)
+
+moore_brm_wave_interaction <- brm(moore_form_wave_interaction,
+                 data=moore_subset,
+                 prior = prior,
                  sample_prior = 'yes',
                  iter = 5000,
                  warmup = 1000,
@@ -306,21 +316,40 @@ moore_brm2_time_wave <- brm(moore_form_time_wave,
                 backend = "rstan")
 
 # To save the model use >> 
-#save(moore_brm2_time_wave, file = "scripts/models/moore_brm2_time_wave.RData")
+#save(moore_brm_wave_interaction, file = "scripts/models/moore/moore_brm_wave_interaction.RData")
 ```
 
-### brm3- time \* Ub
+Model diagnostics
 
 ```{r}
-moore_form_Ub_time <-    bf(SurvDev ~ Census + Ub_avrg +         (1|Site), family = bernoulli(link='logit'))
+moore_brm_wave_interaction |> pp_check(type = 'dens_overlay', ndraws = 100)
+moore_brm_wave_interaction |> pp_check (type = "error_scatter_avg")
+moore_brm_wave_interaction  |> pp_check(group = 'Site', type = 'violin_grouped')
 
-priors_time <- prior(normal(0, 1.7), class = "Intercept") +
-  prior(normal(0,5), class = "b") +
-   prior(student_t(3, 0, 1.5), class = 'sd')
+moore.resids_wave<- make_brms_dharma_res(moore_brm_wave_interaction, integerResponse = FALSE)
+testUniformity(moore.resids_wave)
+plotResiduals(moore.resids_wave)
+testDispersion(moore.resids_wave)
+```
 
-moore_brm3_time_Ub <- brm(moore_form_Ub_time,
-                 data=moore,
-                 prior = priors_time,
+##### Ub interaction
+
+```{r}
+moore_form_ub_interaction <-    bf(SurvDev ~ Ub_avrg * Census + (1|Site), family = bernoulli(link='logit'))
+
+prior <- c(
+  set_prior("normal(-3, 1)", class = "b", coef = "Ub_avrg"),             # Tighter prior for median_speed
+  set_prior("normal(-2, 1)", class = "b", coef = "Censust4"),            # Tighter prior for Census t4 effect
+  set_prior("normal(-4, 1)", class = "b", coef = "Censust6"),            # Tighter prior for Census t6 effect
+  set_prior("normal(5, 2)", class = "b", coef = "Ub_avrg:Censust4"),     # Prior for interaction at t4
+  set_prior("normal(10, 2)", class = "b", coef = "Ub_avrg:Censust6"),    # Prior for interaction at t6
+  set_prior("normal(0, 1)", class = "Intercept"),                        # Stronger prior for intercept
+  set_prior("student_t(3, 0, 2)", class = "sd", group = "Site")          # Prior for random effect on Site
+)
+
+moore_brm_ub_interaction <- brm(moore_form_ub_interaction,
+                 data=moore_subset,
+                 prior = prior,
                  sample_prior = 'yes',
                  iter = 5000,
                  warmup = 1000,
@@ -331,21 +360,40 @@ moore_brm3_time_Ub <- brm(moore_form_Ub_time,
                  backend = "rstan")
 
 # Save the model
-#save(moore_brm3_time_Ub, file = "scripts/models/moore_brm3_time_Ub.RData")
+#save(moore_brm_ub_interaction, file = "scripts/models/moore/moore_brm_ub_interaction.RData")
 ```
 
-### brm4- time \* Current
+Model diagnostics
 
 ```{r}
-moore_form_current_time <-    bf(SurvDev ~ Census + median_speed  +         (1|Site), family = bernoulli(link='logit'))
+moore_brm_ub_interaction |> pp_check(type = 'dens_overlay', ndraws = 100)
+moore_brm_ub_interaction |> pp_check (type = "error_scatter_avg")
+moore_brm_ub_interaction  |> pp_check(group = 'Site', type = 'violin_grouped')
 
-priors_time <- prior(normal(0, 1.7), class = "Intercept") +
-  prior(normal(0,5), class = "b") +
-   prior(student_t(3, 0, 1.5), class = 'sd')
+moore.resids_ub<- make_brms_dharma_res(moore_brm_ub_interaction, integerResponse = FALSE)
+testUniformity(moore.resids_ub)
+plotResiduals(moore.resids_ub)
+testDispersion(moore.resids_ub)
+```
 
-moore_brm4_time_current <- brm(moore_form_current_time,
-                 data=moore,
-                 prior = priors_time,
+##### Median speed interaction
+
+```{r}
+moore_form_speed_interaction <-    bf(SurvDev ~ median_speed * Census + (1|Site), family = bernoulli(link='logit'))
+
+prior <- c(
+  set_prior("normal(-3, 1)", class = "b", coef = "median_speed"),             # Tighter prior for median_speed
+  set_prior("normal(-2, 1)", class = "b", coef = "Censust4"),                 # Tighter prior for Census t4 effect
+  set_prior("normal(-4, 1)", class = "b", coef = "Censust6"),                 # Tighter prior for Census t6 effect
+  set_prior("normal(5, 2)", class = "b", coef = "median_speed:Censust4"),     # Prior for interaction at t4
+  set_prior("normal(10, 2)", class = "b", coef = "median_speed:Censust6"),    # Prior for interaction at t6
+  set_prior("normal(0, 1)", class = "Intercept"),                             # Stronger prior for intercept
+  set_prior("student_t(3, 0, 2)", class = "sd", group = "Site")               # Prior for random effect on Site
+)
+
+moore_brm_speed_interaction <- brm(moore_form_speed_interaction,
+                 data=moore_subset,
+                 prior = prior,
                  sample_prior = 'yes',
                  iter = 5000,
                  warmup = 1000,
@@ -356,21 +404,45 @@ moore_brm4_time_current <- brm(moore_form_current_time,
                  backend = "rstan")
 
 # Save the model
-#save(moore_brm4_time_current, file = "scripts/models/moore_brm4_time_current.RData")
+#save(moore_brm_speed_interaction, file = "scripts/models/moore/moore_brm_speed_interaction.RData")
 ```
 
-### brm5- time \* Turf
+Model diagnostics
 
 ```{r}
-moore_form_turf_time <-    bf(SurvDev ~ Census + sedturf_t5  + (1|Site), family = bernoulli(link='logit'))
+moore_brm_speed_interaction |> pp_check(type = 'dens_overlay', ndraws = 100)
+moore_brm_speed_interaction |> pp_check (type = "error_scatter_avg")
+moore_brm_speed_interaction  |> pp_check(group = 'Site', type = 'violin_grouped')
 
-priors_time <- prior(normal(0, 1.7), class = "Intercept") +
-  prior(normal(0,5), class = "b") +
-   prior(student_t(3, 0, 1.5), class = 'sd')
+moore.resids_speed<- make_brms_dharma_res(moore_brm_speed_interaction, integerResponse = FALSE)
+testUniformity(moore.resids_speed)
+plotResiduals(moore.resids_speed)
+testDispersion(moore.resids_speed)
+```
 
-moore_brm5_time_turf <- brm(moore_form_turf_time,
-                 data=moore,
-                 prior = priors_time,
+##### Turf interaction
+
+```{r}
+moore_form_turf_interaction <-    bf(SurvDev ~ turf  * Census + (1|Site), family = bernoulli(link='logit'))
+
+#prior_turf <- c(
+#  set_prior("normal(2, 1)", class = "b", coef = "turf"),  # Prior for turf with a positive relationship
+#  set_prior("normal(0, 2)", class = "Intercept"),         # Prior for intercept
+#  set_prior("student_t(3, 0, 2)", class = "sd", group = "Site")  # Prior for random effect
+#)
+
+prior_turf_updated <- c(
+  set_prior("normal(2.5, 0.5)", class = "b", coef = "turf"),           # Prior for turf, stronger positive effect
+  set_prior("normal(-1.5, 0.5)", class = "b", coef = "turf:Censust4"),  # Negative prior for interaction at t4
+  set_prior("normal(-1.75, 0.5)", class = "b", coef = "turf:Censust6"), # Negative prior for interaction at t6
+  set_prior("normal(0, 2)", class = "Intercept"),                       # Prior for intercept
+  set_prior("student_t(3, 0, 2)", class = "sd", group = "Site")         # Prior for random effects
+)
+
+
+moore_brm_turf_interaction <- brm(moore_form_turf_interaction,
+                 data=moore_subset,
+                 prior = prior_turf_updated,
                  sample_prior = 'yes',
                  iter = 5000,
                  warmup = 1000,
@@ -381,21 +453,46 @@ moore_brm5_time_turf <- brm(moore_form_turf_time,
                  backend = "rstan")
 
 # Save the model
-#save(moore_brm5_time_turf, file = "scripts/models/moore_brm5_time_turf.RData")
+#save(moore_brm_turf_interaction, file = "scripts/models/moore/moore_brm_turf_interaction.RData")
 ```
 
-### brm6- time \* Concrete
+Model diagnostics
 
 ```{r}
-moore_form_concrete_time <-    bf(SurvDev ~ Census + sedconcrete_t5  +         (1|Site), family = bernoulli(link='logit'))
+moore_brm_turf_interaction |> pp_check(type = 'dens_overlay', ndraws = 100)
+moore_brm_turf_interaction |> pp_check (type = "error_scatter_avg")
+moore_brm_turf_interaction  |> pp_check(group = 'Site', type = 'violin_grouped')
 
-priors_time <- prior(normal(0, 1.7), class = "Intercept") +
-  prior(normal(0,5), class = "b") +
-   prior(student_t(3, 0, 1.5), class = 'sd')
+moore.resids_turf<- make_brms_dharma_res(moore_brm_turf_interaction, integerResponse = FALSE)
+testUniformity(moore.resids_turf)
+plotResiduals(moore.resids_turf)
+testDispersion(moore.resids_turf)
+```
 
-moore_brm6_time_concrete <- brm(moore_form_concrete_time,
-                 data=moore,
-                 prior = priors_time,
+##### Concrete interaction
+
+```{r}
+moore_form_concrete_interaction <- bf(SurvDev ~ concrete * Census + (1|Site), family = bernoulli(link='logit'))
+
+#prior_concrete <- c(
+#  set_prior("normal(2, 1)", class = "b", coef = "concrete"),  # Prior for concrete with a positive relationship
+#  set_prior("normal(0, 2)", class = "Intercept"),         # Prior for intercept
+#  set_prior("student_t(3, 0, 2)", class = "sd", group = "Site")  # Prior for random effect
+#)
+
+prior_concrete_refined <- c(
+  set_prior("normal(2.5, 0.3)", class = "b", coef = "concrete"),         # Strong, narrow positive prior for concrete
+  set_prior("normal(-1, 0.5)", class = "b", coef = "concrete:Censust4"),  # More precise prior for interaction at t4
+  set_prior("normal(-1.5, 0.5)", class = "b", coef = "concrete:Censust6"),# More precise prior for interaction at t6
+  set_prior("normal(0, 1)", class = "Intercept"),                         # Slightly tighter prior for intercept
+  set_prior("normal(-1.2, 0.3)", class = "b", coef = "Censust4"),         # Tighter prior for Censust4 effect
+  set_prior("normal(-1.75, 0.3)", class = "b", coef = "Censust6"),        # Tighter prior for Censust6 effect
+  set_prior("student_t(3, 0, 2)", class = "sd", group = "Site")           # Keep prior for random effects unchanged
+)
+
+moore_brm_concrete_interaction <- brm(moore_form_concrete_interaction,
+                 data=moore_subset,
+                 prior = prior_concrete_refined,
                  sample_prior = 'yes',
                  iter = 5000,
                  warmup = 1000,
@@ -406,21 +503,47 @@ moore_brm6_time_concrete <- brm(moore_form_concrete_time,
                  backend = "rstan")
 
 # Save the model
-#save(moore_brm6_time_concrete, file = "scripts/models/moore_brm6_time_concrete.RData")
+#save(moore_brm_concrete_interaction, file = "scripts/models/moore/moore_brm_concrete_interaction.RData")
 ```
 
-### brm7- time \* habitat
+Model diagnostics
 
 ```{r}
-moore_form_PCA_time <-    bf(SurvDev ~ Census + PC1  + PC2+         (1|Site), family = bernoulli(link='logit'))
+moore_brm_concrete_interaction |> pp_check(type = 'dens_overlay', ndraws = 100)
+moore_brm_concrete_interaction |> pp_check (type = "error_scatter_avg")
+moore_brm_concrete_interaction  |> pp_check(group = 'Site', type = 'violin_grouped')
 
-priors_time <- prior(normal(0, 1.7), class = "Intercept") +
+moore.resids_concrete<- make_brms_dharma_res(moore_brm_concrete_interaction, integerResponse = FALSE)
+testUniformity(moore.resids_concrete)
+plotResiduals(moore.resids_concrete)
+testDispersion(moore.resids_concrete)
+```
+
+##### PCA interaction
+
+```{r}
+moore_form_PCA_interaction <-    bf(SurvDev ~ (Census* PC1)  + (Census * PC2) +         (1|Site), family = bernoulli(link='logit'))
+
+prior_PCA <- 
+  prior(normal(0, 1.7), class = "Intercept") +
   prior(normal(0,5), class = "b") +
-   prior(student_t(3, 0, 1.5), class = 'sd')
+  prior(student_t(3, 0, 1.5), class = 'sd')
 
-moore_brm7_time_PCA <- brm(moore_form_PCA_time,
-                 data=moore,
-                 prior = priors_time,
+prior_PCA_refined <- 
+  prior(normal(1.87, 0.5), class = "Intercept") +  # Tighter around the observed intercept
+  prior(normal(0, 1), class = "b", coef = "Censust4") +
+  prior(normal(0, 1), class = "b", coef = "Censust6") +
+  prior(normal(7, 1.5), class = "b", coef = "PC1") +  # Stronger positive prior for PC1
+  prior(normal(1, 1.5), class = "b", coef = "PC2") +  # Weaker prior for PC2, allowing flexibility
+  prior(normal(-5, 1.5), class = "b", coef = "Censust4:PC1") +  # Moderately negative prior for PC1 interactions
+  prior(normal(-6, 1.5), class = "b", coef = "Censust6:PC1") +  # Reflect the diminishing effect
+  prior(normal(-1.5, 1), class = "b", coef = "Censust4:PC2") +  # Weaker negative priors for PC2 interactions
+  prior(normal(-2, 1), class = "b", coef = "Censust6:PC2") +    # Reflect the weakening effect of PC2 at t6
+  prior(student_t(3, 0, 1), class = 'sd')  # Slightly tighter reflecting the estimated variability
+
+moore_brm_PCA_interaction <- brm(moore_form_PCA_interaction,
+                 data=moore_subset,
+                 prior = prior_PCA_refined,
                  sample_prior = 'yes',
                  iter = 5000,
                  warmup = 1000,
@@ -431,47 +554,78 @@ moore_brm7_time_PCA <- brm(moore_form_PCA_time,
                  backend = "rstan")
 
 # Save the model
-#save(moore_brm7_time_PCA, file = "scripts/models/moore_brm7_time_PCA.RData")
+#save(moore_brm_PCA_interaction, file = "scripts/models/moore/moore_brm_PCA_interaction.RData")
 ```
-
-# Load models (time)
 
 ```{r}
-load(file = "scripts/models/moore_brm1_time.RData")
-load(file = "scripts/models/moore_brm2_time_wave.RData")
-load(file = "scripts/models/moore_brm3_time_Ub.RData")
-load(file = "scripts/models/moore_brm4_time_current.RData")
-load(file = "scripts/models/moore_brm5_time_turf.RData")
-load(file = "scripts/models/moore_brm6_time_concrete.RData")
-load(file = "scripts/models/moore_brm7_time_PCA.RData")
+moore_brm_PCA_interaction |> pp_check(type = 'dens_overlay', ndraws = 100)
+moore_brm_PCA_interaction |> pp_check (type = "error_scatter_avg")
+moore_brm_PCA_interaction  |> pp_check(group = 'Site', type = 'violin_grouped')
+
+moore.resids_PCA<- make_brms_dharma_res(moore_brm_PCA_interaction, integerResponse = FALSE)
+testUniformity(moore.resids_PCA)
+plotResiduals(moore.resids_PCA)
+testDispersion(moore.resids_PCA)
 ```
 
-# loo (time)
+### Load models
+
+```{r}
+load(file = "scripts/models/moore/moore_brm_census.RData")
+load(file = "scripts/models/moore/moore_brm_wave_interaction.RData")
+load(file = "scripts/models/moore/moore_brm_ub_interaction.RData")
+load(file = "scripts/models/moore/moore_brm_speed_interaction.RData")
+load(file = "scripts/models/moore/moore_brm_turf_interaction.RData")
+load(file = "scripts/models/moore/moore_brm_concrete_interaction.RData")
+load(file = "scripts/models/moore/moore_brm_PCA_interaction.RData")
+```
+
+### loo ()
 
 ```{r}
 #Using loo compare, lower value is better
-l_brm <- moore_brm1_time |> loo()
-l_wave <- moore_brm2_time_wave|> loo()
-l_Ub <- moore_brm3_time_Ub |> loo()
-l_current <- moore_brm4_time_current |> loo()
-l_turf <- moore_brm5_time_turf|> loo()
-l_concrete <- moore_brm6_time_concrete|> loo()
-l_PCA <- moore_brm7_time_PCA|> loo()
+l_census <- moore_brm_census |> loo()
+l_wave <- moore_brm_wave_interaction|> loo()
+l_ub <- moore_brm_ub_interaction |> loo()
+l_speed <- moore_brm_speed_interaction |> loo()
+l_turf <- moore_brm_turf_interaction|> loo()
+l_concrete <- moore_brm_concrete_interaction|> loo()
+l_PCA <- moore_brm_PCA_interaction|> loo()
 
-looic(moore_brm1_time)           #  LOOIC: 1107.86 [34.06]
-looic(moore_brm2_time_wave)     #  LOOIC: 1108.62   [34.20]
-looic(moore_brm3_time_Ub)      #  LOOIC: 1108.24  [34.17]
-looic(moore_brm4_time_current)  #  LOOIC: 1108.36 [34.05] 
-looic(moore_brm5_time_turf)      #  LOOIC: 1107.98   [34.20]
-looic(moore_brm6_time_concrete)       #  LOOIC: 1108.53   [34.18]
-looic(moore_brm7_time_PCA)       #  LOOIC: 1109.02   [34.31]
+looic(moore_brm_census)                #  LOOIC: 826.47 [24.13]
+looic(moore_brm_wave_interaction)      #  LOOIC: 811.28 [25.26]]
+looic(moore_brm_ub_interaction)        #  LOOIC: 808.76 [24.28]
+looic(moore_brm_speed_interaction)     #  LOOIC: 821.44 [24.36]
+looic(moore_brm_turf_interaction)      #  LOOIC: 810.47 [25.02]
+looic(moore_brm_concrete_interaction)  #  LOOIC: 823.15 [24.65]
+looic(moore_brm_PCA_interaction)       #  LOOIC: 807.92 [23.72]
 
-loo_compare(l_brm, l_current, l_Ub, l_wave, l_turf, l_concrete, l_PCA)
+loo_compare(l_census, l_speed, l_ub, l_wave, l_turf, l_concrete, l_PCA)
 ```
 
-**NOTES ON THIS:** Prefer the model with the lower LOOIC, as it suggests better expected out-of-sample predictive performance. However, consider the uncertainty (SE) around these estimates. Significance of Differences: Look at the differences in LOOIC and their standard errors. A rule of thumb is that a difference greater than twice its standard error might be considered substantial, but this is not a strict threshold. If two models have similar LOOIC values, the simpler model (the one with fewer parameters) is typically preferred due to the principle of parsimony. This is not directly shown in the loo_compare() output but is an important consideration when interpreting results.
+**NOTES ON THIS:** Moore_PCA is the best performing model, with ub being quite comparable. The model with only census time and site is the worst performing model, which means that the models that include the environmental drivers are better at predicting survival and that census and site only are not good on their own to explain variability in survival (but additional covariates are important) Yay!\
+\
+**PCA Interaction Model**: The **PCA interaction model** performs best out of all the models. This suggests that incorporating **PC1 and PC2**, along with their interactions with census timepoints, captures the key variability in survival. This makes sense given that the principal components likely summarize important community composition and environmental drivers.
 
-### brm8- Random effects FINAL TIMEPOINT
+**Weaker Predictors**: The models based on **speed** and **concrete** are not as predictive, indicating that these variables may play a less significant role in explaining survival outcomes.
+
+### Summary
+
+```{r}
+summary(moore_brm_census)
+summary(moore_brm_wave_interaction)
+summary(moore_brm_ub_interaction)
+summary(moore_brm_speed_interaction)
+summary(moore_brm_turf_interaction)
+summary(moore_brm_concrete_interaction)
+summary(moore_brm_PCA_interaction)
+```
+
+### \-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\--
+
+# Brm with Final timepoint
+
+##### Site
 
 ```{r}
 moore_form_t6 <- bf(SurvDev ~ (1|Site), family = bernoulli(link='logit'))
@@ -480,7 +634,7 @@ priors <- prior(normal(0, 1.7), class = "Intercept") +
     prior(student_t(3, 0, 1.5), class = 'sd')
 
 moore_brm8_t6 <- brm(moore_form_t6,
-                 data=moore_t5,
+                 data=moore_t6,
                  prior = priors,
                  sample_prior = 'yes',
                  iter = 5000,
@@ -495,7 +649,7 @@ moore_brm8_t6 <- brm(moore_form_t6,
 #save(moore_brm8_t6, file = "scripts/models/moore_brm8_t6.RData")
 ```
 
-### brm9- t6- Wave
+##### Wave
 
 ```{r}
 moore_form_t6_wave <-  bf(SurvDev ~ WaveEnergyLevel + (1|Site), family = bernoulli(link='logit'))
@@ -505,7 +659,7 @@ priors_wave <- prior(normal(0, 1.7), class = "Intercept") +
    prior(student_t(3, 0, 1.5), class = 'sd')
 
 moore_brm9_t6_wave <- brm(moore_form_t6_wave,
-                 data=moore_t5,
+                 data=moore_t6,
                  prior = priors_wave,
                  sample_prior = 'yes',
                  iter = 5000,
@@ -520,7 +674,7 @@ moore_brm9_t6_wave <- brm(moore_form_t6_wave,
 #save(moore_brm9_t6_wave, file = "scripts/models/moore_brm9_t6_wave.RData")
 ```
 
-### brm10- t6- Ub
+##### Ub
 
 ```{r}
 moore_form_t6_Ub <-    bf(SurvDev ~  Ub_avrg +         (1|Site), family = bernoulli(link='logit'))
@@ -530,7 +684,7 @@ priors_Ub <- prior(normal(0, 1.7), class = "Intercept") +
    prior(student_t(3, 0, 1.5), class = 'sd')
 
 moore_brm10_t6_Ub <- brm(moore_form_t6_Ub,
-                 data=moore_t5,
+                 data=moore_t6,
                  prior = priors_Ub,
                  sample_prior = 'yes',
                  iter = 5000,
@@ -545,7 +699,7 @@ moore_brm10_t6_Ub <- brm(moore_form_t6_Ub,
 #save(moore_brm10_t6_Ub, file = "scripts/models/moore_brm10_t6_Ub.RData")
 ```
 
-### brm11- t6- current
+##### Speed
 
 ```{r}
 moore_form_t6_current <-    bf(SurvDev ~  median_speed +         (1|Site), family = bernoulli(link='logit'))
@@ -555,7 +709,7 @@ priors_speed <- prior(normal(0, 1.7), class = "Intercept") +
    prior(student_t(3, 0, 1.5), class = 'sd')
 
 moore_brm11_t6_current <- brm(moore_form_t6_current,
-                 data=moore_t5,
+                 data=moore_t6,
                  prior = priors_speed,
                  sample_prior = 'yes',
                  iter = 5000,
@@ -570,17 +724,17 @@ moore_brm11_t6_current <- brm(moore_form_t6_current,
 #save(moore_brm11_t6_current, file = "scripts/models/moore_brm11_t6_current.RData")
 ```
 
-### brm12 - t6- turf
+##### turf
 
 ```{r}
-moore_form_t6_turf <-    bf(SurvDev ~  sedturf_t5 +         (1|Site), family = bernoulli(link='logit'))
+moore_form_t6_turf <-    bf(SurvDev ~  turf +         (1|Site), family = bernoulli(link='logit'))
 
 priors_turf <- prior(normal(0, 1.7), class = "Intercept") +
   prior(normal(0,5), class = "b")  +
    prior(student_t(3, 0, 1.5), class = 'sd')
 
 moore_brm12_t6_turf <- brm(moore_form_t6_turf,
-                 data=moore_t5,
+                 data=moore_t6,
                  prior = priors_turf,
                  sample_prior = 'yes',
                  iter = 5000,
@@ -596,17 +750,17 @@ moore_brm12_t6_turf <- brm(moore_form_t6_turf,
 #save(moore_brm12_t6_turf, file = "scripts/models/moore_brm12_t6_turf.RData")
 ```
 
-### brm13 - t6- concrete
+##### concrete
 
 ```{r}
-moore_form_t6_concrete <-    bf(SurvDev ~  sedconcrete_t5 +         (1|Site), family = bernoulli(link='logit'))
+moore_form_t6_concrete <-    bf(SurvDev ~  concrete +         (1|Site), family = bernoulli(link='logit'))
 
 priors_concrete <- prior(normal(0, 1.7), class = "Intercept") +
   prior(normal(0,5), class = "b")  +
    prior(student_t(3, 0, 1.5), class = 'sd')
 
 moore_brm13_t6_concrete  <- brm(moore_form_t6_concrete,
-                 data=moore_t5,
+                 data=moore_t6,
                  prior = priors_concrete,
                  sample_prior = 'yes',
                  iter = 5000,
@@ -621,7 +775,7 @@ moore_brm13_t6_concrete  <- brm(moore_form_t6_concrete,
 #save(moore_brm13_t6_concrete, file = "scripts/models/moore_brm13_t6_concrete.RData")
 ```
 
-### brm14- t6 - habitat
+##### PCA
 
 ```{r}
 moore_form_t6_PCA <-    bf(SurvDev ~  PC1 + PC2 + (1|Site), family = bernoulli(link='logit'))
@@ -631,7 +785,7 @@ priors_PCA <- prior(normal(0, 1.7), class = "Intercept") +
    prior(student_t(3, 0, 1.5), class = 'sd')
 
 moore_brm14_t6_PCA  <- brm(moore_form_t6_PCA,
-                 data=moore_t5,
+                 data=moore_t6,
                  prior = priors_PCA,
                  sample_prior = 'yes',
                  iter = 5000,
@@ -646,19 +800,20 @@ moore_brm14_t6_PCA  <- brm(moore_form_t6_PCA,
 #save(moore_brm14_t6_PCA, file = "scripts/models/moore_brm14_t6_PCA.RData")
 ```
 
-# Load models (t6)
+### Load models (t6)
 
 ```{r}
-load(file = "scripts/models/moore_brm8_t6.RData")
-load(file = "scripts/models/moore_brm9_t6_wave.RData")
-load(file = "scripts/models/moore_brm10_t6_Ub.RData")
-load(file = "scripts/models/moore_brm11_t6_current.RData")
-load(file = "scripts/models/moore_brm12_t6_turf.RData")
-load(file = "scripts/models/moore_brm13_t6_concrete.RData")
-load(file = "scripts/models/moore_brm14_t6_PCA.RData")
+setwd("C:/Users/sjurriaa/Australian Institute of Marine Science/Carly Randall - Randall Lab/CAD/CAD Year1/")
+load(file = "scripts/models/moore/moore_brm8_t6.RData")
+load(file = "scripts/models/moore/moore_brm9_t6_wave.RData")
+load(file = "scripts/models/moore/moore_brm10_t6_Ub.RData")
+load(file = "scripts/models/moore/moore_brm11_t6_current.RData")
+load(file = "scripts/models/moore/moore_brm12_t6_turf.RData")
+load(file = "scripts/models/moore/moore_brm13_t6_concrete.RData")
+load(file = "scripts/models/moore/moore_brm14_t6_PCA.RData")
 ```
 
-# loo (t6)
+### loo (t6)
 
 ```{r}
 l_brm_t6 <- moore_brm8_t6 |> loo()
@@ -680,344 +835,22 @@ looic(moore_brm14_t6_PCA)       #  LOOIC: 265.15   [16.39]
 loo_compare(l_brm_t6, l_wave_t6, l_Ub_t6, l_current_t6, l_turf_t6, l_concrete_t6, l_PCA_t6)
 ```
 
-NOTES ON THIS: Prefer the model with the lower LOOIC, as it suggests better expected out-of-sample predictive performance. However, consider the uncertainty (SE) around these estimates. Significance of Differences: Look at the differences in LOOIC and their standard errors. A rule of thumb is that a difference greater than twice its standard error might be considered substantial, but this is not a strict threshold. If two models have similar LOOIC values, the simpler model (the one with fewer parameters) is typically preferred due to the principle of parsimony. This is not directly shown in the loo_compare() output but is an important consideration when interpreting results.
+NOTES ON THIS:
 
-# Diagnostics
-
-### brm
-
-#### **MCMC**
-
-```{r}
-pars <- moore_brm |> get_variables()  #capture the list of variables
-pars <- str_extract(pars, "^b_.*|^sd.*") |> na.omit()
-pars
-
-moore_brm $fit |> stan_trace(pars = pars)
-moore_brm $fit |> stan_ac(pars = pars)
-moore_brm$fit |> stan_rhat()
-moore_brm$fit |> stan_ess()  # the closer to 1, the more chains have converged
-moore_brm |> mcmc_plot(type='violin')  # assess convergence and mixing of MCMC samples and skewness of the distribution
+```         
 ```
 
--   **stan_ac**: All below 0.25, all good.
--   **rhat_hist**: Rhat is a **scale reduction factor** measure of convergence between the chains. The closer the values are to 1, the more the chains have converged. Values greater than 1.05 indicate a lack of convergence. There will be an Rhat value for each parameter estimated.
--   **stan_ess:** effective sample size not very efficient, most below 50%.
-
-#### **Posterior probability checks**
-
-```{r}
-moore_brm |> pp_check(type = 'dens_overlay', ndraws = 100)
-moore_brm |> pp_check (type = "error_scatter_avg")
-moore_brm  |> pp_check(group = 'Site', type = 'violin_grouped')
+```         
 ```
 
--   **dens_overlay**: plots the density distribution of the observed data (black line) overlayed ontop of 50 density distributions generated from draws from the model (light blue). Ideally, the 50 realisations should be roughly consistent with the observed data.
--   **error_scatter_avg**: this plots the observed values against the average residuals. Similar to a residual plot, we do not want to see any patterns in this plot. Note, this is not really that useful for models that involve a binomial response
--   **intervals**: plots the observed data overlayed ontop of posterior predictions associated with each level of the predictor. Ideally, the observed data should all fall within the predictive intervals.
+#### 
 
-#### **dHARMA residuals**
-
-```{r}
-library(DHARMa)
-moore.resids <- make_brms_dharma_res(moore_brm, integerResponse = FALSE)
-testUniformity(moore.resids)
+```         
 ```
 
-```{r}
-wrap_elements(~testUniformity(moore.resids))
-wrap_elements(~plotResiduals(moore.resids, form = factor(rep(1,nrow(moore_t5))))) 
-wrap_elements(~plotResiduals(moore.resids, quantreg = TRUE))   # leave the quartile calculations off if you have a small amount of data
-wrap_elements(~testDispersion(moore.resids))
-```
+#### 
 
-**Conclusions:**
-
--   the simulated residuals do not suggest any issues with the residuals
--   there is no evidence of a lack of fit.
-
-### brm- Speed
-
-#### **MCMC**
-
-```{r}
-pars <- moore_brm_speed |> get_variables()  #capture the list of variables
-pars <- str_extract(pars, "^b_.*|^sd.*") |> na.omit()
-pars
-
-moore_brm_speed$fit |> stan_trace(pars = pars)
-moore_brm_speed$fit |> stan_ac(pars = pars)
-moore_brm_speed$fit |> stan_rhat()
-moore_brm_speed$fit |> stan_ess()
-```
-
--   **stan_ac**: All below 0.25, all good.
--   **rhat_hist**: Rhat is a **scale reduction factor** measure of convergence between the chains. The closer the values are to 1, the more the chains have converged. Values greater than 1.05 indicate a lack of convergence. There will be an Rhat value for each parameter estimated.
--   **stan_ess:** effective sample size better than previous model, more around 70%
-
-#### **Posterior probability checks**
-
-```{r}
-moore_brm_speed |> pp_check(type = 'dens_overlay', ndraws = 100)
-moore_brm_speed |> pp_check (type = "error_scatter_avg")
-moore_brm_speed |> mcmc_plot(type='violin')
-```
-
-#### **dHARMA residuals**
-
-```{r}
-library(DHARMa)
-moore.resids <- make_brms_dharma_res(moore_brm_speed, integerResponse = TRUE)
-testUniformity(moore.resids)
-```
-
-```{r}
-#remove NA values of predictor variable
-moore_t5 <- moore_t5[complete.cases(moore_t5$median_speed),  ]
-
-wrap_elements(~testUniformity(moore.resids))
-wrap_elements(~plotResiduals(moore.resids, form = factor(rep(1,nrow(moore_t5))))) 
-wrap_elements(~plotResiduals(moore.resids, quantreg = TRUE))   # leave the quartile calculations off if you have a small amount of data
-wrap_elements(~testDispersion(moore.resids))
-```
-
-### brm- Ub
-
-#### **MCMC**
-
-```{r}
-pars <- moore_brm_Ub |> get_variables()  #capture the list of variables
-pars <- str_extract(pars, "^b_.*|^sd.*") |> na.omit()
-pars
-
-moore_brm_Ub$fit |> stan_trace(pars = pars)
-moore_brm_Ub$fit |> stan_ac(pars = pars)
-moore_brm_Ub$fit |> stan_rhat()
-moore_brm_Ub$fit |> stan_ess()
-```
-
-#### **Posterior probability checks**
-
-```{r}
-moore_brm_Ub |> pp_check(type = 'dens_overlay', ndraws = 100)
-moore_brm_Ub |> pp_check (type = "error_scatter_avg")
-moore_brm_Ub |> mcmc_plot(type='violin')
-```
-
-#### **dHARMA residuals**
-
-```{r}
-library(DHARMa)
-moore.resids <- make_brms_dharma_res(moore_brm_Ub, integerResponse = TRUE)
-testUniformity(moore.resids)
-```
-
-```{r}
-wrap_elements(~testUniformity(moore.resids))
-wrap_elements(~plotResiduals(moore.resids, form = factor(rep(1,nrow(moore_t5))))) 
-wrap_elements(~plotResiduals(moore.resids, quantreg = TRUE))   # leave the quartile calculations off if you have a small amount of data
-wrap_elements(~testDispersion(moore.resids))
-```
-
-### brm- Wave
-
-#### **MCMC**
-
-```{r}
-pars <- moore_brm_wave |> get_variables()  #capture the list of variables
-pars <- str_extract(pars, "^b_.*|^sd.*") |> na.omit()
-pars
-
-moore_brm_wave$fit |> stan_trace(pars = pars)
-moore_brm_wave$fit |> stan_ac(pars = pars)
-moore_brm_wave$fit |> stan_rhat()
-moore_brm_wave$fit |> stan_ess()
-```
-
-#### **Posterior probability checks**
-
-```{r}
-moore_brm_wave |> pp_check(type = 'dens_overlay', ndraws = 100)
-moore_brm_wave |> pp_check (type = "error_scatter_avg")
-moore_brm_wave |> mcmc_plot(type='violin')
-```
-
-#### **dHARMA residuals**
-
-```{r}
-library(DHARMa)
-moore.resids <- make_brms_dharma_res(moore_brm_wave, integerResponse = FALSE)
-testUniformity(moore.resids)
-```
-
-```{r}
-wrap_elements(~testUniformity(moore.resids))
-wrap_elements(~plotResiduals(moore.resids, form = factor(rep(1,nrow(moore_t5))))) 
-wrap_elements(~plotResiduals(moore.resids, quantreg = TRUE))   # leave the quartile calculations off if you have a small amount of data
-wrap_elements(~testDispersion(moore.resids))
-```
-
-### brm - turf
-
-#### **MCMC**
-
-```{r}
-pars <- moore_brm_turf |> get_variables()  #capture the list of variables
-pars <- str_extract(pars, "^b_.*|^sd.*") |> na.omit()
-
-moore_brm_turf$fit |> stan_trace(pars = pars)
-moore_brm_turf$fit |> stan_ac(pars = pars)
-moore_brm_turf$fit |> stan_rhat()
-moore_brm_turf$fit |> stan_ess()
-```
-
-#### **Posterior probability checks**
-
-```{r}
-moore_brm_turf |> pp_check(type = 'dens_overlay', ndraws = 100)
-moore_brm_turf |> pp_check (type = "error_scatter_avg")
-moore_brm_turf |> mcmc_plot(type='violin')
-```
-
-#### **dHARMA residuals**
-
-```{r}
-library(DHARMa)
-moore.resids <- make_brms_dharma_res(moore_brm_turf, integerResponse = FALSE)
-testUniformity(moore.resids)
-```
-
-```{r}
-wrap_elements(~testUniformity(moore.resids))
-wrap_elements(~plotResiduals(moore.resids, form = factor(rep(1,nrow(moore_t5))))) 
-wrap_elements(~plotResiduals(moore.resids, quantreg = TRUE))   # leave the quartile calculations off if you have a small amount of data
-wrap_elements(~testDispersion(moore.resids))
-```
-
-### brm- PC1
-
-#### **MCMC**
-
-```{r}
-pars <- moore_brm_PC1 |> get_variables()  #capture the list of variables
-pars <- str_extract(pars, "^b_.*|^sd.*") |> na.omit()
-
-
-moore_brm_PC1$fit |> stan_trace(pars = pars)
-moore_brm_PC1$fit |> stan_ac(pars = pars)
-moore_brm_PC1$fit |> stan_rhat()
-moore_brm_PC1$fit |> stan_ess()
-```
-
-#### **Posterior probability checks**
-
-```{r}
-moore_brm_PC1 |> pp_check(type = 'dens_overlay', ndraws = 100)
-moore_brm_PC1 |> pp_check (type = "error_scatter_avg")
-moore_brm_PC1 |> mcmc_plot(type='violin')
-```
-
-#### **dHARMA residuals**
-
-```{r}
-library(DHARMa)
-moore.resids <- make_brms_dharma_res(moore_brm_PC1, integerResponse = FALSE)
-testUniformity(moore.resids)
-```
-
-```{r}
-wrap_elements(~testUniformity(moore.resids))
-wrap_elements(~plotResiduals(moore.resids, form = factor(rep(1,nrow(moore_t5))))) 
-wrap_elements(~plotResiduals(moore.resids, quantreg = TRUE))   # leave the quartile calculations off if you have a small amount of data
-wrap_elements(~testDispersion(moore.resids))
-```
-
-# Further analyses
-
-## Visualization
-
-```{r}
-#moore_brm |> conditional_effects() |> plot(points=TRUE)
-moore_brm_speed |> conditional_effects() |> plot(points=TRUE)
-moore_brm_Ub |> conditional_effects() |> plot(points=TRUE)
-moore_brm_turf |> conditional_effects() |> plot(points=TRUE)
-moore_brm_wave |> conditional_effects() |> plot(points=TRUE)
-moore_brm_PC1 |> conditional_effects() |> plot(points=TRUE)
-```
-
-### Figure 1
-
-```{r partialPlot2h1b, results='markdown', eval=TRUE, mhidden=TRUE, fig.width=8, fig.height=5}
-
-ggpredict(moore_brm_speed, terms = ~median_speed) %>%
-   plot(add.data = TRUE)
- 
-
-Fig1a <- ggemmeans(moore_brm_speed, terms = ~median_speed) %>%
-  plot(add.data = TRUE) 
-
-conditional_effects(moore_brm_speed) |> 
-  plot(points = TRUE)
-
-Fig1b <- moore_brm_speed %>% emmeans(~median_speed , type = 'link') %>%
-    as.data.frame() %>%
-    ggplot(aes(y = emmean, x = median_speed)) +
-   # geom_hline(yintercept = c(5,-5), linetype = 'dashed') +
-    geom_pointrange(aes(ymin = lower.HPD, ymax = upper.HPD)) +
-    geom_point(data = moore_t5, aes(y = SurvDev),
-              # position = position_jitter(width=0.02, height = 0),
-               alpha=0.4, color = 'red') +  
-     labs(title = "moore Reef", x = "Median Speed (m/s)", y = "Estimated marginal mean - Survival (yield)") +  # Axis labels
-  theme_minimal()  # Apply minimal theme
-
-print(Fig1a)
-print(Fig1b)
-
-#ggsave("Fig1a - moore Predicted probabilities SurvDev.jpeg", Fig1a, width = 10, height = 6)
-#ggsave("Fig1b - moore Estimated marginal means SurvDev.jpeg", Fig1b, width = 10, height = 6)
-#saved on 05/04/2024
-
-
-```
-
-### Figure 2
-
-```{r}
-new_data <- data.frame(
-  median_speed = median_speed_seq
-)
-
-# Extract fitted draws for the new data
-#fitted_draws <- add_epred_draws(moore.speed.brm, newdata = new_data, allow_new_levels = TRUE)
-
-fitted_draws <- moore.speed.brm |>
-  add_fitted_draws(newdata = new_data, allow_new_levels = TRUE)
-
-summary_stats <- fitted_draws |>
-    summarise(
-    mean_survival_probability = mean(.value), #calculating the predicted means
-    se = sd(.value) / sqrt(n())  # Calculate standard error
-  ) |>
-  ungroup()
-
-
-# Plotting the results
-Fig2 <- ggplot(summary_stats, aes(x = median_speed_seq, y = mean_survival_probability, group = 1)) +
-  geom_line() +  
-  geom_point() +  
-#  geom_errorbar(aes(ymin = mean_survival_probability - se, ymax = mean_survival_probability + se), 
-#                width = 0.1) +  # Set the width of the error bars  
-  labs( title = "moore Reef", y = "survival probability", x = "median speed (m/s)") +
-  theme_bw() + theme(text = element_text(size = 12)) 
-
-print(Fig2)
-#ggsave("Fig2 - moore Survival probabilities.jpeg", Fig2, width = 10, height = 6)
-#saved on 05/04/2024
-```
-
-# Interpretation
-
-### brm t6
+### Summary
 
 ```{r}
 moore_brm8_t6 |> summary()
@@ -1065,76 +898,18 @@ These random effects can be interpreted as how much each site's survival rate de
 
 From this we can see that only **M1A** is different from M3A, M3B and M4B and M5A.
 
-### speed
-
-```{r}
-moore_brm_speed |> summary()
-```
-
-```{r}
-moore.speed.brm$fit |> tidyMCMC(estimate.method = "median", 
-                            conf.int = TRUE, 
-                            conf.method = "HPDinterval", 
-                            rhat = TRUE, 
-                            ess = TRUE, 
-                            exponential = TRUE)
-```
-
-```{r}
-moore_speed_tidy <- moore_brm_speed |> as_draws_df()  |>
-  dplyr::select(matches("^b_.*")) |>    # a more sophisticated way of selecting (and searching) for pattersn in our column headers
-  mutate(across(everything(), exp)) |>
-  summarise_draws("median",            #  for every column calculate the median
-                 ~HDInterval::hdi(.x), #  highest density intervals come from a specific package and threfore you need to specify the package it comes from, and therefore you need to put a ~ infront of it, and (.x) 
-                  "rhat",               # for every column give me the rhat 
-                  "ess_bulk",           # for every column give me the ess_bulk
-                 P = ~mean(.x <1),    # what is the probability that there is any effect (100%)
-                 P5 = ~mean(.x <0.95),  # what is the probability that there is a 5% decline?
-                 P50= ~mean(.x <0.5)) # what is the probability that there is a 50% decline?
-  
-#RUN IN CONSOLE
-#write.xlsx(moore.speed.brm.tidy, file = "data/moore survival-speed brm tidy_odds ratio.xlsx") #Saving this data for interpretation in a manuscript
-
-```
-
-[**This table is the easiest to describe as your narrative for the biology/ecology of your data.**]{.underline} Also we have now first done the exponential of each number and then summarized this, instead of first summarizing it and then calculating the exponential of it. Therefore, for the Confidence Interval of b_median_current_speed we are now looking for that this range [**does not exceed 1**]{.underline} (as the exponential of zero is 1). Does the interval of \[0.0000- 0.0001489\] includes 1? NO! Therefore we have evidence that our slope decreases with current
-
-### Ub
-
-```{r}
-moore_brm_Ub |> summary()
-```
-
-### Wave
-
-```{r}
-moore_brm_wave |> summary()
-```
-
-### Turf
-
-```{r}
-moore_brm_turf |> summary()
-```
-
-### Concrete
-
-```{r}
-moore_brm_concrete |> summary()
-```
-
 ### R2
 
 ```{r}
 # Store models in a list
 models <- list(
-  moore_brm = moore_brm,
-  moore_brm_speed = moore_brm_speed,
-  moore_brm_wave = moore_brm_wave,
-  moore_brm_Ub = moore_brm_Ub,
-  moore_brm_turf = moore_brm_turf,
-  moore_brm_concrete = moore_brm_concrete,
-  moore_brm_PC1 = moore_brm_PC1
+  moore_brm = moore_brm_census,
+  moore_brm_speed = moore_brm_speed_interaction,
+  moore_brm_wave = moore_brm_wave_interaction,
+  moore_brm_Ub = moore_brm_ub_interaction,
+  moore_brm_turf = moore_brm_turf_interaction,
+  moore_brm_concrete = moore_brm_concrete_interaction,
+  moore_brm_PC1 = moore_brm_PCA_interaction
 )
 
 # Apply operations and store results in a list
@@ -1149,26 +924,525 @@ print(results)
 
 ```
 
-NOTES:
+# \-\-\-\-- Figures \-\-\-\--
 
-R\^2 brm 0.3224492
-
-R\^2 speed 0.3773391
-
-R\^2 Wave 0.3766208
-
-R\^2 Ub 0.3756796
-
-R\^2 turf 0.3770032
-
-R\^2 concrete 0.370615
-
-R\^2 PC1 0.3652654
+### Conditional effects
 
 ```{r}
-moore_brm_speed |> 
-  as_draws_df() |>
-  dplyr::select(matches("^b_.*")) |>
-  mutate(LD50 = -1*b_Intercept / b_median_speed) |>
-  median_hdci(LD50)
+moore_brm_census |> conditional_effects() |> plot(points=TRUE)
+moore_brm_wave_interaction |> conditional_effects() |> plot(points=TRUE)
+moore_brm_ub_interaction |> conditional_effects() |> plot(points=TRUE)
+moore_brm_speed_interaction |> conditional_effects() |> plot(points=TRUE)
+moore_brm_turf_interaction |> conditional_effects() |> plot(points=TRUE)
+moore_brm_concrete_interaction |> conditional_effects() |> plot(points=TRUE)
+moore_brm_PCA_interaction |> conditional_effects() |> plot(points=TRUE)
+```
+
+```{r}
+moore_variables <- moore_subset |>
+  select(c(Census, SurvDev, Ub_avrg, WaveEnergyLevel, turf, concrete, median_speed))
+
+moore_variables_t3 <- moore_variables |> filter (Census != "t3")
+
+moore_variables_new <- data.frame(
+  Ub_avrg = NA,  # Use NA since there are no actual values
+  WaveEnergyLevel = NA,
+  turf = NA,
+  concrete = NA,
+  median_speed = NA,
+  SurvDev = NA, 
+  Census = "t3"
+)
+
+# Combine the new species data with the original moore data
+moore_combined <- rbind(moore_variables_t3, moore_variables_new)
+
+# Adjust the factor levels of the Census variable to reorder the legend
+moore_combined$Census <- factor(moore_combined$Census, levels = c("t1", "t4", "t6", "t3"))
+moore_combined <- moore_combined |>   filter(!is.na(Census))
+
+remove(moore_variables_new)
+```
+
+##### Census
+
+```{r}
+# Generate the conditional effects for both species together
+moore_conditional_effects_brmCensus <- conditional_effects(moore_brm_census, effects = "Census")
+
+# Extract the data for the census effect
+census_effects_data <- moore_conditional_effects_brmCensus$Census
+```
+
+```{r}
+# Plot the effects for each census time
+plot_moore_census <- ggplot(census_effects_data, aes(x = Census, y = estimate__,)) +
+  geom_point(position = position_dodge(width = 0.5), size = 3) +
+  geom_errorbar(aes(ymin = lower__, ymax = upper__), position = position_dodge(width = 0.5), width = 0.2) +
+  
+  # Add jittered raw data points for individual observations
+  geom_jitter(data = moore_variables, 
+              aes(x = Census, y = SurvDev), 
+              alpha = 0.5, width = 0.05, height = 0) +
+  
+  labs(y = "Survival probability", x = "Time") +
+      theme_minimal() +
+  theme(
+    panel.border = element_rect(color = "black", fill = NA, linewidth = 0.5),
+    axis.ticks = element_line(color = "black", linewidth = 0.5),
+    axis.ticks.length = unit(0.25, "cm"),
+    axis.title.x = element_text(size = 12),
+    axis.title.y = element_text(size = 12)
+  )
+
+# Display the plot
+print(plot_moore_census)
+```
+
+##### Bottom Stress
+
+Generate conditional effects for each timepoint
+
+```{r}
+moore_conditional_effects_brmUb_t1 <- conditional_effects(moore_brm_ub_interaction, conditions = data.frame(Census = "t1"))
+moore_conditional_effects_brmUb_t4 <- conditional_effects(moore_brm_ub_interaction, conditions = data.frame(Census = "t4"))
+moore_conditional_effects_brmUb_t6 <- conditional_effects(moore_brm_ub_interaction, conditions = data.frame(Census = "t6"))
+```
+
+```{r}
+# Plot the effects with separate lines and ribbons for each species
+plot_moore_Ub <- ggplot() +
+  geom_line(data = moore_conditional_effects_brmUb_t1$Ub_avrg, aes(x = Ub_avrg, y = estimate__), color = "orange") +
+  geom_ribbon(data = moore_conditional_effects_brmUb_t1$Ub_avrg, aes(x = Ub_avrg, ymin = lower__, ymax = upper__), fill = "orange", alpha = 0.3) +
+  
+  geom_line(data = moore_conditional_effects_brmUb_t4$Ub_avrg, aes(x = Ub_avrg, y = estimate__), color = "#009E73") +
+  geom_ribbon(data = moore_conditional_effects_brmUb_t4$Ub_avrg, aes(x = Ub_avrg, ymin = lower__, ymax = upper__), fill = "#009E73", alpha = 0.3) +
+  
+  geom_line(data = moore_conditional_effects_brmUb_t6$Ub_avrg, aes(x = Ub_avrg, y = estimate__), color = "#0072B2") +
+  geom_ribbon(data = moore_conditional_effects_brmUb_t6$Ub_avrg, aes(x = Ub_avrg, ymin = lower__, ymax = upper__), fill = "#0072B2", alpha = 0.3) +
+  
+  geom_jitter(data = moore_combined, 
+              aes(x = Ub_avrg, y = SurvDev, color = Census), 
+              alpha = 0.5, width = 0.05, height = 0) +
+   labs(x = "Bottom stress\n(m s-1)", y =  NULL, color = "Census time") + 
+  scale_color_manual(
+    values = c("t1" = "orange", "t4" = "#009E73", "t6" = "#0072B2", "t3" = "#F0E442"),  
+    labels = c("t1" = "3 months", 
+               "t4" = "10-14 months", 
+               "t6" = "17 months",
+               "t3" = "28 months")
+  ) +
+  theme_minimal() +
+ theme( axis.text.x = element_text(size = 12),  # Increase x-axis tick label size
+  axis.text.y = element_text(size = 12),  # Increase y-axis tick label size.
+  axis.title.x = element_text(size = 13),  # Increase x-axis title size
+    panel.border = element_rect(color = "black", fill = NA, linewidth = 0.5),
+    axis.ticks = element_line(color = "black", linewidth = 0.5),
+    axis.ticks.length = unit(0.25, "cm"),
+    axis.title.y = element_blank()
+  )
+
+print(plot_moore_Ub)
+
+```
+
+##### Wave Energy
+
+Generate conditional effects for each timepoint
+
+```{r}
+moore_conditional_effects_brmwave_t1 <- conditional_effects(moore_brm_wave_interaction, conditions = data.frame(Census = "t1"))
+moore_conditional_effects_brmwave_t4 <- conditional_effects(moore_brm_wave_interaction, conditions = data.frame(Census = "t4"))
+moore_conditional_effects_brmwave_t6 <- conditional_effects(moore_brm_wave_interaction, conditions = data.frame(Census = "t6"))
+```
+
+```{r}
+# Plot the effects with separate lines and ribbons for each species
+plot_moore_wave <- ggplot() +
+  geom_line(data = moore_conditional_effects_brmwave_t1$WaveEnergyLevel, aes(x = WaveEnergyLevel, y = estimate__), color = "orange") +
+  geom_ribbon(data = moore_conditional_effects_brmwave_t1$WaveEnergyLevel, aes(x = WaveEnergyLevel, ymin = lower__, ymax = upper__), fill = "orange", alpha = 0.3) +
+  
+  geom_line(data = moore_conditional_effects_brmwave_t4$WaveEnergyLevel, aes(x = WaveEnergyLevel, y = estimate__), color = "#009E73") +
+  geom_ribbon(data = moore_conditional_effects_brmwave_t4$WaveEnergyLevel, aes(x = WaveEnergyLevel, ymin = lower__, ymax = upper__), fill = "#009E73", alpha = 0.3) +
+  
+  geom_line(data = moore_conditional_effects_brmwave_t6$WaveEnergyLevel, aes(x = WaveEnergyLevel, y = estimate__), color = "#0072B2") +
+  geom_ribbon(data = moore_conditional_effects_brmwave_t6$WaveEnergyLevel, aes(x = WaveEnergyLevel, ymin = lower__, ymax = upper__), fill = "#0072B2", alpha = 0.3) +
+  
+  geom_jitter(data = moore_combined, 
+              aes(x = WaveEnergyLevel, y = SurvDev, color = Census), 
+              alpha = 0.5, width = 0.2, height = 0) +
+  labs(x = "Nom. Wave Energy Level\n", y = NULL, color = "Census time") + 
+scale_color_manual(
+    values = c("t1" = "orange", "t4" = "#009E73", "t6" = "#0072B2", "t3" = "#F0E442"),  
+    labels = c("t1" = "3 months", 
+               "t4" = "10-14 months", 
+               "t6" = "17 months",
+               "t3" = "28 months")
+  ) +
+  theme_minimal() +
+ theme( axis.text.x = element_text(size = 12),  # Increase x-axis tick label size
+  axis.text.y = element_text(size = 12),  # Increase y-axis tick label size.
+  axis.title.x = element_text(size = 13),  # Increase x-axis title size
+    panel.border = element_rect(color = "black", fill = NA, linewidth = 0.5),
+    axis.ticks = element_line(color = "black", linewidth = 0.5),
+    axis.ticks.length = unit(0.25, "cm"),
+    axis.title.y = element_blank()
+      )
+
+print(plot_moore_wave)
+
+```
+
+##### Flow Velocity
+
+Generate conditional effects for each timepoint
+
+```{r}
+moore_conditional_effects_brmspeed_t1 <- conditional_effects(moore_brm_speed_interaction, conditions = data.frame(Census = "t1"))
+moore_conditional_effects_brmspeed_t4 <- conditional_effects(moore_brm_speed_interaction, conditions = data.frame(Census = "t4"))
+moore_conditional_effects_brmspeed_t6 <- conditional_effects(moore_brm_speed_interaction, conditions = data.frame(Census = "t6"))
+```
+
+```{r}
+# Plot the effects with separate lines and ribbons for each species
+plot_moore_speed <- ggplot() +
+  geom_line(data = moore_conditional_effects_brmspeed_t1$median_speed, aes(x = median_speed, y = estimate__), color = "orange") +
+  geom_ribbon(data = moore_conditional_effects_brmspeed_t1$median_speed, aes(x = median_speed, ymin = lower__, ymax = upper__), fill = "orange", alpha = 0.3) +
+  
+  geom_line(data = moore_conditional_effects_brmspeed_t4$median_speed, aes(x = median_speed, y = estimate__), color = "#009E73") +
+  geom_ribbon(data = moore_conditional_effects_brmspeed_t4$median_speed, aes(x = median_speed, ymin = lower__, ymax = upper__), fill = "#009E73", alpha = 0.3) +
+  
+  geom_line(data = moore_conditional_effects_brmspeed_t6$median_speed, aes(x = median_speed, y = estimate__), color = "#0072B2") +
+  geom_ribbon(data = moore_conditional_effects_brmspeed_t6$median_speed, aes(x = median_speed, ymin = lower__, ymax = upper__), fill = "#0072B2", alpha = 0.3) +
+  
+  geom_jitter(data = moore_combined, 
+              aes(x = median_speed, y = SurvDev, color = Census), 
+              alpha = 0.5, width = 0.01, height = 0) +
+  labs(x = "Median flow velocity\n(m s-1)", y =  NULL, color = "Census time") + 
+  scale_color_manual(
+    values = c("t1" = "orange", "t4" = "#009E73", "t6" = "#0072B2", "t3" = "#F0E442"),  
+    labels = c("t1" = "3 months", 
+               "t4" = "10-14 months", 
+               "t6" = "17 months",
+               "t3" = "28 months")
+  ) +
+  theme_minimal() +
+   theme( axis.text.x = element_text(size = 12),  # Increase x-axis tick label size
+  axis.text.y = element_text(size = 12),  # Increase y-axis tick label size.
+  axis.title.x = element_text(size = 13),  # Increase x-axis title size
+    panel.border = element_rect(color = "black", fill = NA, linewidth = 0.5),
+    axis.ticks = element_line(color = "black", linewidth = 0.5),
+    axis.ticks.length = unit(0.25, "cm"),
+    axis.title.y = element_blank()
+   )
+
+print(plot_moore_speed)
+
+```
+
+##### Turf
+
+```{r}
+moore_conditional_effects_brmturf_t1 <- conditional_effects(moore_brm_turf_interaction, conditions = data.frame(Census = "t1"))
+moore_conditional_effects_brmturf_t4 <- conditional_effects(moore_brm_turf_interaction, conditions = data.frame(Census = "t4"))
+moore_conditional_effects_brmturf_t6 <- conditional_effects(moore_brm_turf_interaction, conditions = data.frame(Census = "t6"))
+```
+
+```{r}
+# Plot the effects with separate lines and ribbons for each species
+plot_moore_turf <- ggplot() +
+  geom_line(data = moore_conditional_effects_brmturf_t1$turf, aes(x = turf, y = estimate__), color = "orange") +
+  geom_ribbon(data = moore_conditional_effects_brmturf_t1$turf, aes(x = turf, ymin = lower__, ymax = upper__), fill = "orange", alpha = 0.3) +
+  
+  geom_line(data = moore_conditional_effects_brmturf_t4$turf, aes(x = turf, y = estimate__), color = "#009E73") +
+  geom_ribbon(data = moore_conditional_effects_brmturf_t4$turf, aes(x = turf, ymin = lower__, ymax = upper__), fill = "#009E73", alpha = 0.3) +
+  
+  geom_line(data = moore_conditional_effects_brmturf_t6$turf, aes(x = turf, y = estimate__), color = "#0072B2") +
+  geom_ribbon(data = moore_conditional_effects_brmturf_t6$turf, aes(x = turf, ymin = lower__, ymax = upper__), fill = "#0072B2", alpha = 0.3) +
+  
+  geom_jitter(data = moore_combined, 
+              aes(x = turf, y = SurvDev, color = Census), 
+              alpha = 0.5, width = 0.05, height = 0) +
+  labs(x = "Sedimentation on turf\n(mg cm-2 day-1)", y = NULL, color = "Census time") + 
+  scale_color_manual(
+    values = c("t1" = "orange", "t4" = "#009E73", "t6" = "#0072B2", "t3" = "#F0E442"),  
+    labels = c("t1" = "3 months", 
+               "t4" = "10-14 months", 
+               "t6" = "17 months",
+               "t3" = "28 months")
+  ) +
+  theme_minimal() +
+ theme( axis.text.x = element_text(size = 12),  # Increase x-axis tick label size
+  axis.text.y = element_text(size = 12),  # Increase y-axis tick label size.
+  axis.title.x = element_text(size = 13),  # Increase x-axis title size
+    panel.border = element_rect(color = "black", fill = NA, linewidth = 0.5),
+    axis.ticks = element_line(color = "black", linewidth = 0.5),
+    axis.ticks.length = unit(0.25, "cm"),
+    axis.title.y = element_blank()
+  )
+
+print(plot_moore_turf)
+
+```
+
+##### Concrete
+
+```{r}
+moore_conditional_effects_brmconcrete_t1 <- conditional_effects(moore_brm_concrete_interaction, conditions = data.frame(Census = "t1"))
+moore_conditional_effects_brmconcrete_t4 <- conditional_effects(moore_brm_concrete_interaction, conditions = data.frame(Census = "t4"))
+moore_conditional_effects_brmconcrete_t6 <- conditional_effects(moore_brm_concrete_interaction, conditions = data.frame(Census = "t6"))
+```
+
+```{r}
+# Plot the effects with separate lines and ribbons for each species
+plot_moore_concrete <- ggplot() +
+  geom_line(data = moore_conditional_effects_brmconcrete_t1$concrete, aes(x = concrete, y = estimate__), color = "orange") +
+  geom_ribbon(data = moore_conditional_effects_brmconcrete_t1$concrete, aes(x = concrete, ymin = lower__, ymax = upper__), fill = "orange", alpha = 0.3) +
+  
+  geom_line(data = moore_conditional_effects_brmconcrete_t4$concrete, aes(x = concrete, y = estimate__), color = "#009E73") +
+  geom_ribbon(data = moore_conditional_effects_brmconcrete_t4$concrete, aes(x = concrete, ymin = lower__, ymax = upper__), fill = "#009E73", alpha = 0.3) +
+  
+  geom_line(data = moore_conditional_effects_brmconcrete_t6$concrete, aes(x = concrete, y = estimate__), color = "#0072B2") +
+  geom_ribbon(data = moore_conditional_effects_brmconcrete_t6$concrete, aes(x = concrete, ymin = lower__, ymax = upper__), fill = "#0072B2", alpha = 0.3) +
+  
+  geom_jitter(data = moore_combined, 
+              aes(x = concrete, y = SurvDev, color = Census), 
+              alpha = 0.5, width = 0.05, height = 0) +
+  labs(x = "Sedimentation on concrete\n(mg cm-2 day-1)", y = NULL, color = "Census time") + 
+ scale_color_manual(
+    values = c("t1" = "orange", "t4" = "#009E73", "t6" = "#0072B2", "t3" = "#F0E442"),  
+    labels = c("t1" = "3 months", 
+               "t4" = "10-14 months", 
+               "t6" = "17 months",
+               "t3" = "28 months")
+  ) +
+  theme_minimal() +
+ theme( axis.text.x = element_text(size = 12),  # Increase x-axis tick label size
+  axis.text.y = element_text(size = 12),  # Increase y-axis tick label size.
+  axis.title.x = element_text(size = 13),  # Increase x-axis title size
+    panel.border = element_rect(color = "black", fill = NA, linewidth = 0.5),
+    axis.ticks = element_line(color = "black", linewidth = 0.5),
+    axis.ticks.length = unit(0.25, "cm"),
+    axis.title.y = element_blank()
+  )
+
+print(plot_moore_concrete)
+
+```
+
+### Bayes figures
+
+Select the environmental predictors for the plots, then create empty entries for Ahya and Aten so that they appear in the figure legends (for complete species representation), and then combine the new species data with the selected moore data.
+
+```{r}
+moore_variables <- moore_t5 |>
+  select(c(Spp, SurvDev, Ub_avrg, WaveEnergyLevel, sedturf_t5, sedconcrete_t5, median_speed))
+
+moore_variables_new <- data.frame(
+  Ub_avrg = NA,  # Use NA since there are no actual values
+  WaveEnergyLevel = NA,
+  sedturf_t5 = NA,
+  sedconcrete_t5 = NA,
+  median_speed = NA,
+  SurvDev = NA, 
+  Spp = c("A. hyacinthus", "A. kenti")
+)
+
+# Combine the new species data with the original moore data
+moore_combined <- rbind(moore_variables, moore_variables_new)
+
+remove(moore_variables)
+remove(moore_variables_new)
+```
+
+##### Bottom Stress
+
+Extract fitted values and predictors and create empty entries for Aten and Amil for complete species representation in the figure legends:
+
+```{r}
+moore_conditional_effects_brm10 <- conditional_effects(moore_brm10_t6_Ub)
+
+# Extract the relevant data frames from the conditional_effects object
+moore_conditional_effects_Ub <- moore_conditional_effects_brm10$Ub_avrg
+```
+
+Create plot:
+
+```{r}
+plot_moore_Ub <- ggplot() +
+  geom_line(data = moore_conditional_effects_Ub, aes(x = Ub_avrg, y = estimate__), color = "black") +
+  geom_ribbon(data = moore_conditional_effects_Ub, aes(x = Ub_avrg, ymin = lower__, ymax = upper__), 
+              fill = "grey", alpha = 0.3) +
+ geom_jitter(data = moore_combined, 
+              aes(x = Ub_avrg, y = SurvDev, color = Spp), 
+              alpha = 0.5, width = 0.05, height = 0) +
+  labs(color = "Species") +
+  scale_color_manual(values = c("A. hyacinthus" = "orange", "A. kenti" = "#009E73", "A. millepora" = "#0072B2")) +
+  theme_minimal() +
+  theme(
+    panel.border = element_rect(color = "black", fill = NA, linewidth = 0.5),
+    axis.ticks = element_line(color = "black", linewidth = 0.5),
+    axis.ticks.length = unit(0.25, "cm"),
+    axis.title.x = element_blank(),
+    axis.title.y = element_blank()
+  )
+
+print(plot_moore_Ub)
+```
+
+##### Wave Energy Level
+
+Extract fitted values and predictors:
+
+```{r}
+moore_conditional_effects_brm9<- conditional_effects(moore_brm9_t6_wave)
+
+# Extract the relevant data frames from the conditional_effects object
+moore_conditional_effects_wave <- moore_conditional_effects_brm9$WaveEnergyLevel
+```
+
+Create plot:
+
+```{r}
+plot_moore_wave <- ggplot() +
+  geom_line(data = moore_conditional_effects_wave, aes(x = WaveEnergyLevel, y = estimate__), color = "black") +
+  geom_ribbon(data = moore_conditional_effects_wave, aes(x = WaveEnergyLevel, ymin = lower__, ymax = upper__), 
+              fill = "grey", alpha = 0.3) +
+   geom_jitter(data = moore_combined, 
+              aes(x = WaveEnergyLevel, y = SurvDev, color = Spp), 
+              alpha = 0.2, width = 0.2, height = 0) +
+  labs(color = "Species") +
+  scale_color_manual(values = c("A. hyacinthus" = "orange", "A. kenti" = "#009E73", "A. millepora" = "#0072B2")) +
+  theme_minimal() +
+  theme(
+    panel.border = element_rect(color = "black", fill = NA, linewidth = 0.5),
+    axis.ticks = element_line(color = "black", linewidth = 0.5),
+    axis.ticks.length = unit(0.25, "cm"),
+    axis.title.x = element_blank(),
+    axis.title.y = element_blank()
+  )
+
+print(plot_moore_wave)
+```
+
+##### Flow velocity
+
+Extract fitted values and predictors:
+
+```{r}
+moore_conditional_effects_brm11 <- conditional_effects(moore_brm11_t6_current)
+
+# Extract the relevant data frames from the conditional_effects object
+moore_conditional_effects_speed <- moore_conditional_effects_brm11$median_speed
+```
+
+Create plot:
+
+```{r}
+plot_moore_speed <- ggplot() +
+  geom_line(data = moore_conditional_effects_speed, aes(x = median_speed, y = estimate__), color = "black") +
+  geom_ribbon(data = moore_conditional_effects_speed, aes(x = median_speed, ymin = lower__, ymax = upper__), 
+              fill = "grey", alpha = 0.3) +
+   geom_jitter(data = moore_combined, 
+              aes(x = median_speed, y = SurvDev, color = Spp), 
+              alpha = 0.5, width = 0.008, height = 0) +
+  labs(color = "Species") +
+  scale_color_manual(values = c("A. hyacinthus" = "orange", "A. kenti" = "#009E73", "A. millepora" = "#0072B2")) +
+  theme_minimal() +
+  theme(
+    panel.border = element_rect(color = "black", fill = NA, linewidth = 0.5),
+    axis.ticks = element_line(color = "black", linewidth = 0.5),
+    axis.ticks.length = unit(0.25, "cm"),
+    axis.title.x = element_blank(),
+    axis.title.y = element_blank()
+  )
+
+# Plot the graph
+plot(plot_moore_speed)
+```
+
+##### Turf
+
+Extract fitted values and predictors:
+
+```{r}
+moore_conditional_effects_brm12 <- conditional_effects(moore_brm12_t6_turf)
+
+# Extract the relevant data frames from the conditional_effects object
+moore_conditional_effects_turf <- moore_conditional_effects_brm12$sedturf_t5
+```
+
+Create plot:
+
+```{r}
+plot_moore_turf <- ggplot() +
+  geom_line(data = moore_conditional_effects_turf, aes(x = sedturf_t5, y = estimate__), color = "black") +
+  geom_ribbon(data = moore_conditional_effects_turf, aes(x = sedturf_t5, ymin = lower__, ymax = upper__), 
+              fill = "grey", alpha = 0.3) +
+   geom_jitter(data = moore_combined, 
+              aes(x = sedturf_t5, y = SurvDev, color = Spp), 
+              alpha = 0.5, width = 0.1, height = 0) +
+  labs(color = "Species") +
+  scale_color_manual(values = c("A. hyacinthus" = "orange", "A. kenti" = "#009E73", "A. millepora" = "#0072B2")) +
+  theme_minimal() +
+  theme(
+    panel.border = element_rect(color = "black", fill = NA, linewidth = 0.5),
+    axis.ticks = element_line(color = "black", linewidth = 0.5),
+    axis.ticks.length = unit(0.25, "cm"),
+    axis.title.x = element_blank(),
+    axis.title.y = element_blank()
+  )
+
+# Plot the graph
+plot(plot_moore_turf)
+```
+
+##### Concrete
+
+Extract fitted values and predictors:
+
+```{r}
+moore_conditional_effects_brm13 <- conditional_effects(moore_brm13_t6_concrete)
+
+# Extract the relevant data frames from the conditional_effects object
+moore_conditional_effects_concrete <- moore_conditional_effects_brm13$sedconcrete_t5
+```
+
+Create plot:
+
+```{r}
+plot_moore_concrete <- ggplot() +
+  geom_line(data = moore_conditional_effects_concrete, aes(x = sedconcrete_t5, y = estimate__), color = "black") +
+  geom_ribbon(data = moore_conditional_effects_concrete, aes(x = sedconcrete_t5, ymin = lower__, ymax = upper__), 
+              fill = "grey", alpha = 0.3) +
+   geom_jitter(data = moore_combined, 
+              aes(x = sedconcrete_t5, y = SurvDev, color = Spp), 
+              alpha = 0.5, width = 0.05, height = 0) +
+  labs(color = "Species") +
+  scale_color_manual(values = c("A. hyacinthus" = "orange", "A. kenti" = "#009E73", "A. millepora" = "#0072B2")) +
+  theme_minimal() +
+  theme(
+    panel.border = element_rect(color = "black", fill = NA, linewidth = 0.5),
+    axis.ticks = element_line(color = "black", linewidth = 0.5),
+    axis.ticks.length = unit(0.25, "cm"),
+    axis.title.x = element_blank(),
+    axis.title.y = element_blank()
+  )
+
+# Plot the graph
+plot(plot_moore_concrete)
+```
+
+### \_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_
+
+### Save figures:
+
+```{r}
+setwd("C:/Users/sjurriaa/Australian Institute of Marine Science/Carly Randall - Randall Lab/CAD/CAD Year1/")
+ggsave("output/figures survival/Moore Survival Censustime.jpeg", plot_moore_census, width = 10, height = 6)
+ggsave("output/figures survival/Moore Survival Ub interaction.jpeg", plot_moore_Ub, width = 10, height = 6)
+ggsave("output/figures survival/Moore Survival WaveEnergyLevel interaction.jpeg", plot_moore_wave, width = 10, height = 6)
+ggsave("output/figures survival/Moore Survival Median Speed interaction.jpeg", plot_moore_speed, width = 10, height = 6)
+ggsave("output/figures survival/Moore Survival Turf interaction.jpeg", plot_moore_turf, width = 10, height = 6)
+ggsave("output/figures survival/Moore Survival Concrete interaction.jpeg", plot_moore_concrete, width = 10, height = 6)
 ```

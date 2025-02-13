@@ -1,0 +1,905 @@
+---
+title: "Multiplot Survival"
+author: "Sas"
+format: html
+editor: visual
+---
+
+# Preparations
+
+Load the necessary libraries
+
+```{r}
+#| label: libraries
+#| output: false
+#| eval: true
+#| warning: false
+#| message: false
+#| cache: false
+
+library(tidyverse)  #for data wrangling etc
+library(rstanarm)   #for fitting models in STAN
+#library(cmdstanr)   #for cmdstan --> does not work on AIMS computers
+library(brms)       #for fitting models in STAN
+library(standist)   #for exploring distributions
+library(coda)       #for diagnostics
+library(bayesplot)  #for diagnostics
+library(ggmcmc)     #for MCMC diagnostics
+library(DHARMa)     #for residual diagnostics
+library(rstan)      #for interfacing with STAN
+library(emmeans)    #for marginal means etc
+library(broom)      #for tidying outputs
+library(tidybayes)  #for more tidying outputs
+library(HDInterval) #for HPD intervals
+library(ggeffects)  #for partial plots
+library(broom.mixed)#for summarising models
+library(posterior)  #for posterior draws
+library(ggeffects)  #for partial effects plots
+library(patchwork)  #for multi-panel figures
+library(bayestestR) #for ROPE
+library(see)        #for some plots
+library(readxl)     #to load excel documents
+library(easystats)     #framework for stats, modelling and visualisation
+#library(INLA)       #for approximate Bayes
+library(openxlsx)    # to write excel documents
+#library(INLAutils)  #for additional INLA outputs
+theme_set(theme_grey()) #put the default ggplot theme back
+source('helperFunctions.R')
+library(lme4)
+
+```
+
+# **Read in data**
+
+```{r}
+survival <- read_excel("data/YEAR1_Survival.xlsx", na ="")
+
+environment <- read_excel ("data/YEAR1 Benthic Environment ReefDev.xlsx", na="")
+```
+
+# Subset data
+
+### Moore
+
+```{r}
+moore_surv_t6 <- survival |> filter (Reef == "Moore",
+                             Census == "t6",
+                             Tab_ID == 1) |>
+  select(-c(Tab_ID, SurvTab))
+
+moore_surv <- survival |> filter (Reef == "Moore", Tab_ID == 1) |>
+  select(-c(Tab_ID, SurvTab))
+
+moore_env <- environment |> 
+  filter (Reef == "Moore") |>
+  select(-c(Reef1, Device_ID))
+
+moore_t5 <- merge(moore_env, moore_surv_t6, by = c("Reef", "Site", "ReefDev"), all = TRUE)
+
+#free up space
+remove(moore_surv, moore_env, moore_surv_t6)
+
+# Remove rows with missing values
+moore_t5$SurvDev <- as.numeric(moore_t5$SurvDev)
+moore_t5 <- moore_t5[complete.cases(moore_t5$SurvDev),  ]
+moore_t5 <- moore_t5[complete.cases(moore_t5$PC1),  ]
+moore_t5 <- moore_t5 |> select(-c(sedturf_t2, sedconcrete_t2))
+```
+
+### Davies
+
+```{r}
+davies_surv_t6 <- survival |> filter (Reef == "Davies",
+                             Census == "t6",
+                             Tab_ID == 1) |>
+  select(-c(Tab_ID, SurvTab, LinLength_mm, Height_mm, PerpLenght_mm))
+
+davies_surv <- survival |> filter (Reef == "Davies",
+                             Tab_ID == 1) |>
+  select(-c(Tab_ID, SurvTab, LinLength_mm, Height_mm, PerpLenght_mm))
+
+davies_env <- environment |> 
+  filter (Reef == "Davies") |>
+  select(-c(Reef1, Device_ID))
+
+#create one dataset for final timepoint
+davies_t5 <- merge(davies_env, davies_surv_t6, by = c("Reef", "Site", "ReefDev"), all = TRUE)
+
+#free up space
+remove(davies_surv, davies_env, davies_surv_t6)
+
+# Remove rows with missing values
+davies_t5$SurvDev <- as.numeric(davies_t5$SurvDev)
+davies_t5 <- davies_t5[complete.cases(davies_t5$SurvDev),  ]
+davies_t5 <- davies_t5[complete.cases(davies_t5$PC1),  ]
+davies_t5 <- davies_t5 |> select(-c(sedturf_t2, sedconcrete_t2))
+```
+
+### Heron
+
+```{r}
+heron_surv <- survival |> filter (Reef == "Heron")
+
+# first for A kenti
+heron_Aten <- heron_surv |> 
+  filter(Spp == "A. kenti") |>
+  group_by(Census, ReefDev) |>
+  mutate(SurvDev_Spp = ifelse(any(SurvTab == 1), 1, 0),
+         Total_Spp = n()) |>
+  ungroup()
+
+heron_Aten2 <- heron_Aten |>
+  group_by(Census, ReefDev) |>
+  summarise(ExpDay = first(ExpDay),
+            Reef = first(Reef),
+            Site = first(Site),
+            WaveEnergyLevel = first(WaveEnergyLevel),
+            Spp = first(Spp),
+            Total_Spp = first(Total_Spp),
+            SurvDev_Spp = max(SurvDev_Spp)) |>
+  ungroup()
+
+# now for Ahyacinthus
+heron_Ahya <- heron_surv |> 
+  filter(Spp == "A. hyacinthus") |>
+  group_by(Census, ReefDev) |>
+  mutate(SurvDev_Spp = ifelse(any(SurvTab == 1), 1, 0),
+         Total_Spp = n()) |>
+  ungroup()
+
+heron_Ahya2 <- heron_Ahya |>
+  group_by(Census, ReefDev) |>
+  summarise(ExpDay = first(ExpDay),
+            Reef = first(Reef),
+            Site = first(Site),
+            WaveEnergyLevel = first(WaveEnergyLevel),
+            Spp = first(Spp),
+            Total_Spp = first(Total_Spp),
+            SurvDev_Spp = max(SurvDev_Spp)) |>
+  ungroup()
+
+#bind them together to create one dataframe
+heron_Spp <- rbind(heron_Ahya2, heron_Aten2)
+heron_Spp <- heron_Spp |>
+  arrange(Census, Site, Spp, ReefDev)
+
+heron_Spp_t3 <- heron_Spp |>
+  filter(Census == "t3")
+
+#free up space
+remove(heron_Aten, heron_Aten2, heron_Ahya, heron_Ahya2, heron_Spp)
+
+heron_env <- environment |>
+  filter(Reef == "Heron") |>
+  select(-c(Reef1, Device_ID))
+
+heron_Spp_t3 <- merge(heron_env, heron_Spp_t3, by = c("Reef", "Site", "ReefDev"), all = TRUE)
+
+#free up space
+remove(heron_surv, heron_env)
+
+# Remove rows with missing values
+heron_Spp_t3$SurvDev_Spp <- as.numeric(heron_Spp_t3$SurvDev_Spp)
+heron_Spp_t3 <- heron_Spp_t3[complete.cases(heron_Spp_t3$SurvDev_Spp),  ]
+heron_Spp_t3 <- heron_Spp_t3 |> select(-c(sedturf_t5, sedconcrete_t5))
+```
+
+### Multiplot figure survival
+
+Load brm models for each reef
+
+Moore:
+
+```{r}
+setwd("C:/Users/sjurriaa/Australian Institute of Marine Science/Carly Randall - Randall Lab/CAD/CAD Year1/")
+load(file = "scripts/models/moore/moore_brm8_t6.RData")
+load(file = "scripts/models/moore/moore_brm9_t6_wave.RData")
+load(file = "scripts/models/moore/moore_brm10_t6_Ub.RData")
+load(file = "scripts/models/moore/moore_brm11_t6_current.RData")
+load(file = "scripts/models/moore/moore_brm12_t6_turf.RData")
+load(file = "scripts/models/moore/moore_brm13_t6_concrete.RData")
+load(file = "scripts/models/moore/moore_brm14_t6_PCA.RData")
+```
+
+Davies:
+
+```{r}
+setwd("C:/Users/sjurriaa/Australian Institute of Marine Science/Carly Randall - Randall Lab/CAD/CAD Year1/")
+load(file = "scripts/models/davies_brm8_t6.RData")
+load(file = "scripts/models/davies_brm9_t6_wave.RData")
+load(file = "scripts/models/davies_brm10_t6_Ub.RData")
+load(file = "scripts/models/davies_brm11_t6_current.RData")
+load(file = "scripts/models/davies_brm12_t6_turf.RData")
+load(file = "scripts/models/davies_brm13_t6_concrete.RData")
+load(file = "scripts/models/davies_brm14_t6_PCA.RData")
+```
+
+Heron:
+
+```{r}
+load(file = "C:/Users/sjurriaa/Australian Institute of Marine Science/Carly Randall - Randall Lab/CAD/CAD Year1/scripts/models/heron/heron_brm_census_interaction.RData")
+load(file = "C:/Users/sjurriaa/Australian Institute of Marine Science/Carly Randall - Randall Lab/CAD/CAD Year1/scripts/models/heron/heron_brm_speed_interaction.RData")    
+load(file = "C:/Users/sjurriaa/Australian Institute of Marine Science/Carly Randall - Randall Lab/CAD/CAD Year1/scripts/models/heron/heron_brm_ub_interaction.RData")        
+load(file = "C:/Users/sjurriaa/Australian Institute of Marine Science/Carly Randall - Randall Lab/CAD/CAD Year1/scripts/models/heron/heron_brm_wave_3wayinteraction_v1.RData")      
+load(file = "C:/Users/sjurriaa/Australian Institute of Marine Science/Carly Randall - Randall Lab/CAD/CAD Year1/scripts/models/heron/heron_brm_turf_interaction.RData")      
+load(file = "C:/Users/sjurriaa/Australian Institute of Marine Science/Carly Randall - Randall Lab/CAD/CAD Year1/scripts/models/heron/heron_brm_concrete_interaction.RData")  
+load(file = "C:/Users/sjurriaa/Australian Institute of Marine Science/Carly Randall - Randall Lab/CAD/CAD Year1/scripts/models/heron_brm_PCA.RData") 
+```
+
+### Moore figures
+
+Select the environmental predictors for the plots, then create empty entries for Ahya and Aten so that they appear in the figure legends (for complete species representation), and then combine the new species data with the selected moore data.
+
+```{r}
+moore_variables <- moore_t5 |>
+  select(c(Spp, SurvDev, Ub_avrg, WaveEnergyLevel, sedturf_t5, sedconcrete_t5, median_speed))
+
+moore_variables_new <- data.frame(
+  Ub_avrg = NA,  # Use NA since there are no actual values
+  WaveEnergyLevel = NA,
+  sedturf_t5 = NA,
+  sedconcrete_t5 = NA,
+  median_speed = NA,
+  SurvDev = NA, 
+  Spp = c("A. hyacinthus", "A. kenti")
+)
+
+# Combine the new species data with the original moore data
+moore_combined <- rbind(moore_variables, moore_variables_new)
+
+remove(moore_variables)
+remove(moore_variables_new)
+```
+
+##### Bottom Stress
+
+Extract fitted values and predictors and create empty entries for Aten and Amil for complete species representation in the figure legends:
+
+```{r}
+conditional_effects_brm10 <- conditional_effects(moore_brm10_t6_Ub)
+
+# Extract the relevant data frames from the conditional_effects object
+conditional_effects_Ub <- conditional_effects_brm10$Ub_avrg
+```
+
+Create plot:
+
+```{r}
+plot_moore_Ub <- ggplot() +
+  geom_line(data = conditional_effects_Ub, aes(x = Ub_avrg, y = estimate__), color = "black") +
+  geom_ribbon(data = conditional_effects_Ub, aes(x = Ub_avrg, ymin = lower__, ymax = upper__), 
+              fill = "grey", alpha = 0.3) +
+ geom_jitter(data = moore_combined, 
+              aes(x = Ub_avrg, y = SurvDev, color = Spp), 
+              alpha = 0.5, width = 0.05, height = 0) +
+  labs(color = "Species") +
+  scale_color_manual(values = c("A. hyacinthus" = "orange", "A. kenti" = "purple", "A. millepora" = "green")) +
+  theme_minimal() +
+  theme(
+    panel.border = element_rect(color = "black", fill = NA, linewidth = 0.5),
+    axis.ticks = element_line(color = "black", linewidth = 0.5),
+    axis.ticks.length = unit(0.25, "cm"),
+    axis.title.x = element_blank(),
+    axis.title.y = element_blank()
+  )
+
+print(plot_moore_Ub)
+```
+
+##### Wave Energy Level
+
+Extract fitted values and predictors:
+
+```{r}
+conditional_effects_brm9<- conditional_effects(moore_brm9_t6_wave)
+
+# Extract the relevant data frames from the conditional_effects object
+conditional_effects_wave <- conditional_effects_brm9$WaveEnergyLevel
+```
+
+Create plot:
+
+```{r}
+plot_moore_wave <- ggplot() +
+  geom_line(data = conditional_effects_wave, aes(x = WaveEnergyLevel, y = estimate__), color = "black") +
+  geom_ribbon(data = conditional_effects_wave, aes(x = WaveEnergyLevel, ymin = lower__, ymax = upper__), 
+              fill = "grey", alpha = 0.3) +
+   geom_jitter(data = moore_combined, 
+              aes(x = WaveEnergyLevel, y = SurvDev, color = Spp), 
+              alpha = 0.2, width = 0.2, height = 0) +
+  labs(color = "Species") +
+  scale_color_manual(values = c("A. hyacinthus" = "orange", "A. kenti" = "purple", "A. millepora" = "green")) +
+  theme_minimal() +
+  theme(
+    panel.border = element_rect(color = "black", fill = NA, linewidth = 0.5),
+    axis.ticks = element_line(color = "black", linewidth = 0.5),
+    axis.ticks.length = unit(0.25, "cm"),
+    axis.title.x = element_blank(),
+    axis.title.y = element_blank()
+  )
+
+print(plot_moore_wave)
+```
+
+##### Flow velocity
+
+Extract fitted values and predictors:
+
+```{r}
+conditional_effects_brm11 <- conditional_effects(moore_brm11_t6_current)
+
+# Extract the relevant data frames from the conditional_effects object
+conditional_effects_speed <- conditional_effects_brm11$median_speed
+```
+
+Create plot:
+
+```{r}
+plot_moore_speed <- ggplot() +
+  geom_line(data = conditional_effects_speed, aes(x = median_speed, y = estimate__), color = "black") +
+  geom_ribbon(data = conditional_effects_speed, aes(x = median_speed, ymin = lower__, ymax = upper__), 
+              fill = "grey", alpha = 0.3) +
+   geom_jitter(data = moore_combined, 
+              aes(x = median_speed, y = SurvDev, color = Spp), 
+              alpha = 0.5, width = 0.008, height = 0) +
+  labs(color = "Species") +
+  scale_color_manual(values = c("A. hyacinthus" = "orange", "A. kenti" = "purple", "A. millepora" = "green")) +
+  theme_minimal() +
+  theme(
+    panel.border = element_rect(color = "black", fill = NA, linewidth = 0.5),
+    axis.ticks = element_line(color = "black", linewidth = 0.5),
+    axis.ticks.length = unit(0.25, "cm"),
+    axis.title.x = element_blank(),
+    axis.title.y = element_blank()
+  )
+
+# Plot the graph
+plot(plot_moore_speed)
+```
+
+##### Turf
+
+Extract fitted values and predictors:
+
+```{r}
+conditional_effects_brm12 <- conditional_effects(moore_brm12_t6_turf)
+
+# Extract the relevant data frames from the conditional_effects object
+conditional_effects_turf <- conditional_effects_brm12$sedturf_t5
+```
+
+Create plot:
+
+```{r}
+plot_moore_turf <- ggplot() +
+  geom_line(data = conditional_effects_turf, aes(x = sedturf_t5, y = estimate__), color = "black") +
+  geom_ribbon(data = conditional_effects_turf, aes(x = sedturf_t5, ymin = lower__, ymax = upper__), 
+              fill = "grey", alpha = 0.3) +
+   geom_jitter(data = moore_combined, 
+              aes(x = sedturf_t5, y = SurvDev, color = Spp), 
+              alpha = 0.5, width = 0.1, height = 0) +
+  labs(color = "Species") +
+  scale_color_manual(values = c("A. hyacinthus" = "orange", "A. kenti" = "purple", "A. millepora" = "green")) +
+  theme_minimal() +
+  theme(
+    panel.border = element_rect(color = "black", fill = NA, linewidth = 0.5),
+    axis.ticks = element_line(color = "black", linewidth = 0.5),
+    axis.ticks.length = unit(0.25, "cm"),
+    axis.title.x = element_blank(),
+    axis.title.y = element_blank()
+  )
+
+# Plot the graph
+plot(plot_moore_turf)
+```
+
+##### Concrete
+
+Extract fitted values and predictors:
+
+```{r}
+conditional_effects_brm13 <- conditional_effects(moore_brm13_t6_concrete)
+
+# Extract the relevant data frames from the conditional_effects object
+conditional_effects_concrete <- conditional_effects_brm13$sedconcrete_t5
+```
+
+Create plot:
+
+```{r}
+plot_moore_concrete <- ggplot() +
+  geom_line(data = conditional_effects_concrete, aes(x = sedconcrete_t5, y = estimate__), color = "black") +
+  geom_ribbon(data = conditional_effects_concrete, aes(x = sedconcrete_t5, ymin = lower__, ymax = upper__), 
+              fill = "grey", alpha = 0.3) +
+   geom_jitter(data = moore_combined, 
+              aes(x = sedconcrete_t5, y = SurvDev, color = Spp), 
+              alpha = 0.5, width = 0.05, height = 0) +
+  labs(color = "Species") +
+  scale_color_manual(values = c("A. hyacinthus" = "orange", "A. kenti" = "purple", "A. millepora" = "green")) +
+  theme_minimal() +
+  theme(
+    panel.border = element_rect(color = "black", fill = NA, linewidth = 0.5),
+    axis.ticks = element_line(color = "black", linewidth = 0.5),
+    axis.ticks.length = unit(0.25, "cm"),
+    axis.title.x = element_blank(),
+    axis.title.y = element_blank()
+  )
+
+# Plot the graph
+plot(plot_moore_concrete)
+```
+
+### Davies figures
+
+Select the environmental predictors for the plots, then create empty entries for Amil and Aten so that they appear in the figure legends (for complete species representation), and then combine the new species data with the selected davies data.
+
+```{r}
+davies_variables <- davies_t5 |>
+  select(c(Spp, SurvDev, Ub_avrg, WaveEnergyLevel, sedturf_t5, sedconcrete_t5, median_speed))
+
+davies_variables_new <- data.frame(
+  Ub_avrg = NA,  # Use NA since there are no actual values
+  WaveEnergyLevel = NA,
+  sedturf_t5 = NA,
+  sedconcrete_t5 = NA,
+  median_speed = NA,
+  SurvDev = NA, 
+  Spp = c("A. millepora", "A. kenti")
+)
+
+# Combine the new species data with the original davies data
+davies_combined <- rbind(davies_variables, davies_variables_new)
+
+remove(davies_variables)
+remove(davies_variables_new)
+```
+
+##### Bottom Stress
+
+Extract fitted values and predictors and create empty entries for Aten and Amil for complete species representation in the figure legends:
+
+```{r}
+conditional_effects_brm10 <- conditional_effects(davies_brm10_t6_Ub)
+
+# Extract the relevant data frames from the conditional_effects object
+conditional_effects_Ub <- conditional_effects_brm10$Ub_avrg
+```
+
+Create plot:
+
+```{r}
+plot_davies_Ub <- ggplot() +
+  geom_line(data = conditional_effects_Ub, aes(x = Ub_avrg, y = estimate__), color = "black") +
+  geom_ribbon(data = conditional_effects_Ub, aes(x = Ub_avrg, ymin = lower__, ymax = upper__), 
+              fill = "grey", alpha = 0.3) +
+ geom_jitter(data = davies_combined, 
+              aes(x = Ub_avrg, y = SurvDev, color = Spp), 
+              alpha = 0.5, width = 0.05, height = 0) +
+  labs(color = "Species") +
+  scale_color_manual(values = c("A. hyacinthus" = "orange", "A. kenti" = "purple", "A. millepora" = "green")) +
+  theme_minimal() +
+  theme(
+    panel.border = element_rect(color = "black", fill = NA, linewidth = 0.5),
+    axis.ticks = element_line(color = "black", linewidth = 0.5),
+    axis.ticks.length = unit(0.25, "cm"),
+    axis.title.x = element_blank(),
+    axis.title.y = element_blank()
+  )
+
+print(plot_davies_Ub)
+```
+
+##### Wave Energy Level
+
+Extract fitted values and predictors:
+
+```{r}
+conditional_effects_brm9<- conditional_effects(davies_brm9_t6_wave)
+
+# Extract the relevant data frames from the conditional_effects object
+conditional_effects_wave <- conditional_effects_brm9$WaveEnergyLevel
+```
+
+Create plot:
+
+```{r}
+plot_davies_wave <- ggplot() +
+  geom_line(data = conditional_effects_wave, aes(x = WaveEnergyLevel, y = estimate__), color = "black") +
+  geom_ribbon(data = conditional_effects_wave, aes(x = WaveEnergyLevel, ymin = lower__, ymax = upper__), 
+              fill = "grey", alpha = 0.3) +
+   geom_jitter(data = davies_combined, 
+              aes(x = WaveEnergyLevel, y = SurvDev, color = Spp), 
+              alpha = 0.2, width = 0.2, height = 0) +
+  labs(color = "Species") +
+  scale_color_manual(values = c("A. hyacinthus" = "orange", "A. kenti" = "purple", "A. millepora" = "green")) +
+  theme_minimal() +
+  theme(
+    panel.border = element_rect(color = "black", fill = NA, linewidth = 0.5),
+    axis.ticks = element_line(color = "black", linewidth = 0.5),
+    axis.ticks.length = unit(0.25, "cm"),
+    axis.title.x = element_blank(),
+    axis.title.y = element_blank()
+  )
+
+print(plot_davies_wave)
+```
+
+##### Flow velocity
+
+Extract fitted values and predictors:
+
+```{r}
+conditional_effects_brm11 <- conditional_effects(davies_brm11_t6_current)
+
+# Extract the relevant data frames from the conditional_effects object
+conditional_effects_speed <- conditional_effects_brm11$median_speed
+```
+
+Create plot:
+
+```{r}
+plot_davies_speed <- ggplot() +
+  geom_line(data = conditional_effects_speed, aes(x = median_speed, y = estimate__), color = "black") +
+  geom_ribbon(data = conditional_effects_speed, aes(x = median_speed, ymin = lower__, ymax = upper__), 
+              fill = "grey", alpha = 0.3) +
+   geom_jitter(data = davies_combined, 
+              aes(x = median_speed, y = SurvDev, color = Spp), 
+              alpha = 0.5, width = 0.008, height = 0) +
+  labs(color = "Species") +
+  scale_color_manual(values = c("A. hyacinthus" = "orange", "A. kenti" = "purple", "A. millepora" = "green")) +
+  theme_minimal() +
+  theme(
+    panel.border = element_rect(color = "black", fill = NA, linewidth = 0.5),
+    axis.ticks = element_line(color = "black", linewidth = 0.5),
+    axis.ticks.length = unit(0.25, "cm"),
+    axis.title.x = element_blank(),
+    axis.title.y = element_blank()
+  )
+
+# Plot the graph
+plot(plot_davies_speed)
+```
+
+##### Turf
+
+Extract fitted values and predictors:
+
+```{r}
+conditional_effects_brm12 <- conditional_effects(davies_brm12_t6_turf)
+
+# Extract the relevant data frames from the conditional_effects object
+conditional_effects_turf <- conditional_effects_brm12$sedturf_t5
+```
+
+Create plot:
+
+```{r}
+plot_davies_turf <- ggplot() +
+  geom_line(data = conditional_effects_turf, aes(x = sedturf_t5, y = estimate__), color = "black") +
+  geom_ribbon(data = conditional_effects_turf, aes(x = sedturf_t5, ymin = lower__, ymax = upper__), 
+              fill = "grey", alpha = 0.3) +
+   geom_jitter(data = davies_combined, 
+              aes(x = sedturf_t5, y = SurvDev, color = Spp), 
+              alpha = 0.5, width = 0.1, height = 0) +
+  labs(color = "Species") +
+  scale_color_manual(values = c("A. hyacinthus" = "orange", "A. kenti" = "purple", "A. millepora" = "green")) +
+  theme_minimal() +
+  theme(
+    panel.border = element_rect(color = "black", fill = NA, linewidth = 0.5),
+    axis.ticks = element_line(color = "black", linewidth = 0.5),
+    axis.ticks.length = unit(0.25, "cm"),
+    axis.title.x = element_blank(),
+    axis.title.y = element_blank()
+  )
+
+# Plot the graph
+plot(plot_davies_turf)
+```
+
+##### Concrete
+
+Extract fitted values and predictors:
+
+```{r}
+conditional_effects_brm13 <- conditional_effects(davies_brm13_t6_concrete)
+
+# Extract the relevant data frames from the conditional_effects object
+conditional_effects_concrete <- conditional_effects_brm13$sedconcrete_t5
+```
+
+Create plot:
+
+```{r}
+plot_davies_concrete <- ggplot() +
+  geom_line(data = conditional_effects_concrete, aes(x = sedconcrete_t5, y = estimate__), color = "black") +
+  geom_ribbon(data = conditional_effects_concrete, aes(x = sedconcrete_t5, ymin = lower__, ymax = upper__), 
+              fill = "grey", alpha = 0.3) +
+   geom_jitter(data = davies_combined, 
+              aes(x = sedconcrete_t5, y = SurvDev, color = Spp), 
+              alpha = 0.5, width = 0.05, height = 0) +
+  labs(color = "Species") +
+  scale_color_manual(values = c("A. hyacinthus" = "orange", "A. kenti" = "purple", "A. millepora" = "green")) +
+  theme_minimal() +
+  theme(
+    panel.border = element_rect(color = "black", fill = NA, linewidth = 0.5),
+    axis.ticks = element_line(color = "black", linewidth = 0.5),
+    axis.ticks.length = unit(0.25, "cm"),
+    axis.title.x = element_blank(),
+    axis.title.y = element_blank()
+  )
+
+# Plot the graph
+plot(plot_davies_concrete)
+```
+
+Make figured Heron:
+
+### Heron figures
+
+Select the environmental predictors for the plots, then create empty entries for Amil so that it appears in the figure legends (for complete species representation), and then combine the new species data with the selected heron data.
+
+```{r}
+heron_variables <- heron_Spp_t3 |>
+  select(c(SurvDev_Spp, Ub_avrg, WaveEnergyLevel, sedturf_t2, sedconcrete_t2, median_speed, Spp))
+
+heron_variables_new <- data.frame(
+  Ub_avrg = NA,  # Use NA since there are no actual values
+  WaveEnergyLevel = NA,
+  sedturf_t2 = NA,
+  sedconcrete_t2 = NA,
+  median_speed = NA,
+  SurvDev_Spp = NA, 
+  Spp = c("A. millepora")
+)
+
+# Combine the new species data with the original heron data
+heron_combined <- rbind(heron_variables, heron_variables_new)
+
+remove(heron_variables)
+remove(heron_variables_new)
+```
+
+##### Bottom Stress
+
+Extract fitted values and predictors and create empty entries for Aten and Amil for complete species representation in the figure legends:
+
+```{r}
+conditional_effects_brmUb_hyacinthus <- conditional_effects(heron_brm_Ub, conditions = data.frame(Spp = "A. hyacinthus"))
+conditional_effects_brmUb_kenti <- conditional_effects(heron_brm_Ub, conditions = data.frame(Spp = "A. kenti"))
+```
+
+Create plot:
+
+```{r}
+# Plot the effects with separate lines and ribbons for each species
+plot_heron_Ub <- ggplot() +
+  geom_line(data = conditional_effects_brmUb_hyacinthus$Ub_avrg, aes(x = Ub_avrg, y = estimate__), color = "orange") +
+  geom_ribbon(data = conditional_effects_brmUb_hyacinthus$Ub_avrg, aes(x = Ub_avrg, ymin = lower__, ymax = upper__), fill = "orange", alpha = 0.3) +
+  geom_line(data = conditional_effects_brmUb_kenti$Ub_avrg, aes(x = Ub_avrg, y = estimate__), color = "purple") +
+  geom_ribbon(data = conditional_effects_brmUb_kenti$Ub_avrg, aes(x = Ub_avrg, ymin = lower__, ymax = upper__), fill = "purple", alpha = 0.3) +
+  geom_jitter(data = heron_combined, 
+              aes(x = Ub_avrg, y = SurvDev_Spp, color = Spp), 
+              alpha = 0.5, width = 0.05, height = 0) +
+  labs(color = "Species", x = "Bottom stress\n(m s-1)") +
+  scale_color_manual(values = c("A. hyacinthus" = "orange", "A. kenti" = "purple", "A. millepora" = "green")) +
+  theme_minimal() +
+  theme(
+    panel.border = element_rect(color = "black", fill = NA, linewidth = 0.5),
+    axis.ticks = element_line(color = "black", linewidth = 0.5),
+    axis.ticks.length = unit(0.25, "cm"),
+    axis.title.y = element_blank()
+  )
+
+print(plot_heron_Ub)
+```
+
+##### Wave Energy Level
+
+Extract fitted values and predictors:
+
+```{r}
+conditional_effects_brmWave_hyacinthus <- conditional_effects(heron_brm_wave , conditions = data.frame(Spp = "A. hyacinthus"))
+conditional_effects_brmWave_kenti <- conditional_effects(heron_brm_wave , conditions = data.frame(Spp = "A. kenti"))
+```
+
+Create plot:
+
+```{r}
+# Plot the effects with separate lines and ribbons for each species
+plot_heron_wave <- ggplot() +
+  geom_line(data = conditional_effects_brmWave_hyacinthus$WaveEnergyLevel, aes(x = WaveEnergyLevel, y = estimate__), color = "orange") +
+  geom_ribbon(data = conditional_effects_brmWave_hyacinthus$WaveEnergyLevel, aes(x = WaveEnergyLevel, ymin = lower__, ymax = upper__), fill = "orange", alpha = 0.3) +
+  geom_line(data = conditional_effects_brmWave_kenti$WaveEnergyLevel, aes(x = WaveEnergyLevel, y = estimate__), color = "purple") +
+  geom_ribbon(data = conditional_effects_brmWave_kenti$WaveEnergyLevel, aes(x = WaveEnergyLevel, ymin = lower__, ymax = upper__), fill = "purple", alpha = 0.3) +
+  geom_jitter(data = heron_combined, 
+              aes(x = WaveEnergyLevel, y = SurvDev_Spp, color = Spp), 
+              alpha = 0.5, width = 0.2, height = 0) +
+  labs(color = "Species", x = "Nom. Wave Energy Level\n ") +
+  scale_color_manual(values = c("A. hyacinthus" = "orange", "A. kenti" = "purple", "A. millepora" = "green")) +
+  theme_minimal() +
+  theme(
+    panel.border = element_rect(color = "black", fill = NA, linewidth = 0.5),
+    axis.ticks = element_line(color = "black", linewidth = 0.5),
+    axis.ticks.length = unit(0.25, "cm"),
+    axis.title.y = element_blank()
+  )
+
+print(plot_heron_wave)
+```
+
+##### Flow velocity
+
+Extract fitted values and predictors:
+
+```{r}
+conditional_effects_brmSpeed_hyacinthus <- conditional_effects(heron_brm_speed , conditions = data.frame(Spp = "A. hyacinthus"))
+conditional_effects_brmSpeed_kenti <- conditional_effects(heron_brm_speed , conditions = data.frame(Spp = "A. kenti"))
+```
+
+Create plot:
+
+```{r}
+# Plot the effects with separate lines and ribbons for each species
+plot_heron_speed <- ggplot() +
+  geom_line(data = conditional_effects_brmSpeed_hyacinthus$median_speed, aes(x = median_speed, y = estimate__), color = "orange") +
+  geom_ribbon(data = conditional_effects_brmSpeed_hyacinthus$median_speed, aes(x = median_speed, ymin = lower__, ymax = upper__), fill = "orange", alpha = 0.3) +
+  geom_line(data = conditional_effects_brmSpeed_kenti$median_speed, aes(x = median_speed, y = estimate__), color = "purple") +
+  geom_ribbon(data = conditional_effects_brmSpeed_kenti$median_speed, aes(x = median_speed, ymin = lower__, ymax = upper__), fill = "purple", alpha = 0.3) +
+  geom_jitter(data = heron_combined, 
+              aes(x = median_speed, y = SurvDev_Spp, color = Spp), 
+              alpha = 0.5, width = 0.008, height = 0) +
+  labs(color = "Species", x = "Median flow velocity\n(m s-1)") +
+  scale_color_manual(values = c("A. hyacinthus" = "orange", "A. kenti" = "purple", "A. millepora" = "green")) +
+  theme_minimal() +
+  theme(
+    panel.border = element_rect(color = "black", fill = NA, linewidth = 0.5),
+    axis.ticks = element_line(color = "black", linewidth = 0.5),
+    axis.ticks.length = unit(0.25, "cm"),
+    axis.title.y = element_blank()
+  )
+
+print(plot_heron_speed)
+```
+
+##### Turf
+
+Extract fitted values and predictors:
+
+```{r}
+conditional_effects_brmTurf_hyacinthus <- conditional_effects(heron_brm_turf , conditions = data.frame(Spp = "A. hyacinthus"))
+conditional_effects_brmTurf_kenti <- conditional_effects(heron_brm_turf , conditions = data.frame(Spp = "A. kenti"))
+```
+
+Create plot:
+
+```{r}
+# Plot the effects with separate lines and ribbons for each species
+plot_heron_turf <- ggplot() +
+  geom_line(data = conditional_effects_brmTurf_hyacinthus$sedturf_t2, aes(x = sedturf_t2, y = estimate__), color = "orange") +
+  geom_ribbon(data = conditional_effects_brmTurf_hyacinthus$sedturf_t2, aes(x = sedturf_t2, ymin = lower__, ymax = upper__), fill = "orange", alpha = 0.3) +
+  geom_line(data = conditional_effects_brmTurf_kenti$sedturf_t2, aes(x = sedturf_t2, y = estimate__), color = "purple") +
+  geom_ribbon(data = conditional_effects_brmTurf_kenti$sedturf_t2, aes(x = sedturf_t2, ymin = lower__, ymax = upper__), fill = "purple", alpha = 0.3) +
+  geom_jitter(data = heron_combined, 
+              aes(x = sedturf_t2, y = SurvDev_Spp, color = Spp), 
+              alpha = 0.5, width = 1, height = 0) +
+  labs(color = "Species", x = "Sedimentation on turf\n(mg cm-2 day-1)") +
+  scale_color_manual(values = c("A. hyacinthus" = "orange", "A. kenti" = "purple", "A. millepora" = "green")) +
+  theme_minimal() +
+  theme(
+    panel.border = element_rect(color = "black", fill = NA, linewidth = 0.5),
+    axis.ticks = element_line(color = "black", linewidth = 0.5),
+    axis.ticks.length = unit(0.25, "cm"),
+    axis.title.y = element_blank()
+  )
+
+print(plot_heron_turf)
+```
+
+##### Concrete
+
+Extract fitted values and predictors:
+
+```{r}
+conditional_effects_brmConcrete_hyacinthus <- conditional_effects(heron_brm_concrete , conditions = data.frame(Spp = "A. hyacinthus"))
+conditional_effects_brmConcrete_kenti <- conditional_effects(heron_brm_concrete , conditions = data.frame(Spp = "A. kenti"))
+```
+
+Create plot:
+
+```{r}
+# Plot the effects with separate lines and ribbons for each species
+plot_heron_concrete <- ggplot() +
+  geom_line(data = conditional_effects_brmConcrete_hyacinthus$sedconcrete_t2, aes(x = sedconcrete_t2, y = estimate__), color = "orange") +
+  geom_ribbon(data = conditional_effects_brmConcrete_hyacinthus$sedconcrete_t2, aes(x = sedconcrete_t2, ymin = lower__, ymax = upper__), fill = "orange", alpha = 0.3) +
+  geom_line(data = conditional_effects_brmConcrete_kenti$sedconcrete_t2, aes(x = sedconcrete_t2, y = estimate__), color = "purple") +
+  geom_ribbon(data = conditional_effects_brmConcrete_kenti$sedconcrete_t2, aes(x = sedconcrete_t2, ymin = lower__, ymax = upper__), fill = "purple", alpha = 0.3) +
+  geom_jitter(data = heron_combined, 
+              aes(x = sedconcrete_t2, y = SurvDev_Spp, color = Spp), 
+              alpha = 0.5, width = 0.3, height = 0) +
+  labs(color = "Species", x = "Sedimentation on concrete\n(mg cm-2 day-1)") +
+  scale_color_manual(values = c("A. hyacinthus" = "orange", "A. kenti" = "purple", "A. millepora" = "green")) +
+  theme_minimal() +
+  theme(
+    panel.border = element_rect(color = "black", fill = NA, linewidth = 0.5),
+    axis.ticks = element_line(color = "black", linewidth = 0.5),
+    axis.ticks.length = unit(0.25, "cm"),
+    axis.title.y = element_blank()
+  )
+
+print(plot_heron_concrete)
+```
+
+# Multiplot
+
+Shared legend
+
+```{r}
+grid_arrange_shared_legend <-
+  function(...,
+           ncol = length(list(...)),
+           nrow = 1,
+           position = c("bottom", "right")) {
+    
+    plots <- list(...)
+    position <- match.arg(position)
+    g <-
+      ggplotGrob(plots[[1]] + theme(legend.position = position))$grobs
+    legend <- g[[which(sapply(g, function(x)
+      x$name) == "guide-box")]]
+    lheight <- sum(legend$height)
+    lwidth <- sum(legend$width)
+    gl <- lapply(plots, function(x)
+      x + theme(legend.position = "none"))
+    gl <- c(gl, ncol = ncol, nrow = nrow)
+    
+    combined <- switch(
+      position,
+      "bottom" = arrangeGrob(
+        do.call(arrangeGrob, gl),
+        legend,
+        ncol = 1,
+        heights = unit.c(unit(1, "npc") - lheight, lheight)
+      ),
+      "right" = arrangeGrob(
+        do.call(arrangeGrob, gl),
+        legend,
+        ncol = 2,
+        widths = unit.c(unit(1, "npc") - lwidth, lwidth)
+      )
+    )
+    
+    grid.newpage()
+    grid.draw(combined)
+    
+    # return gtable invisibly
+    invisible(combined)
+    
+  }
+```
+
+```{r}
+library(gridExtra)
+library(gtable)
+library(grid)
+library(egg)
+
+capture_plot <- function() {
+  grid_arrange_shared_legend(
+  plot_moore_wave,plot_davies_wave, plot_heron_wave,
+  plot_moore_Ub, plot_davies_ub, plot_heron_Ub,
+  plot_moore_speed, plot_davies_speed, plot_heron_speed,
+  plot_moore_turf, plot_davies_turf, plot_heron_turf,
+  plot_moore_concrete, plot_davies_concrete, plot_heron_concrete,
+  ncol = 3, 
+             nrow = 5)
+}
+
+capture_plot()
+```
+
+# Save figure
+
+```{r}
+# Save the plot using ggsave
+ggsave("Figure Multiplot Survival transposed.jpeg", plot = capture_plot(), width = 9, height = 12)
+```

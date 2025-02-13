@@ -6,6 +6,11 @@ format: html
 editor: visual
 ---
 
+```{r}
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_knit$set(root.dir = "C:/Users/sjurriaa/Australian Institute of Marine Science/Carly Randall - Randall Lab/CAD/CAD Year1")
+```
+
 # Preparations
 
 Load the necessary libraries
@@ -46,14 +51,27 @@ library(openxlsx)    # to write excel documents
 #library(INLAutils)  #for additional INLA outputs
 theme_set(theme_grey()) #put the default ggplot theme back
 source('helperFunctions.R')
+library(lme4)
 ```
 
 # Read in the data
 
 ```{r}
+#| label: libraries
+#| output: false
+#| eval: true
+#| warning: false
+#| message: false
+#| cache: false
+
+setwd("C:/Users/sjurriaa/Australian Institute of Marine Science/Carly Randall - Randall Lab/CAD/CAD Year1")
+
 survival <- read_excel("data/YEAR1_Survival.xlsx", na ="")
 
 environment <- read_excel ("data/YEAR1 Benthic Environment ReefDev.xlsx", na="")
+
+remove(plot0)
+remove(plot0.1)
 ```
 
 # Exploratory data
@@ -65,31 +83,34 @@ str(survival)
 survival |> datawizard::data_codebook()
 ```
 
-Remove some unnecessary columns
+Remove some unnecessary columns and subset dataset to have Heron only
 
 ```{r}
-survival <- survival |>
-  select(-c(ID, Observer, CensusT, DeploymentDate, CensusDate, Device_ID, NoRecruits))
+heron <- survival |>
+  filter(Reef == "Heron") |>
+  select(-c(ID, Observer, CensusT, DeploymentDate, CensusDate, Device_ID, LinLength_mm, PerpLenght_mm, Height_mm )) |>
+  mutate(Spp = as.factor(Spp),
+         Site = as.factor(Site),
+         ReefDev = as.factor(ReefDev)
+         )
+
+heron_env <- environment |>
+   filter(Reef == "Heron") |>
+  select(-c(Reef1, Device_ID)) |>
+   rename(turf = sedturf_t2,
+         concrete = sedconcrete_t2)
 ```
 
 # Heron Spp
 
-### Subset data: Heron Spp
-
-Focus on Heron Reef only
-
-```{r}
-heron_surv <- survival |> filter (Reef == "Heron")
-
-heron_surv <- heron_surv[complete.cases(heron_surv$SurvDev),  ]
-```
+**Subset data: Heron Spp**
 
 Create a dataframe that groups to device level (not tab level) and then gives a survival score (SurvDev_Spp) if the species had a survivor on the device (one surviving tab). Also create a new column for total tabs on the device of that species (either 1 or 2).
 
 ```{r}
-# first for A tenuis
-heron_Aten <- heron_surv |> 
-  filter(Spp == "A_tenuis") |>
+# first for A kenti
+heron_Aten <- heron |> 
+  filter(Spp == "A. kenti") |>
   group_by(Census, ReefDev) |>
   mutate(SurvDev_Spp = ifelse(any(SurvTab == 1), 1, 0),
          Total_Spp = n()) |>
@@ -98,7 +119,7 @@ heron_Aten <- heron_surv |>
 heron_Aten2 <- heron_Aten |>
   group_by(Census, ReefDev) |>
   summarise(ExpDay = first(ExpDay),
-            Reef = first(Reef),
+            Reef = first(Reef     ),
             Site = first(Site),
             WaveEnergyLevel = first(WaveEnergyLevel),
             Spp = first(Spp),
@@ -107,8 +128,8 @@ heron_Aten2 <- heron_Aten |>
   ungroup()
 
 # now for Ahyacinthus
-heron_Ahya <- heron_surv |> 
-  filter(Spp == "A_hyacinthus") |>
+heron_Ahya <- heron |> 
+  filter(Spp == "A. hyacinthus") |>
   group_by(Census, ReefDev) |>
   mutate(SurvDev_Spp = ifelse(any(SurvTab == 1), 1, 0),
          Total_Spp = n()) |>
@@ -131,33 +152,16 @@ heron_Spp <- heron_Spp |>
   arrange(Census, Site, Spp, ReefDev)
 
 #free up space
-remove(heron_Aten, heron_Aten2, heron_Ahya, heron_Ahya2)
+remove(heron_Aten, heron_Aten2, heron_Ahya, heron_Ahya2, heron)
 ```
 
-### Merge survival and environment
-
-```{r}
-heron_Spp_t3 <- heron_Spp |>
-  filter(Census == "t3")
-
-heron_env <- environment |>
-  filter(Reef == "Heron") |>
-  select(-c(Reef1, Device_ID))
-```
+Merge survival and environment
 
 ```{r}
 heron_Spp <- merge(heron_env, heron_Spp, by = c("Reef", "Site", "ReefDev"), all = TRUE)
-heron_Spp_t3 <- merge(heron_env, heron_Spp_t3, by = c("Reef", "Site", "ReefDev"), all = TRUE)
 
-#free up space
-remove(heron_surv, heron_env)
-```
-
-```{r}
-# Remove rows with missing values
-heron_Spp_t3$SurvDev_Spp <- as.numeric(heron_Spp_t3$SurvDev_Spp)
-heron_Spp_t3 <- heron_Spp_t3[complete.cases(heron_Spp_t3$SurvDev_Spp),  ]
-heron_Spp_t3 <- heron_Spp_t3 |> select(-c(sedturf_t5, sedconcrete_t5))
+#subset date for models with Census included - models cannot handle time 0 where everything is alive
+heronSpp_subset <- heron_Spp |> filter(!Census == "t0")
 
 # Remove rows with missing values
 heron_Spp$SurvDev_Spp <- as.numeric(heron_Spp$SurvDev_Spp)
@@ -165,88 +169,23 @@ heron_Spp <- heron_Spp[complete.cases(heron_Spp$SurvDev_Spp),  ]
 heron_Spp <- heron_Spp |> select(-c(sedturf_t5, sedconcrete_t5))
 ```
 
-### GLM
-
-```{r}
-library(lme4)
-heron_Spp_t3$Site <- as.factor(heron_Spp_t3$Site)
-heron_Spp_t3$ReefDev<- as.factor(heron_Spp_t3$ReefDev)
-heron_Spp_t3$Spp<- as.factor(heron_Spp_t3$Spp)
-heron_Spp$Census<-as.factor(heron_Spp$Census)
-
-heronSpp_glmer1<- glmer(SurvDev_Spp ~ (1|Site) + (1|ReefDev), data=heron_Spp_t3, family = binomial(link = "logit"))
-heronSpp_glmer2<- glmer(SurvDev_Spp ~ (1|Site) + (Spp|ReefDev), data=heron_Spp_t3, family = binomial(link = "logit"))
-heronSpp_glmer3<- glmer(SurvDev_Spp ~ Spp + (1|Site) + (1|ReefDev), data=heron_Spp_t3, family = binomial(link = "logit"))
-heronSpp_glmer4<- glmer(SurvDev_Spp ~ Spp + (1|Site) + (Spp|ReefDev), data=heron_Spp_t3, family = binomial(link = "logit"))
-
-heronSpp_glmer5<- glmer(SurvDev_Spp ~ Ub_avrg + (1|Site) + (1|ReefDev), data=heron_Spp_t3, family = binomial(link = "logit"))
-heronSpp_glmer6<- glmer(SurvDev_Spp ~ WaveEnergyLevel + (1|Site) + (1|ReefDev), data=heron_Spp_t3, family = binomial(link = "logit"))
-heronSpp_glmer7<- glmer(SurvDev_Spp ~ median_speed + (1|Site) + (1|ReefDev), data=heron_Spp_t3, family = binomial(link = "logit"))
-heronSpp_glmer8<- glmer(SurvDev_Spp ~ sedturf_t2 + (1|Site) + (1|ReefDev), data=heron_Spp_t3, family = binomial(link = "logit"))
-
-heronSpp_glmer9<- glmer(SurvDev_Spp ~ Spp + (1|Site) + (1|ReefDev) + Census, data=heron_Spp, family = binomial(link = "logit"))
-
-summary(heronSpp_glmer1)
-summary(heronSpp_glmer2)
-summary(heronSpp_glmer3)
-summary(heronSpp_glmer4)
-summary(heronSpp_glmer9)
-AIC(heronSpp_glmer1, heronSpp_glmer2, heronSpp_glmer3, heronSpp_glmer4, heronSpp_glmer5, heronSpp_glmer6, heronSpp_glmer7, heronSpp_glmer8, heronSpp_glmer9)
-```
-
-### Visualize data
-
-```{r}
-ggplot(data=heron_Spp_t3, aes(y = SurvDev_Spp, x = WaveEnergyLevel)) + 
-  geom_point(position = position_jitter(width = 0.2, height = 0)) +
-  facet_wrap(~Spp) + 
-  geom_smooth(method="lm")
-```
-
-```{r}
-ggplot(data=heron_Spp_t3, aes(y = SurvDev_Spp, x = Ub_avrg)) + 
-  geom_point(position = position_jitter(width = 0.2, height = 0)) +
-  facet_wrap(~Spp) + 
-  geom_smooth(method="lm")
-
-ggplot(data=heron_Spp_t3, aes(y = SurvDev_Spp, x = median_speed)) + 
-  geom_point(position = position_jitter(width = 0.2, height = 0)) +
-  facet_wrap(~Spp) + 
-  geom_smooth(method="lm")
-```
-
 # Heron Yield
 
-### Subset data: Heron yield (device level)
+**Subset data: Heron yield (device level)**
 
 ```{r}
-heron_surv_t3 <- survival |> filter (Reef == "Heron",
-                             Census == "t3",
+heron_yield <- survival |> filter (Reef == "Heron",
                              Tab_ID == 1) |>
   select(-c(Tab_ID, SurvTab, Spp))
-
-heron_surv <- survival |> filter (Reef == "Heron",
-                             Tab_ID == 1) |>
-  select(-c(Tab_ID, SurvTab, Spp))
-
-heron_env <- environment |> 
-  filter (Reef == "Heron") |>
-  select(-c(Reef1, Device_ID))
 ```
 
-### Merge survival and environment
+**Merge survival and environment**
 
 ```{r}
-heron_t3 <- merge(heron_env, heron_surv_t3, by = c("Reef", "Site", "ReefDev"), all = TRUE)
-heron<- merge(heron_env, heron_surv, by = c("Reef", "Site", "ReefDev"), all = TRUE)
+heron<- merge(heron_env, heron_yield, by = c("Reef", "Site", "ReefDev"), all = TRUE)
 
 #free up space
-remove(heron_surv, heron_env)
-
-# Remove rows with missing values
-heron_t3$SurvDev <- as.numeric(heron_t3$SurvDev)
-heron_t3 <- heron_t3[complete.cases(heron_t3$SurvDev),  ]
-heron_t3 <- heron_t3 |> select(-c(sedturf_t5, sedconcrete_t5))
+remove(heron_yield, heron_env)
 
 # Remove rows with missing values
 heron$SurvDev <- as.numeric(heron$SurvDev)
@@ -254,9 +193,104 @@ heron <- heron[complete.cases(heron$SurvDev),  ]
 heron <- heron |> select(-c(sedturf_t5, sedconcrete_t5))
 ```
 
-### GLM
+Remove master datasets
+
+```{r}
+remove(environment)
+remove(survival)
+```
+
+# \-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\--
+
+# GLM
+
+**Data Structure:**
+
+-   I now have two datasets: one with species-specific yields (**heron_Spp**) and one with overall device yield ignoring species (**heron**).
+
+-   Including species as a random effect requires using the heron_Spp dataset since the species-specific variability is only captured there.
+
+### **GLM with Species interaction (using heron_Spp_t3)**
+
+```{r}
+# Remove rows with any missing values
+#heron_Spp_t3 <- na.omit(heron_Spp_t3)
+
+heron_Spp_t3 <- heron_Spp |>
+  filter(Census=="t3")
+
+heronSpp_glmer1 <- glmer(SurvDev_Spp ~ Spp + (1|Site), data=heron_Spp_t3, family = binomial(link = "logit"))
+heronSpp_glmer2 <- glmer(SurvDev_Spp ~ Spp + (1|ReefDev), data=heron_Spp_t3, family = binomial(link = "logit"))
+heronSpp_glmer3 <- glmer(SurvDev_Spp ~ Spp + (1|Site) + (1|ReefDev), data=heron_Spp_t3, family = binomial(link = "logit"))
+
+heronSpp_glmer4 <- glmer(SurvDev_Spp ~ (1|Site) + (1|ReefDev/Spp), data=heron_Spp_t3, family = binomial(link = "logit"))
+heronSpp_glmer5 <- glmer(SurvDev_Spp ~ (1|Spp:ReefDev), data=heron_Spp_t3, family = binomial(link = "logit"))
+heronSpp_glmer6 <- glmer(SurvDev_Spp ~ (1|Site) + (1|Spp:ReefDev), data=heron_Spp_t3, family = binomial(link = "logit"))
+heronSpp_glmer7 <- glmer(SurvDev_Spp ~ Spp + (1|Spp:ReefDev), data=heron_Spp_t3, family = binomial(link = "logit"))
+
+AIC(heronSpp_glmer1,heronSpp_glmer2, heronSpp_glmer3, heronSpp_glmer4, heronSpp_glmer5, heronSpp_glmer6, heronSpp_glmer7)
+```
+
+Notes on this: Best model is **heronSpp_glmer5** which is [**(1\|Spp:ReefDev)**]{.underline} and allows for a random intercept for each unique combination species and device. This means that the model assesses how the avarage survival probability differs between species, but also accounts for variability at the device level, under the assumption that the survival response between species might be influenced by specific devices (e.g., survival may vary within different combinations of species and devices). However, the model with species as a fixed effect, **heronSpp_glmer7: Spp + (1\|Spp:ReefDev)**, will also explain how the average survival probability differs between species (e.g., whether one species has a higher or lower survival rate compared to others).
+
+**Update 23/08/2024** - on second thought, going forward with model **heronSpp_glmer3** to include the species effect with random effects: **Spp + (1\|Site) + (1\|ReefDev)**. This model accounts for the fact that each device has two related observations (one for each species). The random effect (1\|ReefDev) addresses the correlation between the paired scores within the same device, accounting for the non-independence of the observations. Additionally, it allows for the influence of species while properly adjusting for site and device-level variability.
+
+```{r}
+heronSpp_glmer8 <- glmer(SurvDev_Spp ~ WaveEnergyLevel + Spp + (1|Site) + (1|ReefDev), data=heron_Spp_t3, family = binomial(link = "logit"))
+heronSpp_glmer9 <- glmer(SurvDev_Spp ~ Ub_avrg + Spp + (1|Site) + (1|ReefDev), data=heron_Spp_t3, family = binomial(link = "logit"))
+heronSpp_glmer10 <- glmer(SurvDev_Spp ~ median_speed + Spp + (1|Site) + (1|ReefDev), data=heron_Spp_t3, family = binomial(link = "logit"))
+heronSpp_glmer11 <- glmer(SurvDev_Spp ~ turf + Spp + (1|Site) + (1|ReefDev), data=heron_Spp_t3, family = binomial(link = "logit"))
+heronSpp_glmer12 <- glmer(SurvDev_Spp ~ concrete + Spp + (1|Site) + (1|ReefDev), data=heron_Spp_t3, family = binomial(link = "logit"))
+heronSpp_glmer13 <- glmer(SurvDev_Spp ~ PC1 + PC2 + Spp + (1|Site) + (1|ReefDev), data=heron_Spp_t3, family = binomial(link = "logit"))
+
+AIC(heronSpp_glmer8, heronSpp_glmer9, heronSpp_glmer10, heronSpp_glmer11, heronSpp_glmer12,heronSpp_glmer13)
+```
+
+### Visualize data
+
+```{r}
+ggplot(data=heron_Spp_t3, aes(y = SurvDev_Spp, x = sedconcrete_t2, color = Spp)) + 
+  geom_point(position = position_jitter(width = 0.2, height = 0)) +
+geom_smooth(method="lm")
+```
+
+```{r}
+ggplot(data=heron_Spp_t3, aes(y = SurvDev_Spp, x = Ub_avrg, color = Spp)) + 
+  geom_point(position = position_jitter(width = 0.001, height = 0)) +
+    geom_smooth(method="lm")
+```
+
+```{r}
+ggplot(data=heron_Spp_t3, aes(y = SurvDev_Spp, x = sedturf_t2, color = Spp)) + 
+  geom_point(position = position_jitter(width = 0.005, height = 0)) +
+  geom_smooth(method="lm")
+```
+
+### GLM with Species and Census
+
+```{r}
+glmer_Census <- glmer(SurvDev_Spp ~ Census + Spp + (1|Site) + (1|ReefDev), data=heronSpp_subset, family = binomial(link = "logit"))
+glmer_Census_interaction <- glmer(SurvDev_Spp ~ Census * Spp + (1|Site) + (1|ReefDev), data=heronSpp_subset, family = binomial(link = "logit")) ## not prefered, convergence issues and dilutes some species effect that is no longer significant but was significant in the model without the interaction term
+
+glmer_Census_wave <- glmer(SurvDev_Spp ~ Census * WaveEnergyLevel + Spp + (1|Site) + (1|ReefDev), data=heronSpp_subset, family = binomial(link = "logit"))
+glmer_Census_wave_interaction <- glmer(SurvDev_Spp ~ Census * WaveEnergyLevel * Spp + (1|Site) + (1|ReefDev), data=heronSpp_subset, family = binomial(link = "logit")) ## 3way interaction not prefered, convergence issues and slightly higher AIC value
+
+glmer_Census_speed <- glmer(SurvDev_Spp ~ Census * median_speed + Spp + (1|Site) + (1|ReefDev), data=heronSpp_subset, family = binomial(link = "logit"))
+glmer_Census_ub <- glmer(SurvDev_Spp ~ Census * Ub_avrg + Spp + (1|Site) + (1|ReefDev), data=heronSpp_subset, family = binomial(link = "logit"))
+glmer_Census_turf <- glmer(SurvDev_Spp ~ Census * turf + Spp + (1|Site) + (1|ReefDev), data=heronSpp_subset, family = binomial(link = "logit"))
+glmer_Census_concrete <- glmer(SurvDev_Spp ~ Census * concrete + Spp + (1|Site) + (1|ReefDev), data=heronSpp_subset, family = binomial(link = "logit"))
+glmer_Census_PCA <- glmer(SurvDev_Spp ~ (Census * PC1) + (Census * PC2) + Spp + (1|Site) + (1|ReefDev), data=heronSpp_subset, family = binomial(link = "logit"))
+
+AIC(glmer_Census, glmer_Census_wave, glmer_Census_ub, glmer_Census_speed, glmer_Census_turf, glmer_Census_concrete, glmer_Census_PCA)
+```
+
+### GLM - Yield
 
 Update 28/05/2024 - removed (1\|ReefDev) - do not need random effect of devices if not treating species
+
+Update 01/08/2024 - changed Spp effect to **(1\|Spp:ReefDev)** to account for variability at the device level, under the assumption that the survival of species might be influenced by specific devices and that species may respond differently to the small spatial scale conditions environment around each device.
+
+Update 23/08/2024 - on second thought, I modified the model to include the species effect with random effects: **Spp + (1\|Site) + (1\|ReefDev)**. This model accounts for the fact that each device has two related observations (one for each species). The random effect (1\|ReefDev) addresses the correlation between the paired scores within the same device, accounting for the non-independence of the observations. Additionally, it allows for the influence of species while properly adjusting for site and device-level variability.
 
 ```{r}
 library(lme4)
@@ -266,125 +300,907 @@ heron_t3$ReefDev<- as.factor(heron_t3$ReefDev)
 heron$Site <- as.factor(heron$Site)
 heron$ReefDev<- as.factor(heron$ReefDev)
 
-heron_glmer1<- glmer(SurvDev ~ (1|Site), data=heron_t3, family = binomial(link = "logit")) #allowing for random intercepts for different sites.
+heron_glmer1 <- glmer(SurvDev ~ (1|Site), data=heron_t3, family = binomial(link = "logit")) #allowing for random intercepts for different sites
+heron_glmer2 <- glmer(SurvDev ~ (1|ReefDev), data=heron_t3, family = binomial(link = "logit"))
+heron_glmer3 <- glmer(SurvDev ~ (1|Site) + (1|ReefDev), data=heron_t3, family = binomial(link = "logit")) #allowing for random intercepts but not random slopes --> accounting for potential variability in survival beteeen different sites and devices, but assuming that the effect of device on  survival is constant across different sites.
 
-heron_glmer2<- glmer(SurvDev ~ (1|Site) + (1|ReefDev), data=heron_t3, family = binomial(link = "logit")) #allowing for random intercepts but not random slopes --> accounting for potential variability in survival beteeen different sites and devices, but assuming that the effect of device on  survival is constant across different sites.
-
-heron_glmer3<- glmer(SurvDev ~ (1|Site) + Census, data=heron, family = binomial(link = "logit")) #include Census
+heronSpp_glmer7a <- glmer(SurvDev_Spp ~ (1|Spp:ReefDev), data=heron_Spp_t3, family = binomial(link = "logit"))
 
 heron_glmer4<- glmer(SurvDev ~ Ub_avrg + (1|Site), data=heron_t3, family = binomial(link = "logit")) 
 heron_glmer5<- glmer(SurvDev ~ WaveEnergyLevel + (1|Site), data=heron_t3, family = binomial(link = "logit")) 
 heron_glmer6<- glmer(SurvDev ~ median_speed + (1|Site), data=heron_t3, family = binomial(link = "logit")) 
 heron_glmer7<- glmer(SurvDev ~ sedturf_t2 + (1|Site), data=heron_t3, family = binomial(link = "logit")) 
+heron_glmer8<- glmer(SurvDev ~ sedconcrete_t2 + (1|Site), data=heron_t3, family = binomial(link = "logit"))
 
-summary(heron_glmer1)
-summary(heron_glmer2)
-summary(heron_glmer3)
-summary(heron_glmer4)
-summary(heron_glmer5)
-summary(heron_glmer6)
-summary(heron_glmer7)
+AIC(heron_glmer1, heron_glmer2, heron_glmer3, heron_glmer4, heron_glmer5,heron_glmer6,heron_glmer7, heron_glmer8)
 
-AIC(heronSpp_glmer3, heronSpp_glmer4, heron_glmer1, heron_glmer2, heron_glmer3, heron_glmer4, heron_glmer5,heron_glmer6,heron_glmer7)
+AIC(heronSpp_glmer8, heronSpp_glmer9, heronSpp_glmer10, heronSpp_glmer11, heronSpp_glmer12,heronSpp_glmer13)
 ```
 
-OUTPUT: Census time adds more complexity and explains less variatin. Without census, all models behave very similar and are better than a model with species in it
+**OUTPUT:** Census time adds more complexity and explains less variation. Without census, all models behave very similar and are better than a model with species in it. **UPDATE:** models with **(1\|Spp:ReefDev)** are better than those without species in it, except for turf, concrete and PC1/PC2.
+
+```{r}
+heron_glm_Ub<- glmer(SurvDev ~ Ub_avrg + (1|Site), data=heron_t3, family = binomial(link = "logit")) 
+heron_glm_Ub_Spp <- glmer(SurvDev_Spp ~ Ub_avrg + (1|Spp:ReefDev), data=heron_Spp_t3_complete, family = binomial(link = "logit"))
+
+heron_glm_wave<- glmer(SurvDev ~ WaveEnergyLevel + (1|Site), data=heron_t3, family = binomial(link = "logit")) 
+heron_glm_wave_Spp <- glmer(SurvDev_Spp ~ WaveEnergyLevel + (1|Spp:ReefDev), data=heron_Spp_t3_complete, family = binomial(link = "logit"))
+
+heron_glm_speed <- glmer(SurvDev ~ median_speed + (1|Site), data=heron_t3, family = binomial(link = "logit"))
+heron_glm_speed_Spp <- glmer(SurvDev_Spp ~ median_speed +  (1|Spp:ReefDev), data=heron_Spp_t3_complete, family = binomial(link = "logit"))
+
+heron_glmer_turf<- glmer(SurvDev ~ sedturf_t2 + (1|Site), data=heron_t3, family = binomial(link = "logit"))
+heron_glm_turf <- glm(SurvDev ~ sedturf_t2, data=heron_t3, family = binomial(link = "logit"))
+heron_glm_turf_Spp <- glmer(SurvDev_Spp ~ sedturf_t2 +  (1|Spp:ReefDev), data=heron_Spp_t3_complete, family = binomial(link = "logit"))
+
+heron_glm_concrete <- glmer(SurvDev ~ sedconcrete_t2 + (1|Site), data=heron_t3, family = binomial(link = "logit"))
+heron_glm_concrete_Spp <- glmer(SurvDev_Spp ~ sedconcrete_t2 +  (1|Spp:ReefDev), data=heron_Spp_t3_complete, family = binomial(link = "logit"))
+
+heron_glm_PCA <- glmer(SurvDev ~ PC1 + PC2 + (1|Site), data=heron_t3, family = binomial(link = "logit"))
+heron_glm_PC1PC2 <- glm(SurvDev ~ PC1 + PC2, data=heron_t3, family = binomial(link = "logit"))
+heron_glm_PCA_Spp <- glmer(SurvDev_Spp ~ PC1 + PC2 + (1|Spp:ReefDev), data=heron_Spp_t3_complete, family = binomial(link = "logit"))
+
+interaction_model <- glmer(SurvDev_Spp ~ PC1 * Spp + PC2 * Spp + (1 | ReefDev), 
+                           data = heron_Spp_t3_complete, 
+                           family = binomial(link = "logit"))
+
+AIC(heron_glm_Ub, heron_glm_Ub_Spp)
+AIC(heron_glm_wave, heron_glm_wave_Spp)
+AIC(heron_glm_speed, heron_glm_speed_Spp)
+AIC(heron_glmer_turf, heron_glm_turf, heron_glm_turf_Spp)
+AIC(heron_glm_concrete, heron_glm_concrete_Spp)
+AIC(heron_glm_PCA, heron_glm_PC1PC2, heron_glm_PCA_Spp, interaction_model)
+```
+
+Conclusion: not sure....
+
+```{r}
+library(sjPlot)
+
+summary(heron_glm_PCA_Spp)  ## with species as a random effect nested within device
+plot_model(heron_glm_PCA_Spp, type = "re", show.values = TRUE)
+tab_model(heron_glm_PCA_Spp)
+```
+
+OUTPUT: minimal variance is attributed to the random effects in this model. This is supported by the T00 value (which is the variance of random intercepts) being 0 and the fact that the marginal R2 is 0.026 while the conditional R2 is not available.
+
+The random effects plot shows all the variance concentrated around 1, indicating very low or negligible variance between groups (Spp). The T00 value of 0.00 further confirms this negligible varaince. The random effect component (o2) is 3.29, but since T00 is 0, the overall contribution of the random effect to th varariance is minimal.
+
+Marginal R2: 0.026 - only 2.6% of the varaince is explained by the fixed effects (PC1 and PC2)
+
+Conditional R2: NA - not available likely due to the negligible varaince from the random effects.
+
+```{r}
+library(sjPlot)
+
+summary(heron_glm_PCA )  ## only site as a random effect
+plot_model(heron_glm_PCA, type = "re", show.values = TRUE)
+tab_model(heron_glm_PCA)
+
+summary(heron_glm_PC1PC2 )  ## no random effects
+plot_model(heron_glm_PC1PC2, type = "est", show.values = TRUE, show.p = TRUE)
+tab_model(heron_glm_PC1PC2)
+```
+
+Conclusion from this:
+
+-   The simpler model (GLM without random effects) has shown similar results to the model with Site as a random effect, indicating that the random effect of Site contributes negligible variance.
+
+-   The fixed effect of PC1 remains significant and has a strong impact on the response variable in both models. PC2 is not significant in either model.
+
+Moving forward: decide to **keep Site as a Random Effect** despite negligible statistical contribution. Keeping Site as a random effect is justified for consistency and to account for potential site-specific variations that might not be captured in the current dataset.
 
 ### Visualize data
 
-**median_speed**
-
 ```{r}
-ggplot(data=heron_t3, aes(y = SurvDev, x = median_speed)) + 
+#with facetwrap by Census time
+ggplot(data=heronSpp_subset, aes(y = SurvDev_Spp, x = concrete,colour = Spp)) + 
   geom_point(position = position_jitter(width = 0.2, height = 0)) +
-  geom_smooth(method="lm")
-
-ggplot(data=heron_t3, aes(y = SurvDev, x = median_speed)) + 
-  geom_point(position = position_jitter(width = 0.2, height = 0)) +
-  geom_smooth(method="lm", formula = y~poly(x,3), se = FALSE)
-
-#with facetwrap by site
-ggplot(data=heron_t3, aes(y = SurvDev, x = median_speed)) + 
-  geom_point(position = position_jitter(width = 0.2, height = 0)) +
-  facet_wrap(~Site) +
-  geom_smooth(method="lm")
-```
-
-Wave Energy Level
-
-```{r}
-ggplot(data=heron_t3, aes(y = SurvDev, x = WaveEnergyLevel)) + 
-  geom_point(position = position_jitter(width = 0.2, height = 0)) +
-  geom_smooth(method="lm")
-
-ggplot(data=heron_t3, aes(y = SurvDev, x = WaveEnergyLevel)) + 
-  geom_point(position = position_jitter(width = 0.2, height = 0)) +
-  geom_smooth(method="lm", formula = y~poly(x,3), se = FALSE)
-
-#with facetwrap by site
-ggplot(data=heron_t3, aes(y = SurvDev, x = WaveEnergyLevel)) + 
-  geom_point(position = position_jitter(width = 0.2, height = 0)) +
-  facet_wrap(~Site) +
+  facet_wrap(~Census) +
   geom_smooth(method="lm")
 ```
 
 ```{r}
-Heron_current <- ggplot(heron_t2, aes(x = median_speed, y = SurvDev)) +
+#with facetwrap by Census time
+ggplot(data=heronSpp_subset, aes(y = SurvDev_Spp, x = median_speed,colour = Spp)) + 
   geom_point(position = position_jitter(width = 0.2, height = 0)) +
-  geom_smooth(method="lm") +
-  labs(title = "Heron Reef",
-       x = "In-situ current - median speed (m/s)",
-       y = "% Survival (yield)") +
-  theme_bw() +
-  ylim(0,1) +
-  theme(panel.border = element_rect(color = "black", fill = NA),
-        axis.line = element_line(color = "black"),
-        axis.text = element_text(size = 12),
-        axis.title = element_text(size = 14)) 
-
-Heron_current
-
-ggsave("Heron - Survival final census current - yield.png", plot=Heron_current, width = 4, height = 6, dpi = 600)
+  facet_wrap(~Census) +
+  geom_smooth(method="lm")
 ```
+
+```{r}
+#with facetwrap by Census time
+ggplot(data=heronSpp_subset, aes(y = SurvDev_Spp, x = turf,colour = Spp)) + 
+  geom_point(position = position_jitter(width = 0.2, height = 0)) +
+  facet_wrap(~Census) +
+  geom_smooth(method="lm")
+```
+
+# \-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\--
 
 # Brm
 
-We need to make sure that the categorical variables and the random effects are defined as factors:
+##### Census
 
 ```{r}
-heron_t3 <- heron_t3 |> mutate(Site = factor(Site),
-                               ReefDev = factor(ReefDev))
+heron_form_census_complex <- bf(SurvDev_Spp ~ Spp + Census + (1|Site) + (Spp|ReefDev), family = bernoulli(link='logit'))
+
+priors_census <- 
+  prior(normal(0, 1.5), class = "Intercept") +   # Slightly tighter intercept
+  prior(normal(0, 2), class = "b") +             # Narrower prior on slopes
+  prior(student_t(3, 0, 1), class = 'sd')        # Slightly narrower random effect prior
+
+
+heron_brm_census_complex <- brm(heron_form_census_complex,
+                 data=heronSpp_subset,
+                 prior = priors_census,
+                 sample_prior = 'yes',
+                 iter = 5000,
+                 warmup = 1000,
+                 chains = 3, cores = 3,
+                 thin = 5,
+                 refresh = 0,
+                 control = list(adapt_delta = 0.99),
+                backend = "rstan")
+
+posterior_summary(heron_brm_census_complex)
+
+# To save the model use >> 
+#save(heron_brm_census_complex, file = "scripts/models/heron/heron_brm_census_complex.RData")
 ```
 
-### Formulas
-
-Logistic mixed-effects regression model with random intercepts for Site:
+Census simpler - (1\|reefdev) instead of (Spp\|ReefDev) which gives 70 high pareto valules!
 
 ```{r}
-heron_form <- bf(SurvDev ~ (1|Site), family = bernoulli(link='logit'))
-heron_form_Spp_dev <- bf(SurvDev_Spp ~ Census * Spp + (1|Site) + (1|ReefDev), family = bernoulli(link='logit'))
+# Simpler model without random slope for Spp
+heron_form_census_simple <- bf(SurvDev_Spp ~ Spp + Census + (1|Site) + (1|ReefDev), family = bernoulli(link='logit'))
 
-heron_form_Spp<- bf(SurvDev_Spp ~ Census * Spp + (1|Site) + (Spp|ReefDev), family = bernoulli(link = "logit"))
+priors_census <- 
+  prior(normal(0, 1.5), class = "Intercept") +   # Slightly tighter intercept
+  prior(normal(0, 2), class = "b") +             # Narrower prior on slopes
+  prior(student_t(3, 0, 1), class = 'sd')        # Slightly narrower random effect prior
 
-heron_form_speed <- bf(SurvDev ~ median_speed + (1|Site), family = bernoulli(link='logit'))
-heron_form_Ub <-    bf(SurvDev ~ Ub_avrg + (1|Site), family = bernoulli(link='logit'))
-heron_form_turf <-   bf(SurvDev ~ sedturf_t2 + (1|Site), family = bernoulli(link='logit'))
-heron_form_concrete <-bf(SurvDev ~ sedconcrete_t2 +(1|Site), family = bernoulli(link='logit'))
-heron_form_Wave <-  bf(SurvDev ~ WaveEnergyLevel + (1|Site), family = bernoulli(link='logit'))
-heron_form_PC <-   bf(SurvDev ~ PC1 + PC2 + (1|Site), family = bernoulli(link='logit'))
+heron_brm_census_simple <- brm(
+  heron_form_census_simple,
+  data = heronSpp_subset,
+  prior = priors_census,
+  sample_prior = 'yes',
+  iter = 5000,
+  warmup = 1000,
+  chains = 3,
+  cores = 3,
+  thin = 5,
+  refresh = 0,
+  control = list(adapt_delta = 0.99),
+  backend = "rstan"
+)
+
+
+# To save the model use >> 
+#save(heron_brm_census_simple, file = "scripts/models/heron/heron_brm_census_simple.RData")
 ```
-
-Now with polynomial terms:
 
 ```{r}
-heron_form_speed_poly <- bf(SurvDev ~ poly(median_speed,3) +(1|Site), family = bernoulli(link='logit'))
-heron_form_Ub_poly <-    bf(SurvDev ~ poly(Ub_avrg,3) +(1|Site), family = bernoulli(link='logit'))
-heron_form_turf_poly <-   bf(SurvDev ~ poly(sedturf_t2,3) +(1|Site), family = bernoulli(link='logit'))
-heron_form_Wave_poly <-  bf(SurvDev ~ poly(WaveEnergyLevel,3) +(1|Site), family = bernoulli(link='logit'))
-heron_form_PC_poly <-   bf(SurvDev ~ poly(PC1,3) + poly(PC2,3) +(1|Site), family = bernoulli(link='logit'))
+# Simpler model without random slope for Spp but with interaction
+heron_form_census_interaction <- bf(SurvDev_Spp ~ Spp * Census + (1|Site) + (1|ReefDev), family = bernoulli(link='logit'))
+
+priors_census <- c(
+  # Weakly informative prior for intercept
+  prior(normal(0, 2), class = "Intercept"),
+  # Informative priors for species effect and census time based on current estimates
+  prior(normal(0, 0.5), class = "b", coef = "SppA.kenti"),
+  prior(normal(-2.5, 0.5), class = "b", coef = "Censust2"),
+  prior(normal(-4.4, 0.5), class = "b", coef = "Censust3"),
+  # Weakly informative priors for standard deviations of random effects
+  prior(cauchy(0, 1), class = "sd", group = "ReefDev"),
+  prior(cauchy(0, 1), class = "sd", group = "Site")
+)
+
+
+heron_brm_census_interaction <- brm(
+  heron_form_census_interaction,
+  data = heronSpp_subset,
+  prior = priors_census,
+  sample_prior = 'yes',
+  iter = 5000,
+  warmup = 1000,
+  chains = 3,
+  cores = 3,
+  thin = 5,
+  refresh = 0,
+  control = list(adapt_delta = 0.99),
+  backend = "rstan"
+)
+
+# To save the model use >> 
+#save(heron_brm_census_interaction, file = "scripts/models/heron/heron_brm_census_interaction.RData")
 ```
 
-### Priors
+Notes on this:
+
+**heron_brm_census_site (no random factor for Device)**
+
+SurvDev_Spp \~ Spp + Census + (1 \| Site)
+
+LOOIC: **1528.65** \[40.61\]    ELPD: -764.33 \[20.30\]
+
+**heron_brm_census_simpler:**
+
+SurvDev_Spp \~ Spp + Census + (1\|Site) **+** **(1\|ReefDev)**
+
+ LOOIC: **1443.25** \[40.85\]    ELPD: -721.63 \[20.42\]
+
+**heron_brm_census**
+
+SurvDev_Spp \~ Spp + Census + (1\|Site) **+** **(Spp\|ReefDev)**
+
+LOOIC: **1190.41** \[36.50\]   ELPD: -595.20 \[18.25\]
+
+Warning message:
+
+Found 77 observations with a pareto_k \> 0.7 in model 'model'. It is recommended to set 'moment_match = TRUE' in order to perform moment matching for problematic observations.
+
+Model with random slope for species (Spp\|ReefDev) is the best but adds complexity that the model cannot handle and therefore increases the potential for influential datapoints. Key Issues: **77 observations with Pareto** \> 0.7: This is quite a large number, and cannot use moment matching due to R crashing. Next, **complexity introduced by `(Spp | ReefDev)`:** This random effect might be capturing a lot of variability within the data at the species level, leading to unstable estimates for some observations.
+
+Moving forward with simpler model despite increased LOOIC value, as reliability and interpretability are key priorities for the analysis.
+
+##### Wave
+
+```{r}
+heron_form_wave_simple <-  bf(SurvDev_Spp ~ WaveEnergyLevel + Spp + Census + (1|Site) + (1|ReefDev), family = bernoulli(link='logit'))
+
+priors_wave <- 
+  prior(normal(0, 1), class = "Intercept") +                         # Intercept
+  prior(normal(0, 0.25), class = "b", coef = "WaveEnergyLevel") +     # WaveEnergyLevel
+  prior(normal(0, 0.5), class = "b", coef = "SppA.kenti") +           # Species effect
+  prior(normal(-2, 0.4), class = "b", coef = "Censust2") +            # Censust2
+  prior(normal(-4, 0.4), class = "b", coef = "Censust3") +            # Censust3
+  prior(student_t(3, 0, 0.8), class = "sd", group = "Site") +         # Random effect for Site
+  prior(student_t(3, 0, 0.8), class = "sd", group = "ReefDev")       # Random effect for ReefDev
+  
+heron_brm_wave_simple <- brm(heron_form_wave_simple,
+                 data=heronSpp_subset,
+                 prior = priors_wave,
+                 sample_prior = 'yes',
+                 iter = 5000,
+                 warmup = 1000,
+                 chains = 3, cores = 3,
+                 thin = 5,
+                 refresh = 0,
+                 control = list(adapt_delta = 0.99),
+                backend = "rstan")
+
+posterior_summary(heron_brm_wave_simple)
+heron_brm_wave_simple |> conditional_effects() |> plot(points = TRUE)
+
+# To save the model use >>
+#setwd("C:/Users/sjurriaa/Australian Institute of Marine Science/Carly Randall - Randall Lab/CAD/CAD Year1/")
+#save(heron_brm_wave_simple, file = "scripts/models/heron/heron_brm_wave_simple.RData")
+```
+
+```{r}
+heron_form_wave_compex <-  bf(SurvDev_Spp ~ WaveEnergyLevel * Spp + Census + (1|Site) + (Spp|ReefDev), family = bernoulli(link='logit'))
+
+priors_wave <- 
+  prior(normal(0, 1), class = "Intercept") +                         # Intercept
+  prior(normal(0, 0.25), class = "b", coef = "WaveEnergyLevel") +     # WaveEnergyLevel
+  prior(normal(0, 0.5), class = "b", coef = "SppA.kenti") +           # Species effect
+  prior(normal(-2, 0.4), class = "b", coef = "Censust2") +            # Censust2
+  prior(normal(-4, 0.4), class = "b", coef = "Censust3") +            # Censust3
+  prior(normal(0, 0.25), class = "b", coef = "WaveEnergyLevel:SppA.kenti") +  # Interaction between WaveEnergyLevel and Species
+  prior(student_t(3, 0, 0.8), class = "sd", group = "Site") +         # Random effect for Site
+  prior(student_t(3, 0, 0.8), class = "sd", group = "ReefDev")       # Random effect for ReefDev
+  
+
+heron_brm_wave_complex <- brm(heron_form_wave_compex,
+                 data=heronSpp_subset,
+                 prior = priors_wave,
+                 sample_prior = 'yes',
+                 iter = 5000,
+                 warmup = 1000,
+                 chains = 3, cores = 3,
+                 thin = 5,
+                 refresh = 0,
+                 control = list(adapt_delta = 0.99),
+                backend = "rstan")
+
+posterior_summary(heron_brm_wave_complex)
+
+# To save the model use >>
+#setwd("C:/Users/sjurriaa/Australian Institute of Marine Science/Carly Randall - Randall Lab/CAD/CAD Year1/")
+#save(heron_brm_wave_complex, file = "scripts/models/heron/heron_brm_wave_complex.RData")
+```
+
+```{r}
+heron_form_wave_3wayinteraction <-  bf(SurvDev_Spp ~ WaveEnergyLevel * Spp * Census + (1|Site) + (1|ReefDev), family = bernoulli(link='logit'))
+
+priors_wave_3way <- c(
+  prior(normal(0, 2), class = "Intercept"),
+  prior(normal(0, 1), class = "b", coef = "WaveEnergyLevel"),
+  prior(normal(0, 1), class = "b", coef = "SppA.kenti"),
+  prior(normal(0, 1), class = "b", coef = "Censust2"),
+  prior(normal(0, 1), class = "b", coef = "Censust3"),
+  prior(normal(0, 1), class = "b", coef = "WaveEnergyLevel:SppA.kenti"),
+  prior(normal(0, 1), class = "b", coef = "WaveEnergyLevel:Censust2"),
+  prior(normal(0, 1), class = "b", coef = "WaveEnergyLevel:Censust3"),
+  prior(normal(0, 1), class = "b", coef = "SppA.kenti:Censust2"),
+  prior(normal(0, 1), class = "b", coef = "SppA.kenti:Censust3"),
+  prior(normal(0, 1), class = "b", coef = "WaveEnergyLevel:SppA.kenti:Censust2"),
+  prior(normal(0, 1), class = "b", coef = "WaveEnergyLevel:SppA.kenti:Censust3"),
+  prior(exponential(1), class = "sd", group = "Site"),
+  prior(exponential(1), class = "sd", group = "ReefDev")
+)
+
+priors_wave_3way_updated <- c(
+  prior(normal(0, 1.5), class = "Intercept"),
+  prior(normal(0, 0.5), class = "b", coef = "WaveEnergyLevel"),
+  prior(normal(0, 0.5), class = "b", coef = "SppA.kenti"),
+  prior(normal(-2, 1), class = "b", coef = "Censust2"),
+  prior(normal(-3, 1), class = "b", coef = "Censust3"),
+  prior(normal(0, 0.5), class = "b", coef = "WaveEnergyLevel:SppA.kenti"),
+  prior(normal(0, 0.5), class = "b", coef = "WaveEnergyLevel:Censust2"),
+  prior(normal(0, 0.5), class = "b", coef = "WaveEnergyLevel:Censust3"),
+  prior(normal(0, 0.5), class = "b", coef = "SppA.kenti:Censust2"),
+  prior(normal(0, 0.5), class = "b", coef = "SppA.kenti:Censust3"),
+  prior(normal(0, 0.5), class = "b", coef = "WaveEnergyLevel:SppA.kenti:Censust2"),
+  prior(normal(0, 0.5), class = "b", coef = "WaveEnergyLevel:SppA.kenti:Censust3"),
+  prior(exponential(2), class = "sd", group = "Site"),
+  prior(exponential(2), class = "sd", group = "ReefDev")
+)
+
+heron_brm_wave_3wayinteraction_v1 <- brm(heron_form_wave_3wayinteraction,
+                 data=heronSpp_subset,
+                 prior = priors_wave_3way_updated,
+                 sample_prior = 'yes',
+                 iter = 5000,
+                 warmup = 1000,
+                 chains = 3, cores = 3,
+                 thin = 5,
+                 refresh = 0,
+                 control = list(adapt_delta = 0.99),
+                backend = "rstan")
+
+posterior_summary(heron_brm_wave_3wayinteraction_v1)
+
+# To save the model use >>
+#setwd("C:/Users/sjurriaa/Australian Institute of Marine Science/Carly Randall - Randall Lab/CAD/CAD Year1/")
+#save(heron_brm_wave_3wayinteraction_v1, file = "scripts/models/heron/heron_brm_wave_3wayinteraction_v1.RData")
+```
+
+Trying things out:
+
+```{r}
+# List of models
+models <- list(heron_brm_wave_simple, heron_brm_wave_complex)
+
+# Loop through and print the formula for each model
+for (i in 1:length(models)) {
+  cat("Model", i, "formula:\n", as.character(formula(models[[i]])), "\n\n")
+}
+
+looic(heron_brm_wave_simple)
+looic(heron_brm_wave_complex)
+
+##DON'T RUN MOMENT_MATCH CODE BECAUSE IT CRASHES R!
+##loo_result <- loo(heron_brm_wave_complex, moment_match = TRUE)
+
+loo_result <- loo(heron_brm_wave_complex)
+print(loo_result)
+
+# Extract the problematic observations
+high_pareto_k <- which(loo_result$diagnostics$pareto_k > 0.7)
+
+# Exclude those observations and refit the model
+cleaned_data <- heronSpp_subset[-high_pareto_k, ]
+
+# Refit your model
+heron_brm_wave_interaction_clean <- brm(
+  SurvDev_Spp ~ WaveEnergyLevel * Spp + Census + (1|Site) + (Spp|ReefDev),
+  data = cleaned_data,
+  prior = priors_wave,
+  family = bernoulli(link = 'logit')
+)
+
+l_brm_wave_interaction_clean <- loo(heron_brm_wave_interaction_clean)
+print(l_brm_wave_interaction_clean)
+```
+
+##### Ub
+
+```{r}
+heron_form_ub_simple<- bf(SurvDev_Spp ~ Ub_avrg * Spp + Census + (1|Site) + (1|ReefDev), family = bernoulli(link = "logit"))
+
+priors_ub <- prior(normal(0, 1.7), class = "Intercept") +
+    prior(student_t(3, 0, 1.5), class = 'sd')
+
+priors_ub_updated <- c(
+  prior(normal(2, 0.5), class = "Intercept"),
+  prior(normal(0, 0.5), class = "b", coef = "Ub_avrg"),
+  prior(normal(0, 1), class = "b", coef = "SppA.kenti"),
+  prior(normal(-2.5, 0.5), class = "b", coef = "Censust2"),
+  prior(normal(-4, 0.5), class = "b", coef = "Censust3"),
+  prior(normal(1, 0.5), class = "b", coef = "Ub_avrg:SppA.kenti"),
+  prior(student_t(3, 0, 1), class = "sd", group = "ReefDev"),
+  prior(student_t(3, 0, 1), class = "sd", group = "Site")
+)
+
+heron_brm_ub_simple<- brm(heron_form_ub_simple,
+                 data=heronSpp_subset,
+                 prior = priors_ub_updated,
+                 sample_prior = 'yes',
+                 iter = 8000,
+                 warmup = 2000,
+                 chains = 3, cores = 3,
+                 thin = 5,
+                 refresh = 0,
+                 control = list(adapt_delta = 0.9),
+                backend = "rstan")
+
+posterior_summary(heron_brm_ub_simple)
+
+
+#save the model
+#setwd("C:/Users/sjurriaa/Australian Institute of Marine Science/Carly Randall - Randall Lab/CAD/CAD Year1/")
+#save(heron_brm_ub_simple, file = "scripts/models/heron/heron_brm_ub_simple.RData")
+```
+
+```{r}
+heron_form_ub_complex<- bf(SurvDev_Spp ~ Ub_avrg * Spp + Census + (1|Site) + (Spp|ReefDev), family = bernoulli(link = "logit"))
+
+priors_ub <- prior(normal(0, 1.7), class = "Intercept") +
+    prior(student_t(3, 0, 1.5), class = 'sd')
+
+heron_brm_ub_complex<- brm(heron_form_ub_complex,
+                 data=heronSpp_subset,
+                 prior = priors_ub,
+                 sample_prior = 'yes',
+                 iter = 8000,
+                 warmup = 2000,
+                 chains = 3, cores = 3,
+                 thin = 5,
+                 refresh = 0,
+                 control = list(adapt_delta = 0.9),
+                backend = "rstan")
+
+
+#save the model
+#setwd("C:/Users/sjurriaa/Australian Institute of Marine Science/Carly Randall - Randall Lab/CAD/CAD Year1/")
+#save(heron_brm_ub_complex, file = "scripts/models/heron/heron_brm_ub_complex.RData")
+```
+
+```{r}
+heron_form_ub_interaction<- bf(SurvDev_Spp ~ Ub_avrg * Spp * Census + (1|Site) + (1|ReefDev), family = bernoulli(link = "logit"))
+
+priors_ub_interaction <- prior(normal(0, 1.7), class = "Intercept") +
+    prior(student_t(3, 0, 1.5), class = 'sd')
+
+priors_ub <- c(
+  prior(normal(2, 0.5), class = "Intercept"),
+  prior(normal(0, 0.5), class = "b", coef = "Ub_avrg"),
+  prior(normal(0, 1), class = "b", coef = "SppA.kenti"),
+  prior(normal(-2.5, 0.5), class = "b", coef = "Censust2"),
+  prior(normal(-4, 0.5), class = "b", coef = "Censust3"),
+  prior(normal(1, 0.5), class = "b", coef = "Ub_avrg:SppA.kenti"),
+  prior(student_t(3, 0, 1), class = "sd", group = "ReefDev"),
+  prior(student_t(3, 0, 1), class = "sd", group = "Site")
+)
+
+heron_brm_ub_interaction <- brm(heron_form_ub_interaction,
+                 data=heronSpp_subset,
+                 prior = priors_ub,
+                 sample_prior = 'yes',
+                 iter = 8000,
+                 warmup = 2000,
+                 chains = 3, cores = 3,
+                 thin = 5,
+                 refresh = 0,
+                 control = list(adapt_delta = 0.9),
+                backend = "rstan")
+
+posterior_summary(heron_brm_ub_interaction)
+
+
+#save the model
+#setwd("C:/Users/sjurriaa/Australian Institute of Marine Science/Carly Randall - Randall Lab/CAD/CAD Year1/")
+#save(heron_brm_ub_interaction, file = "scripts/models/heron/heron_brm_ub_interaction.RData")
+```
+
+```{r}
+#loo 
+l_heron_ub_simple <- loo(heron_brm_ub_simple)
+l_heron_ub_complex <- loo(heron_brm_ub_complex)
+l_heron_ub_interaction <- loo(heron_brm_ub_interaction)
+
+print(l_heron_ub_simple)
+print(l_heron_ub_complex)
+## complex model only 35% good values!
+print(l_heron_ub_interaction)
+
+#pp check
+heron_brm_ub_simple |> pp_check(type = 'dens_overlay', ndraws = 100)
+heron_brm_ub_complex |> pp_check(type = 'dens_overlay', ndraws = 100)
+heron_brm_ub_interaction |> pp_check(type = 'dens_overlay', ndraws = 100)
+```
+
+##### speed interaction
+
+```{r}
+heron_form_speed_simple<- bf(SurvDev_Spp ~ median_speed * Spp + Census + (1|Site) + (1|ReefDev), family = bernoulli(link = "logit"))
+
+priors_speed<- prior(normal(0, 1.7), class = "Intercept") +
+    prior(student_t(3, 0, 1.5), class = 'sd')
+
+# Define updated priors
+priors_speed_updated <- c(
+  # Intercept prior - expecting positive survival baseline
+  prior(normal(1.5, 0.5), class = "Intercept"),
+  
+  # Prior for the median_speed coefficient - centered at 0 with some regularization
+  prior(normal(0, 1), class = "b", coef = "median_speed"),
+  
+  # Prior for the SppA.kenti effect - regularizing around 0
+  prior(normal(0, 0.5), class = "b", coef = "SppA.kenti"),
+  
+  # Prior for the Census effects - more informative based on expected values
+  prior(normal(-2.5, 0.3), class = "b", coef = "Censust2"),
+  prior(normal(-4, 0.3), class = "b", coef = "Censust3"),
+  
+  # Prior for the interaction between median_speed and SppA.kenti - some regularization
+  prior(normal(0, 1), class = "b", coef = "median_speed:SppA.kenti"),
+  
+  # Group-level standard deviations - regularizing for ReefDev and Site
+  prior(exponential(1), class = "sd", group = "ReefDev"),
+  prior(exponential(1), class = "sd", group = "Site")
+)
+
+# Define updated priors
+priors_speed_updated_v1 <- c(
+  # Intercept prior - expecting positive survival baseline, centered around 2.0 (from posterior)
+  prior(normal(2.0, 0.4), class = "Intercept"),
+  
+  # Prior for median_speed coefficient - expecting a small positive or negative effect, centered around 0
+  prior(normal(0, 0.8), class = "b", coef = "median_speed"),
+  
+  # Prior for SppA.kenti effect - still expecting a small effect, tighter prior
+  prior(normal(0, 0.3), class = "b", coef = "SppA.kenti"),
+  
+  # Priors for Census effects - based on posterior, stronger negative effect
+  prior(normal(-2.5, 0.2), class = "b", coef = "Censust2"),
+  prior(normal(-4.0, 0.2), class = "b", coef = "Censust3"),
+  
+  # Prior for interaction between median_speed and SppA.kenti - expecting a small effect
+  prior(normal(0, 0.5), class = "b", coef = "median_speed:SppA.kenti"),
+  
+  # Group-level standard deviations - regularization with exponential prior
+  prior(exponential(0.8), class = "sd", group = "ReefDev"),
+  prior(exponential(0.8), class = "sd", group = "Site")
+)
+
+heron_brm_speed_simple<- brm(heron_form_speed_simple,
+                 data=heronSpp_subset,
+                 prior = priors_speed_updated_v1,
+                 sample_prior = 'yes',
+                 iter = 8000,
+                 warmup = 2000,
+                 chains = 3, cores = 3,
+                 thin = 5,
+                 refresh = 0,
+                 control = list(adapt_delta = 0.9),
+                backend = "rstan")
+
+posterior_summary(heron_brm_speed_simple)
+
+
+#save the model
+#setwd("C:/Users/sjurriaa/Australian Institute of Marine Science/Carly Randall - Randall Lab/CAD/CAD Year1/")
+#save(heron_brm_speed_simple, file = "scripts/models/heron/heron_brm_speed_simple.RData")
+```
+
+```{r}
+heron_form_speed_interaction <- bf(SurvDev_Spp ~ median_speed * Spp * Census + (1|Site) + (1|ReefDev), family = bernoulli(link = "logit"))
+
+priors_speed <- prior(normal(0, 1.7), class = "Intercept") +
+    prior(student_t(3, 0, 1.5), class = 'sd')
+
+priors_speed_updated <- prior(normal(0, 1), class = "Intercept") +
+  prior(normal(0, 1), class = "b") +
+  prior(student_t(3, 0, 1), class = "sd", group = "Site") +
+  prior(student_t(3, 0, 1), class = "sd", group = "ReefDev") +
+  prior(student_t(3, 0, 1), class = "b", coef = "median_speed:SppA.kenti:Censust2") +
+  prior(student_t(3, 0, 1), class = "b", coef = "median_speed:SppA.kenti:Censust3")
+
+
+heron_brm_speed_interaction <- brm(heron_form_speed_interaction,
+                 data=heronSpp_subset,
+                 prior = priors_speed_updated,
+                 sample_prior = 'yes',
+                 iter = 8000,
+                 warmup = 2000,
+                 chains = 3, cores = 3,
+                 thin = 5,
+                 refresh = 0,
+                 control = list(adapt_delta = 0.9),
+                backend = "rstan")
+
+posterior_summary(heron_brm_speed_interaction)
+
+#save the model
+#setwd("C:/Users/sjurriaa/Australian Institute of Marine Science/Carly Randall - Randall Lab/CAD/CAD Year1/")
+#save(heron_brm_speed_interaction, file = "scripts/models/heron/heron_brm_speed_interaction.RData")
+```
+
+```{r}
+heron_form_speed_interaction_v2 <- bf(SurvDev_Spp ~ median_speed * Spp + median_speed * Census + (1|Site) + (1|ReefDev), family = bernoulli(link = "logit"))
+
+priors_speed_v2 <- prior(normal(0, 1.7), class = "Intercept") +
+    prior(student_t(3, 0, 1.5), class = 'sd')
+
+
+heron_brm_speed_interaction_v2 <- brm(heron_form_speed_interaction_v2,
+                 data=heronSpp_subset,
+                 prior = priors_speed_v2,
+                 sample_prior = 'yes',
+                 iter = 8000,
+                 warmup = 2000,
+                 chains = 3, cores = 3,
+                 thin = 5,
+                 refresh = 0,
+                 control = list(adapt_delta = 0.9),
+                backend = "rstan")
+
+posterior_summary(heron_brm_speed_interaction_v2)
+
+#save the model
+#setwd("C:/Users/sjurriaa/Australian Institute of Marine Science/Carly Randall - Randall Lab/CAD/CAD Year1/")
+#save(heron_brm_speed_interaction_v2, file = "scripts/models/heron/heron_brm_speed_interaction_v2.RData")
+```
+
+```{r}
+l_heron_speed <- loo(heron_brm_speed_simple)
+l_heron_speed_interaction <- loo(heron_brm_speed_interaction)
+
+print(l_heron_speed)
+print(l_heron_speed_interaction)
+
+heron_brm_speed_simple |> pp_check(type = 'dens_overlay', ndraws = 100)
+heron_brm_speed_interaction |> pp_check(type = 'dens_overlay', ndraws = 100)
+```
+
+##### turf interaction
+
+```{r}
+heron_form_turf_simple<- bf(SurvDev_Spp ~ turf * Spp + Census + (1|Site) + (1|ReefDev), family = bernoulli(link = "logit"))
+
+priors_turf <- prior(normal(0, 1.7), class = "Intercept") +
+    prior(student_t(3, 0, 1.5), class = 'sd')
+
+priors_turf_updated <- c(
+  prior(normal(1.5, 0.5), class = "Intercept"),   # Baseline survival, moderately positive
+  prior(normal(0, 0.5), class = "b", coef = "turf"),   # Turf effect: Small effect, centered around zero
+  prior(normal(0, 0.3), class = "b", coef = "SppA.kenti"),   # Species effect (SppA.kenti): Small, regularized effect
+  prior(normal(-2.5, 0.3), class = "b", coef = "Censust2"),   # Census effects: Expect stronger negative effect over time
+  prior(normal(-4.0, 0.3), class = "b", coef = "Censust3"),   # Census effects: Expect stronger negative effect over time
+  prior(normal(0, 0.4), class = "b", coef = "turf:SppA.kenti"),   # Interaction: Turf and species (SppA.kenti) interaction, small effect
+  prior(exponential(1), class = "sd", group = "ReefDev"),   # Random effects: Group-level standard deviations, regularized
+  prior(exponential(1), class = "sd", group = "Site")   # Random effects: Group-level standard deviations, regularized
+)
+
+
+heron_brm_turf_simple<- brm(heron_form_turf_simple,
+                 data=heronSpp_subset,
+                 prior = priors_turf_updated,
+                 sample_prior = 'yes',
+                 iter = 8000,
+                 warmup = 2000,
+                 chains = 3, cores = 3,
+                 thin = 5,
+                 refresh = 0,
+                 control = list(adapt_delta = 0.9),
+                backend = "rstan")
+
+posterior_summary(heron_brm_turf_simple)
+
+#save the model
+#setwd("C:/Users/sjurriaa/Australian Institute of Marine Science/Carly Randall - Randall Lab/CAD/CAD Year1/")
+#save(heron_brm_turf_simple, file = "scripts/models/heron/heron_brm_turf_simple.RData")
+```
+
+```{r}
+heron_form_turf_interaction <- bf(SurvDev_Spp ~ turf * Spp * Census + (1|Site) + (1|ReefDev), family = bernoulli(link = "logit"))
+
+priors_turf_interaction <- c(
+  prior(normal(1.5, 0.5), class = "Intercept"),   # Baseline survival, moderately positive
+  prior(normal(0, 0.5), class = "b", coef = "turf"),   # Turf effect: Small effect, centered around zero
+  prior(normal(0, 0.3), class = "b", coef = "SppA.kenti"),   # Species effect (SppA.kenti): Small, regularized effect
+  prior(normal(-2.5, 0.3), class = "b", coef = "Censust2"),   # Census effects: Expect stronger negative effect over time
+  prior(normal(-4.0, 0.3), class = "b", coef = "Censust3"),   # Census effects: Expect stronger negative effect over time
+  prior(normal(0, 0.4), class = "b", coef = "turf:SppA.kenti"),   # Interaction: Turf and species (SppA.kenti) interaction, small effect
+  prior(exponential(1), class = "sd", group = "ReefDev"),   # Random effects: Group-level standard deviations, regularized
+  prior(exponential(1), class = "sd", group = "Site")   # Random effects: Group-level standard deviations, regularized
+)
+
+heron_brm_turf_interaction <- brm(heron_form_turf_interaction,
+                 data=heronSpp_subset,
+                 prior = priors_turf_interaction,
+                 sample_prior = 'yes',
+                 iter = 8000,
+                 warmup = 2000,
+                 chains = 3, cores = 3,
+                 thin = 5,
+                 refresh = 0,
+                 control = list(adapt_delta = 0.9),
+                backend = "rstan")
+
+posterior_summary(heron_brm_turf_interaction)
+
+#save the model
+#setwd("C:/Users/sjurriaa/Australian Institute of Marine Science/Carly Randall - Randall Lab/CAD/CAD Year1/")
+#save(heron_brm_turf_interaction, file = "scripts/models/heron/heron_brm_turf_interaction.RData")
+```
+
+##### concrete interaction
+
+```{r}
+heron_form_concrete_simple<- bf(SurvDev_Spp ~ concrete * Spp + Census + (1|Site) + (1|ReefDev), family = bernoulli(link = "logit"))
+
+priors_concrete <- prior(normal(0, 1.7), class = "Intercept") +
+    prior(student_t(3, 0, 1.5), class = 'sd')
+
+priors_concrete_updated <- prior(normal(0, 1), class = "Intercept") +
+    prior(student_t(3, 0, 2), class = 'sd', group = 'ReefDev') +
+    prior(student_t(3, 0, 2), class = 'sd', group = 'Site') +
+    prior(normal(0, 0.5), class = 'b', coef = 'concrete') +
+    prior(normal(0, 0.5), class = 'b', coef = 'concrete:SppA.kenti') +
+    prior(normal(0, 0.7), class = 'b', coef = 'Censust2') +
+    prior(normal(0, 0.7), class = 'b', coef = 'Censust3')
+
+priors_concrete_v2 <- prior(normal(1, 1), class = "Intercept") +
+    prior(normal(-0.5, 0.5), class = "b", coef = "concrete") +
+    prior(normal(0, 0.3), class = "b", coef = "concrete:SppA.kenti") +
+    prior(normal(-1, 0.5), class = "b", coef = "Censust2") +
+    prior(normal(-1, 0.5), class = "b", coef = "Censust3") +
+    prior(student_t(3, 0, 1), class = "sd")
+
+
+heron_brm_concrete_simple_v2<- brm(heron_form_concrete_simple,
+                 data=heronSpp_subset,
+                 prior = priors_concrete_v2,
+                 sample_prior = 'yes',
+                 iter = 8000,
+                 warmup = 2000,
+                 chains = 3, cores = 3,
+                 thin = 5,
+                 refresh = 0,
+                 control = list(adapt_delta = 0.9),
+                backend = "rstan")
+
+posterior_summary(heron_brm_concrete_simple_v2)
+
+#save the model
+#setwd("C:/Users/sjurriaa/Australian Institute of Marine Science/Carly Randall - Randall Lab/CAD/CAD Year1/")
+#save(heron_brm_concrete_simple_v2, file = "scripts/models/heron/heron_brm_concrete_simple.RData")
+```
+
+```{r}
+heron_form_concrete_interaction <- bf(SurvDev_Spp ~ concrete * Spp * Census + (1|Site) + (1|ReefDev), family = bernoulli(link = "logit"))
+
+priors_concrete_interaction <- prior(normal(0, 1), class = "Intercept") +
+    prior(student_t(3, 0, 2), class = 'sd', group = 'ReefDev') +
+    prior(student_t(3, 0, 2), class = 'sd', group = 'Site') +
+    prior(normal(0, 0.5), class = 'b', coef = 'concrete') +
+    prior(normal(0, 0.5), class = 'b', coef = 'concrete:SppA.kenti') +
+    prior(normal(0, 0.7), class = 'b', coef = 'Censust2') +
+    prior(normal(0, 0.7), class = 'b', coef = 'Censust3')
+
+priors_concrete_v2 <- prior(normal(1, 1), class = "Intercept") +
+    prior(normal(-0.5, 0.5), class = "b", coef = "concrete") +
+    prior(normal(0, 0.3), class = "b", coef = "concrete:SppA.kenti") +
+    prior(normal(-1, 0.5), class = "b", coef = "Censust2") +
+    prior(normal(-1, 0.5), class = "b", coef = "Censust3") +
+    prior(student_t(3, 0, 1), class = "sd")
+
+heron_brm_concrete_interaction <- brm(heron_form_concrete_interaction,
+                 data=heronSpp_subset,
+                 prior = priors_concrete_interaction,
+                 sample_prior = 'yes',
+                 iter = 8000,
+                 warmup = 2000,
+                 chains = 3, cores = 3,
+                 thin = 5,
+                 refresh = 0,
+                 control = list(adapt_delta = 0.9),
+                backend = "rstan")
+
+posterior_summary(heron_brm_concrete_interaction)
+
+#save the model
+#setwd("C:/Users/sjurriaa/Australian Institute of Marine Science/Carly Randall - Randall Lab/CAD/CAD Year1/")
+#save(heron_brm_concrete_interaction, file = "scripts/models/heron/heron_brm_concrete_interaction.RData")
+```
+
+##### habitat interaction
+
+```{r}
+heron_form_PCA_simple<- bf(SurvDev_Spp ~ (PC1 * Spp) + (PC2 * Spp) + Census + (1|Site) + (1|ReefDev), family = bernoulli(link = "logit"))
+
+priors_PCA <- prior(normal(0, 1.7), class = "Intercept") +
+    prior(student_t(3, 0, 1.5), class = 'sd')
+
+priors_PCA_updated <- 
+  prior(normal(2, 0.5), class = "Intercept") +
+  prior(normal(0, 2), class = "b", coef = "PC1") +
+  prior(normal(0, 0.5), class = "b", coef = "SppA.kenti") +
+  prior(normal(0, 1.5), class = "b", coef = "PC2") +
+  prior(normal(-3, 1), class = "b", coef = "Censust2") +
+  prior(normal(-4, 1), class = "b", coef = "Censust3") +
+  prior(normal(5, 1.5), class = "b", coef = "PC1:SppA.kenti") +
+  prior(normal(0, 2), class = "b", coef = "SppA.kenti:PC2") +
+  prior(student_t(3, 0, 1.5), class = "sd", group = "ReefDev") +
+  prior(student_t(3, 0, 1), class = "sd", group = "Site")
+
+priors_PCA_updated_v2 <- c(
+  prior(normal(2.5, 1), class = "Intercept"),
+  prior(normal(0, 1), class = "b", coef = "PC1"),
+  prior(normal(0, 1), class = "b", coef = "PC2"),
+  prior(normal(0, 1), class = "b", coef = "SppA.kenti"),
+  prior(normal(0, 2), class = "b", coef = "PC1:SppA.kenti"),
+  prior(exponential(1), class = "sd")
+)
+
+heron_brm_PCA_simple_v2 <- brm(heron_form_PCA_simple,
+                 data=heronSpp_subset,
+                 prior = priors_PCA_updated_v2,
+                 sample_prior = 'yes',
+                 iter = 8000,
+                 warmup = 2000,
+                 chains = 3, cores = 3,
+                 thin = 5,
+                 refresh = 0,
+                 control = list(adapt_delta = 0.9),
+                backend = "rstan")
+
+posterior_summary(heron_brm_PCA_simple_v2)
+
+#save the model
+#setwd("C:/Users/sjurriaa/Australian Institute of Marine Science/Carly Randall - Randall Lab/CAD/CAD Year1/")
+#save(heron_brm_PCA_simple_v2, file = "scripts/models/heron/heron_brm_PCA_simple.RData")
+```
+
+```{r}
+heron_form_PCA_interaction <- bf(SurvDev_Spp ~ (PC1 * Spp * Census) + (PC2 * Spp * Census) + (1|Site) + (1|ReefDev), family = bernoulli(link = "logit"))
+
+priors_PCA_interaction <- 
+  prior(normal(2, 0.5), class = "Intercept") +
+  prior(normal(0, 2), class = "b", coef = "PC1") +
+  prior(normal(0, 0.5), class = "b", coef = "SppA.kenti") +
+  prior(normal(0, 1.5), class = "b", coef = "PC2") +
+  prior(normal(-3, 1), class = "b", coef = "Censust2") +
+  prior(normal(-4, 1), class = "b", coef = "Censust3") +
+  prior(normal(5, 1.5), class = "b", coef = "PC1:SppA.kenti") +
+  prior(normal(0, 2), class = "b", coef = "SppA.kenti:PC2") +
+  prior(student_t(3, 0, 1.5), class = "sd", group = "ReefDev") +
+  prior(student_t(3, 0, 1), class = "sd", group = "Site")
+
+heron_brm_PCA_interaction <- brm(heron_form_PCA_interaction,
+                 data=heronSpp_subset,
+                 prior = priors_PCA_interaction,
+                 sample_prior = 'yes',
+                 iter = 8000,
+                 warmup = 2000,
+                 chains = 3, cores = 3,
+                 thin = 5,
+                 refresh = 0,
+                 control = list(adapt_delta = 0.9),
+                backend = "rstan")
+
+posterior_summary(heron_brm_PCA_interaction)
+
+#save the model
+#setwd("C:/Users/sjurriaa/Australian Institute of Marine Science/Carly Randall - Randall Lab/CAD/CAD Year1/")
+#save(heron_brm_PCA_interaction, file = "scripts/models/heron/heron_brm_PCA_interaction.RData")
+```
+
+# Brm - Final Timepoint - tests
 
 class "Intercept" -\> for random effects
 
@@ -392,280 +1208,16 @@ class "b" -\> for regression coefficent
 
 class "sd" -\> for standard deviations of random effects
 
-```{r}
-priors <- prior(normal(0, 1.7), class = "Intercept") +
-    prior(student_t(3, 0, 1.5), class = 'sd')
-```
+### brm- (1\|Site) - NOT GOOD
 
 ```{r}
-priors_time <- prior(normal(0, 1.7), class = "Intercept") +
-  prior(normal(0,5), class = "b") +
-   prior(student_t(3, 0, 1.5), class = 'sd')
-```
-
-**median speed**
-
-```{r}
-2.5 * sd(heron_t3$SurvDev, na.rm = TRUE)/sd(heron_t3$median_speed, na.rm = TRUE)
-
-priors_speed <- prior(normal(0, 1.7), class = "Intercept") +
-  prior(normal(0,30), class = "b")  +
-   prior(student_t(3, 0, 1.5), class = 'sd')
-```
-
-**Ub**
-
-```{r}
-2.5 * sd(heron_t3$SurvDev, na.rm = TRUE)/sd(heron_t3$Ub_avrg, na.rm = TRUE)
-
-priors_Ub <- prior(normal(0, 1.7), class = "Intercept") +
-  prior(normal(0,6), class = "b")  +
-   prior(student_t(3, 0, 1.5), class = 'sd')
-```
-
-**turf**
-
-```{r}
-2.5 * sd(heron_t3$SurvDev, na.rm = TRUE)/sd(heron_t3$sedturf_t2, na.rm = TRUE)
-
-priors_turf <- prior(normal(0, 1.7), class = "Intercept") +
-  prior(normal(0,0.25), class = "b")  +
-   prior(student_t(3, 0, 1.5), class = 'sd')
-```
-
-**concrete**
-
-```{r}
-2.5 * sd(heron_t3$SurvDev, na.rm = TRUE)/sd(heron_t3$sedconcrete_t2, na.rm = TRUE)
-
-priors_concrete <- prior(normal(0, 1.7), class = "Intercept") +
-  prior(normal(0,1.2), class = "b")  +
-   prior(student_t(3, 0, 1.5), class = 'sd')
-```
-
-**WaveEnergyLevel**
-
-```{r}
-2.5 * sd(heron_t3$SurvDev, na.rm = TRUE)/sd(heron_t3$WaveEnergyLevel, na.rm = TRUE)
-
-priors_wave <- prior(normal(0, 1.7), class = "Intercept") +
-  prior(normal(0,1), class = "b")  +
-   prior(student_t(3, 0, 1.5), class = 'sd')
-
-```
-
-**PC**
-
-```{r}
-2.5 * sd(heron_t3$SurvDev, na.rm = TRUE)/sd(heron_t3$PC1, na.rm = TRUE)
-2.5 * sd(heron_t3$SurvDev, na.rm = TRUE)/sd(heron_t3$PC2, na.rm = TRUE)
-
-priors_PC <- prior(normal(0, 1.7), class = "Intercept") +
-  prior(normal(0,8), class = "b")  +  
-   prior(student_t(3, 0, 1.5), class = 'sd')
-```
-
-### brm1- Random effects + time
-
-```{r}
-heron_form_time <- bf(SurvDev ~ Census + (1|Site), family = bernoulli(link='logit'))
-
-priors_time <- prior(normal(0, 1.7), class = "Intercept") +
-  prior(normal(0,5), class = "b") +
-   prior(student_t(3, 0, 1.5), class = 'sd')
-
-heron_brm1 <- brm(heron_form_time,
-                 data=heron,
-                 prior = priors_time,
-                 sample_prior = 'yes',
-                 iter = 5000,
-                 warmup = 1000,
-                 chains = 3, cores = 3,
-                 thin = 5,
-                 refresh = 0,
-                 control = list(adapt_delta = 0.9),
-                backend = "rstan")
-
-# To save the model use >> 
-#save(heron_brm1, file = "scripts/models/heron_brm1.RData")
-```
-
-### brm2- Random effects: time \* Spp + device
-
-```{r}
-heron_form_Spp_dev <- bf(SurvDev_Spp ~ Census * Spp + (1|Site) + (1|ReefDev), family = bernoulli(link='logit'))
+heron_form <- bf(SurvDev ~ (1|Site), family = bernoulli(link='logit'))
 
 priors <- prior(normal(0, 1.7), class = "Intercept") +
     prior(student_t(3, 0, 1.5), class = 'sd')
 
-heron_brm2 <- brm(heron_form_Spp_dev,
-                 data=heron_Spp,
-                 prior = priors,
-                 sample_prior = 'yes',
-                 iter = 8000,
-                 warmup = 2000,
-                 chains = 3, cores = 3,
-                 thin = 5,
-                 refresh = 0,
-                 control = list(adapt_delta = 0.9),
-                backend = "rstan")
-#save the model
-#save(heron_brm2, file = "scripts/models/heron_brm2.RData")
-```
 
-### brm3- Random effects: time \* Spp + Spp\|device
 
-```{r}
-heron_form_Spp<- bf(SurvDev_Spp ~ Census * Spp + (1|Site) + (Spp|ReefDev), family = bernoulli(link = "logit"))
-
-priors <- prior(normal(0, 1.7), class = "Intercept") +
-    prior(student_t(3, 0, 1.5), class = 'sd')
-
-heron_brm3<- brm(heron_form_Spp,
-                 data=heron_Spp,
-                 prior = priors,
-                 sample_prior = 'yes',
-                 iter = 8000,
-                 warmup = 2000,
-                 chains = 3, cores = 3,
-                 thin = 5,
-                 refresh = 0,
-                 control = list(adapt_delta = 0.9),
-                backend = "rstan")
-#save the model
-#save(heron_brm3, file = "scripts/models/heron_brm3.RData")
-```
-
-### brm4- time \* Wave
-
-```{r}
-heron_form_time_Wave <-  bf(SurvDev ~ Census + WaveEnergyLevel + (1|Site), family = bernoulli(link='logit'))
-
-heron_brm4 <- brm(heron_form_time_Wave,
-                 data=heron,
-                 prior = priors_time,
-                 sample_prior = 'yes',
-                 iter = 5000,
-                 warmup = 1000,
-                 chains = 3, cores = 3,
-                 thin = 5,
-                 refresh = 0,
-                 control = list(adapt_delta = 0.9),
-                backend = "rstan")
-
-# To save the model use >> 
-#save(heron_brm4, file = "scripts/models/heron_brm4.RData")
-
-```
-
-### brm5- time \* Ub
-
-```{r}
-heron_form_time_Ub <-  bf(SurvDev ~ Census + Ub_avrg + (1|Site), family = bernoulli(link='logit'))
-
-heron_brm5 <- brm(heron_form_time_Ub,
-                 data=heron,
-                 prior = priors_time,
-                 sample_prior = 'yes',
-                 iter = 5000,
-                 warmup = 1000,
-                 chains = 3, cores = 3,
-                 thin = 5,
-                 refresh = 0,
-                 control = list(adapt_delta = 0.9),
-                backend = "rstan")
-
-# To save the model use >> 
-#save(heron_brm5, file = "scripts/models/heron_brm5.RData")
-```
-
-### brm6- time \* Current
-
-```{r}
-heron_form_time_Speed <-  bf(SurvDev ~ Census + median_speed + (1|Site), family = bernoulli(link='logit'))
-
-heron_brm6 <- brm(heron_form_time_Speed,
-                 data=heron,
-                 prior = priors_time,
-                 sample_prior = 'yes',
-                 iter = 5000,
-                 warmup = 1000,
-                 chains = 3, cores = 3,
-                 thin = 5,
-                 refresh = 0,
-                 control = list(adapt_delta = 0.9),
-                backend = "rstan")
-
-# To save the model use >> 
-#save(heron_brm6, file = "scripts/models/heron_brm6.RData")
-```
-
-### brm7- time \* turf
-
-```{r}
-heron_form_time_turf <-  bf(SurvDev ~ Census + sedturf_t2 + (1|Site), family = bernoulli(link='logit'))
-
-heron_brm7 <- brm(heron_form_time_turf,
-                 data=heron,
-                 prior = priors_turf,
-                 sample_prior = 'yes',
-                 iter = 5000,
-                 warmup = 1000,
-                 chains = 3, cores = 3,
-                 thin = 5,
-                 refresh = 0,
-                 control = list(adapt_delta = 0.9),
-                backend = "rstan")
-
-# To save the model use >> 
-#save(heron_brm7, file = "scripts/models/heron_brm7.RData")
-```
-
-### brm8- time \* concrete
-
-```{r}
-heron_form_time_concrete <-  bf(SurvDev ~ Census + sedconcrete_t2 + (1|Site), family = bernoulli(link='logit'))
-
-heron_brm8 <- brm(heron_form_time_concrete,
-                 data=heron,
-                 prior = priors_concrete,
-                 sample_prior = 'yes',
-                 iter = 5000,
-                 warmup = 1000,
-                 chains = 3, cores = 3,
-                 thin = 5,
-                 refresh = 0,
-                 control = list(adapt_delta = 0.9),
-                backend = "rstan")
-
-# To save the model use >> 
-#save(heron_brm8, file = "scripts/models/heron_brm8.RData")
-```
-
-### brm9- time \* habitat
-
-```{r}
-heron_form_time_PCA <-   bf(SurvDev ~ Census +PC1 + PC2 + (1|Site), family = bernoulli(link='logit'))
-
-heron_brm9 <- brm(heron_form_time_PCA,
-                 data=heron,
-                 prior = priors_PC,
-                 sample_prior = 'yes',
-                 iter = 5000,
-                 warmup = 1000,
-                 chains = 3, cores = 3,
-                 thin = 5,
-                 refresh = 0,
-                 control = list(adapt_delta = 0.9),
-                backend = "rstan")
-
-# Save the model 
-#save(heron_brm9, file = "scripts/models/heron_brm9.RData")
-```
-
-### brm10- Random effects only t3
-
-```{r}
 heron_brm <- brm(heron_form,
                  data=heron_t3,
                  prior = priors,
@@ -680,14 +1232,70 @@ heron_brm <- brm(heron_form,
 
 # To save the model use >> 
 #save(heron_brm, file = "scripts/models/heron_brm.RData")
+
+# LOOIC and ELPD with Standard Error: LOOIC: 319.21 [10.93], ELPD: -159.61 [5.47]
 ```
 
-### brm11- Random effects (t3): Spp + 1\|device
+Model diagnostics:
 
 ```{r}
-heron_t3_form_Spp_dev<- bf(SurvDev_Spp ~ Spp + (1|Site) + (1|ReefDev), family = bernoulli(link = "logit"))
+heron_brm |> pp_check(type = 'dens_overlay', ndraws = 100)
+heron_brm  |> pp_check(group = 'Site', type = 'violin_grouped') 
 
-heron_brm_t3_Spp_dev<- brm(heron_t3_form_Spp_dev,
+heron.resids <- make_brms_dharma_res(heron_brm, integerResponse = FALSE)
+testUniformity(heron.resids) 
+plotResiduals(heron.resids) 
+testDispersion(heron.resids)
+```
+
+### brm1- Spp + (1\|Spp:device) - NOT GOOD
+
+```{r}
+heron_t3_form_Spp_dev<- bf(SurvDev_Spp ~ (1|Spp:ReefDev), family = bernoulli(link = "logit"))
+
+priors <- prior(normal(0, 1.7), class = "Intercept") +
+    prior(student_t(3, 0, 1.5), class = 'sd')
+
+heron_brm1_SppDev <- brm(heron_t3_form_Spp_dev,
+                 data=heron_Spp_t3_complete,
+                 prior = priors,
+                 sample_prior = 'yes',
+                 iter = 8000,
+                 warmup = 2000,
+                 chains = 3, cores = 3,
+                 thin = 5,
+                 refresh = 0,
+                 control = list(adapt_delta = 0.9),
+                backend = "rstan")
+#save the model
+#save(heron_brm1_SppDev, file = "scripts/models/heron_brm1_SppDev.RData")
+
+#NOTE: issues with model convergence and stability. 55 pareto values >0.7 which is not good. Also warning messgaes with divergent transactions, ESS too low. CONCLUSION: NOT GOOD MODEL
+
+# LOOIC and ELPD with Standard Error: LOOIC: 462.57 [25.43],    ELPD: -231.28 [12.71]
+```
+
+Model diagnostics:
+
+```{r}
+heron_brm1_SppDev |> pp_check(type = 'dens_overlay', ndraws = 100)
+heron_brm1_SppDev  |> pp_check(group = 'Spp', type = 'violin_grouped') 
+
+heron.resids1 <- make_brms_dharma_res(heron_brm1_SppDev, integerResponse = FALSE)
+testUniformity(heron.resids1) 
+plotResiduals(heron.resids1) 
+testDispersion(heron.resids1)
+```
+
+### brm2- Spp + (1\|Spp:ReefDev) - NOT GOOD
+
+```{r}
+heron_t3_form_Spp<- bf(SurvDev_Spp ~ Spp + (1|Spp:ReefDev), family = bernoulli(link = "logit"))
+
+priors <- prior(normal(0, 1.7), class = "Intercept") +
+    prior(student_t(3, 0, 1.5), class = 'sd')
+
+heron_brm2_Spp <- brm(heron_t3_form_Spp,
                  data=heron_Spp_t3,
                  prior = priors,
                  sample_prior = 'yes',
@@ -699,16 +1307,39 @@ heron_brm_t3_Spp_dev<- brm(heron_t3_form_Spp_dev,
                  control = list(adapt_delta = 0.9),
                 backend = "rstan")
 #save the model
-#save(heron_brm_t3_Spp_dev, file = "scripts/models/heron_brm_t3_Spp_dev.RData")
+#save(heron_brm2_Spp, file = "scripts/models/heron_brm2_Spp.RData")
+
+#NOTE: Also issues with model convergence and stability. Similar to previous model, 56 pareto values >0.7 which is not good, and  warning messgaes for with divergent transactions (125), ESS too low. CONCLUSION: NOT GOOD MODEL
+
+# LOOIC and ELPD with Standard Error: LOOIC: 463.88 [25.97], ELPD: -231.94 [12.99]
+# Slighly higher LOOIC value for this model, although not by much. However, similar issues with convergence and stability.
 
 ```
 
-### brm12- Random effects (t3): Spp + Spp\|device
+Model diagnostics:
 
 ```{r}
-heron_t3_form_Spp<- bf(SurvDev_Spp ~ Spp + (1|Site) + (Spp|ReefDev), family = bernoulli(link = "logit"))
+heron_brm2_Spp |> pp_check(type = 'dens_overlay', ndraws = 100)
+heron_brm2_Spp  |> pp_check(group = 'Spp', type = 'violin_grouped') 
 
-heron_brm_t3_Spp<- brm(heron_t3_form_Spp,
+heron.resids2 <- make_brms_dharma_res(heron_brm2_Spp, integerResponse = FALSE)
+testUniformity(heron.resids2) 
+plotResiduals(heron.resids2) 
+testDispersion(heron.resids2)
+
+# heron.resids2 - Gives error that I do not understand. 
+# "New factor levels are not allowed. Levels allowed: 'A. hyacinthus', 'A. kenti'- Levels found: 'NEW_A. hyacinthus', 'NEW_A. kenti'"
+```
+
+### brm00- Spp + (1\|Site) - NOT GOOD
+
+```{r}
+heron_t3_form_Spp_Dev<- bf(SurvDev_Spp ~ Spp + (1|Site), family = bernoulli(link = "logit"))
+
+priors <- prior(normal(0, 1.7), class = "Intercept") +
+    prior(student_t(3, 0, 1.5), class = 'sd')
+
+heron_brm00_SppDev <- brm(heron_t3_form_Spp_Dev,
                  data=heron_Spp_t3,
                  prior = priors,
                  sample_prior = 'yes',
@@ -720,15 +1351,184 @@ heron_brm_t3_Spp<- brm(heron_t3_form_Spp,
                  control = list(adapt_delta = 0.9),
                 backend = "rstan")
 #save the model
-#save(heron_brm_t3_Spp, file = "scripts/models/heron_brm_t3_Spp.RData")
+#save(heron_brm00_SppDev, file = "scripts/models/heron_brm00_SppDev.RData")
 
+# LOOIC and ELPD with Standard Error: LOOIC: 467.98 [26.48]  ELPD: -233.99 [13.24]
+```
+
+### brm - Spp + (1\|Site) + (1\|ReefDev) - YES
+
+```{r}
+heron_Spp_t3$Site<- as.factor(heron_Spp_t3$Site)
+heron_t3_form_Spp_SiteDev<- bf(SurvDev_Spp ~ Spp + (1|Site) + (1|ReefDev), family = bernoulli(link = "logit"))
+
+priors <- prior(normal(0, 1.7), class = "Intercept") +
+    prior(student_t(3, 0, 1.5), class = 'sd')
+
+heron_brm_SppSiteDev <- brm(heron_t3_form_Spp_SiteDev,
+                 data=heron_Spp_t3,
+                 prior = priors,
+                 sample_prior = 'yes',
+                 iter = 8000,
+                 warmup = 2000,
+                 chains = 3, cores = 3,
+                 thin = 5,
+                 refresh = 0,
+                 control = list(adapt_delta = 0.9),
+                backend = "rstan")
+#save the model
+#setwd("C:/Users/sjurriaa/Australian Institute of Marine Science/Carly Randall - Randall Lab/CAD/CAD Year1/")
+#save(heron_brm_SppSiteDev, file = "scripts/models/heron_brm_SppSiteDev.RData")
+
+# LOOIC and ELPD with Standard Error: LOOIC: 469.73 [26.65]    ELPD: -234.86 [13.32]
 ```
 
 ### brm15- t3 - speed
 
 ```{r}
+heron_form_speed <- bf(SurvDev_Spp ~ median_speed + (1|Site) , family = bernoulli(link='logit'))
+
+priors_speed <- prior(normal(0, 1.7), class = "Intercept") +
+  prior(normal(0,30), class = "b")  +
+   prior(student_t(3, 0, 1.5), class = 'sd')
+
 heron_brm_speed <- brm(heron_form_speed,
-                 data=heron_t3,
+                 data=heron_Spp_t3,
+                 prior = priors_speed,
+                 sample_prior = 'yes',
+                 iter = 5000,
+                 warmup = 1000,
+                 chains = 3, cores = 3,
+                 thin = 5,
+                 refresh = 0,
+                 control = list(adapt_delta = 0.9),
+                 backend = "rstan")
+
+# Save the model
+#save(heron_brm_speed, file = "scripts/models/heron_brm_speed.RData")
+```
+
+Just a test to try to add species in the model:
+
+```{r}
+heron_form_speed <- bf(SurvDev_Spp ~ median_speed * Spp +  (1|Spp:ReefDev), family = bernoulli(link = "logit"))
+
+priors_speed <- prior(normal(0, 1.7), class = "Intercept") +
+  prior(normal(0,1.7), class = "b")  +
+   prior(student_t(3, 0, 1.5), class = 'sd')
+
+heron_brmSpp_speed <- brm(heron_form_speed,
+                 data=heron_Spp_t3_complete,
+                 prior = priors_speed,
+                 sample_prior = 'yes',
+                 iter = 5000,
+                 warmup = 1000,
+                 chains = 3, cores = 3,
+                 thin = 5,
+                 refresh = 0,
+                 control = list(adapt_delta = 0.9),
+                 backend = "rstan")
+
+# Save the model
+#save(heron_brmSpp_speed, file = "scripts/models/heron_brmSpp_speed.RData")
+
+#NOTES: looic(heron_brmSpp_speed): LOOIC: 455.80 [25.44], ELPD: -227.90 [12.72], but with many warning messages: "found 29 observations with a pareto_k > 0.7 in model 'model'." Also much higher LOOIC value than model with only Site as random effect. 
+# No improvement with better priors. Models do not work with Spp!! CRAZY!
+```
+
+Model diagnostics:
+
+```{r}
+heron_brm_speed |> pp_check(type = 'dens_overlay', ndraws = 100)
+heron_brm_speed  |> pp_check(group = 'Site', type = 'violin_grouped') 
+
+heron.resids3 <- make_brms_dharma_res(heron_brm_speed, integerResponse = FALSE)
+testUniformity(heron.resids3) 
+plotResiduals(heron.resids3) 
+testDispersion(heron.resids3)
+
+heron_brmSpp_speed |> pp_check(type = 'dens_overlay', ndraws = 100)
+heron_brmSpp_speed  |> pp_check(group = 'Spp', type = 'violin_grouped') 
+
+heron.resids3a <- make_brms_dharma_res(heron_brmSpp_speed, integerResponse = FALSE)
+testUniformity(heron.resids3a) 
+plotResiduals(heron.resids3a) 
+testDispersion(heron.resids3a)
+
+# Same error as above for heron.resids3a - Seems as if it makes new factors for species names? "NEW_A. hyacinthus" and "NEW_A.kenti"?
+```
+
+And another try with species in model
+
+```{r}
+heron_form_speed <- bf(SurvDev_Spp ~ median_speed * Spp + (1 | Site), family = bernoulli(link = "logit"))
+
+priors_speed <- prior(normal(0, 1.7), class = "Intercept") +
+  prior(normal(0,1.7), class = "b")  +
+   prior(student_t(3, 0, 1.5), class = 'sd')
+
+heron_brmSppfixed_speed <- brm(heron_form_speed,
+                 data=heron_Spp_t3_complete,
+                 prior = priors_speed,
+                 sample_prior = 'yes',
+                 iter = 5000,
+                 warmup = 1000,
+                 chains = 3, cores = 3,
+                 thin = 5,
+                 refresh = 0,
+                 control = list(adapt_delta = 0.9),
+                 backend = "rstan")
+
+# Save the model
+#save(heron_brmSppfixed_speed, file = "scripts/models/heron_brmSppfixed_speed.RData")
+
+#NOTES: looic(heron_brmSppfixed_speed): LOOIC: 460.74 [26.10], ELPD: -230.37 [13.05]
+# No more errors or high pareto values. Still higher LOOIC value, but at least there is Spp in the model.
+```
+
+And another try with Spp: -\> GOOD!!
+
+```{r}
+heron_form_speed <- bf(SurvDev_Spp ~ median_speed + Spp + (1|Site) + (1|ReefDev), family = bernoulli(link='logit'))
+
+priors_speed <- prior(normal(0, 1.7), class = "Intercept") +
+  prior(normal(0,30), class = "b")  +
+   prior(student_t(3, 0, 1.5), class = 'sd')
+
+heron_brmSppfixedSiteDev_speed <- brm(heron_form_speed,
+                 data=heron_Spp_t3,
+                 prior = priors_speed,
+                 sample_prior = 'yes',
+                 iter = 5000,
+                 warmup = 1000,
+                 chains = 3, cores = 3,
+                 thin = 5,
+                 refresh = 0,
+                 control = list(adapt_delta = 0.9),
+                 backend = "rstan")
+
+# Save the model
+#save(heron_brmSppfixedSiteDev_speed, file = "scripts/models/heron_brmSppfixedSiteDev_speed.RData")
+
+#NOTES: looic(heron_brmSppfixedSiteDev_speed ) LOOIC: 462.46 [26.46]   ELPD: -231.23 [13.23]
+# No more errors or high pareto values. Still higher LOOIC value, but at least there is Spp in the model.
+```
+
+# \-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\--
+
+# Brm - Final Timepoint - GOOD
+
+### brm15- t3 - speed
+
+```{r}
+heron_form_speed <- bf(SurvDev_Spp ~ median_speed * Spp + (1|Site) + (1|ReefDev), family = bernoulli(link='logit'))
+
+priors_speed <- prior(normal(0, 1.7), class = "Intercept") +
+  prior(normal(0,30), class = "b")  +
+   prior(student_t(3, 0, 1.5), class = 'sd')
+
+heron_brm_speed <- brm(heron_form_speed,
+                 data=heron_Spp_t3,
                  prior = priors_speed,
                  sample_prior = 'yes',
                  iter = 5000,
@@ -746,8 +1546,14 @@ heron_brm_speed <- brm(heron_form_speed,
 ### brm14 - t3 - Ub
 
 ```{r}
+heron_form_Ub <-    bf(SurvDev_Spp ~ Ub_avrg * Spp + (1|Site) + (1|ReefDev), family = bernoulli(link='logit'))
+
+priors_Ub <- prior(normal(0, 1.7), class = "Intercept") +
+  prior(normal(0,6), class = "b")  +
+   prior(student_t(3, 0, 1.5), class = 'sd')
+
 heron_brm_Ub <- brm(heron_form_Ub,
-                 data=heron_t3,
+                 data=heron_Spp_t3,
                  prior = priors_Ub,
                  sample_prior = 'yes',
                  iter = 5000,
@@ -762,13 +1568,29 @@ heron_brm_Ub <- brm(heron_form_Ub,
 #save(heron_brm_Ub, file = "scripts/models/heron_brm_Ub.RData")
 ```
 
+model diagnostics:
+
+```{r}
+heron_brm_Ub |> pp_check(type = 'dens_overlay', ndraws = 100)
+heron_brm_Ub  |> pp_check(group = 'Site', type = 'violin_grouped') 
+
+heron.resids4 <- make_brms_dharma_res(heron_brm_Ub, integerResponse = FALSE)
+testUniformity(heron.resids4) 
+plotResiduals(heron.resids4) 
+testDispersion(heron.resids4)
+```
+
 ### brm13-t3 - wave
 
 ```{r}
-heron_form_Wave <-  bf(SurvDev ~ WaveEnergyLevel + (1|Site), family = bernoulli(link='logit'))
+heron_form_Wave <-  bf(SurvDev_Spp ~ WaveEnergyLevel * Spp + (1|Site) + (1|ReefDev), family = bernoulli(link='logit'))
+
+priors_wave <- prior(normal(0, 1.7), class = "Intercept") +
+  prior(normal(0,1), class = "b")  +
+   prior(student_t(3, 0, 1.5), class = 'sd')
 
 heron_brm_wave <- brm(heron_form_Wave,
-                 data=heron_t3,
+                 data=heron_Spp_t3,
                  prior = priors_wave,
                  sample_prior = 'yes',
                  iter = 5000,
@@ -783,11 +1605,27 @@ heron_brm_wave <- brm(heron_form_Wave,
 #save(heron_brm_wave, file = "scripts/models/heron_brm_wave.RData")
 ```
 
+```{r}
+heron_brm_wave |> pp_check(type = 'dens_overlay', ndraws = 100)
+heron_brm_wave  |> pp_check(group = 'Site', type = 'violin_grouped') 
+
+heron.resids5 <- make_brms_dharma_res(heron_brm_wave, integerResponse = FALSE)
+testUniformity(heron.resids5) 
+plotResiduals(heron.resids5) 
+testDispersion(heron.resids5)
+```
+
 ### brm16 - t3- turf
 
 ```{r}
+heron_form_turf <-   bf(SurvDev_Spp ~ sedturf_t2 * Spp + (1|Site) + (1|ReefDev), family = bernoulli(link='logit'))
+
+priors_turf <- prior(normal(0, 1.7), class = "Intercept") +
+  prior(normal(0,0.25), class = "b")  +
+   prior(student_t(3, 0, 1.5), class = 'sd')
+
 heron_brm_turf <- brm(heron_form_turf,
-                 data=heron_t3,
+                 data=heron_Spp_t3,
                  prior = priors_turf,
                  sample_prior = 'yes',
                  iter = 5000,
@@ -802,11 +1640,27 @@ heron_brm_turf <- brm(heron_form_turf,
 #save(heron_brm_turf, file = "scripts/models/heron_brm_turf.RData")
 ```
 
+```{r}
+heron_brm_turf |> pp_check(type = 'dens_overlay', ndraws = 100)
+heron_brm_turf  |> pp_check(group = 'Site', type = 'violin_grouped') 
+
+heron.resids6 <- make_brms_dharma_res(heron_brm_turf, integerResponse = FALSE)
+testUniformity(heron.resids6) 
+plotResiduals(heron.resids6) 
+testDispersion(heron.resids6)
+```
+
 ### brm17 - t3 - concrete
 
 ```{r}
+heron_form_concrete <-bf(SurvDev_Spp ~ sedconcrete_t2 * Spp + (1|Site) + (1|ReefDev), family = bernoulli(link='logit'))
+
+priors_concrete <- prior(normal(0, 1.7), class = "Intercept") +
+  prior(normal(0,1.2), class = "b")  +
+   prior(student_t(3, 0, 1.5), class = 'sd')
+
 heron_brm_concrete <- brm(heron_form_concrete,
-                 data=heron_t3,
+                 data=heron_Spp_t3,
                  prior = priors_concrete,
                  sample_prior = 'yes',
                  iter = 5000,
@@ -821,17 +1675,27 @@ heron_brm_concrete <- brm(heron_form_concrete,
 #save(heron_brm_concrete, file = "scripts/models/heron_brm_concrete.RData")
 ```
 
+```{r}
+heron_brm_concrete |> pp_check(type = 'dens_overlay', ndraws = 100)
+heron_brm_concrete  |> pp_check(group = 'Site', type = 'violin_grouped') 
+
+heron.resids7 <- make_brms_dharma_res(heron_brm_concrete, integerResponse = FALSE)
+testUniformity(heron.resids7) 
+plotResiduals(heron.resids7) 
+testDispersion(heron.resids7)
+```
+
 ### brm18 - t3 - PCA
 
 ```{r}
-heron_form_PCA <-   bf(SurvDev ~ PC1 + PC2 + (1|Site), family = bernoulli(link='logit'))
+heron_form_PCA <-   bf(SurvDev_Spp ~ (PC1 * Spp) + (PC2* Spp) + (1|Site) + (1|ReefDev), family = bernoulli(link='logit'))
 
 priors_PCA <- prior(normal(0, 1.7), class = "Intercept") +
   prior(normal(0,8), class = "b")  +  
    prior(student_t(3, 0, 1.5), class = 'sd')
 
 heron_brm_PCA <- brm(heron_form_PCA,
-                 data=heron_t3,
+                 data=heron_Spp_t3,
                  prior = priors_PCA,
                  sample_prior = 'yes',
                  iter = 5000,
@@ -846,392 +1710,168 @@ heron_brm_PCA <- brm(heron_form_PCA,
 #save(heron_brm_PCA, file = "scripts/models/heron_brm_PCA.RData")
 ```
 
-### Load models
+```{r}
+heron_brm_PCA |> pp_check(type = 'dens_overlay', ndraws = 100)
+heron_brm_PCA  |> pp_check(group = 'Site', type = 'violin_grouped') 
+
+heron.resids8 <- make_brms_dharma_res(heron_brm_PCA, integerResponse = FALSE)
+testUniformity(heron.resids8) 
+plotResiduals(heron.resids8) 
+testDispersion(heron.resids8)
+```
+
+# \-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\--
+
+# Load models
 
 ```{r}
-load(file = "scripts/models/heron_brm.RData")
-load(file = "scripts/models/heron_brm_speed.RData")
-load(file = "scripts/models/heron_brm_Ub.RData")
-load(file = "scripts/models/heron_brm_wave.RData")
-load(file = "scripts/models/heron_brm_turf.RData")
-load(file = "scripts/models/heron_brm_concrete.RData")
-load(file = "scripts/models/heron_brm_PCA.RData")
+
+load(file = "C:/Users/sjurriaa/Australian Institute of Marine Science/Carly Randall - Randall Lab/CAD/CAD Year1/scripts/models/heron/heron_brm_census_interaction.RData")
+load(file = "C:/Users/sjurriaa/Australian Institute of Marine Science/Carly Randall - Randall Lab/CAD/CAD Year1/scripts/models/heron/heron_brm_speed_interaction.RData")    
+load(file = "C:/Users/sjurriaa/Australian Institute of Marine Science/Carly Randall - Randall Lab/CAD/CAD Year1/scripts/models/heron/heron_brm_ub_interaction.RData")        
+load(file = "C:/Users/sjurriaa/Australian Institute of Marine Science/Carly Randall - Randall Lab/CAD/CAD Year1/scripts/models/heron/heron_brm_wave_3wayinteraction_v1.RData")      
+load(file = "C:/Users/sjurriaa/Australian Institute of Marine Science/Carly Randall - Randall Lab/CAD/CAD Year1/scripts/models/heron/heron_brm_turf_interaction.RData")      
+load(file = "C:/Users/sjurriaa/Australian Institute of Marine Science/Carly Randall - Randall Lab/CAD/CAD Year1/scripts/models/heron/heron_brm_concrete_interaction.RData")  
+load(file = "C:/Users/sjurriaa/Australian Institute of Marine Science/Carly Randall - Randall Lab/CAD/CAD Year1/scripts/models/heron_brm_PCA.RData") 
+
 ```
 
 ### loo
 
+First compare the models without the environmental predictors
+
+```{r}
+l_brm_Spp <- heron_brm_t3_Spp |> loo()          #Formula: SurvDev_Spp ~ Spp + (1 | Site) + (Spp | ReefDev)
+l_brm_Spp_dev <- heron_brm_t3_Spp_dev |> loo()  #Formula: SurvDev_Spp ~ Spp + (1 | Site) + (1 | ReefDev)
+l_brm1_SppDev <- heron_brm1_SppDev |> loo()     #Formula: SurvDev_Spp ~ (1 | Spp:ReefDev) 
+l_brm2_Spp <- heron_brm2_Spp |> loo()           #Formula: SurvDev_Spp ~ Spp + (1 | Spp:ReefDev) 
+l_brm <- heron_brm |> loo()                     #Formula: SurvDev ~ (1 | Site)
+
+looic(heron_brm_t3_Spp)        #WARNING 44 pareto_k > 0.7 - LOOIC: 446.90 [24.42], ELPD: -223.45 [12.21]
+looic(heron_brm_t3_Spp_dev)    #                            LOOIC: 452.26 [24.76], ELPD: -226.13 [12.38]
+looic(heron_brm1_SppDev)       #WARNING 55 pareto_k > 0.7 - LOOIC: 462.57 [25.43], ELPD: -231.28 [12.71]
+looic(heron_brm2_Spp)          #WARNING 56 pareto_k > 0.7 - LOOIC: 463.88 [25.97], ELPD: -231.94 [12.99]
+looic(heron_brm)               #                            LOOIC: 319.21 [10.93], ELPD: -159.61 [5.47]
+```
+
+Take away: models with species nested as random effect are too complicated and do not converge well. Model with only site as random intercept fits the data best. But need to account for the fact that each device is counted twice (one observation for each species), thus model NEEDS to have random intercept for device ID as well.
+
 ```{r}
 #Using loo compare, lower value is better
-l_brm <- heron_brm |> loo()
-l_device <- heron_brm_device |> loo()
-l_Spp <- heron_brm_Spp |> loo()
-l_speed <- heron_brm_speed|> loo()
+l_brm_speedSpp <- heron_brmSpp_speed |> loo()       #Formula: SurvDev_Spp ~ median_speed * Spp + (1 | Spp:ReefDev)
+l_speedSppfixed <- heron_brmSppfixed_speed |> loo() #Formula: SurvDev_Spp ~ median_speed * Spp + (1 | Site) 
+l_speed <- heron_brm_speed|> loo()                  #Formula: SurvDev ~ median_speed + (1 | Site) + (1|ReefDev)
+
+looic(heron_brmSpp_speed)        #WARNING 112 pareto_k > 0.7 - LOOIC: 449.04 [25.29], ELPD: -224.52 [12.64]
+looic(heron_brmSppfixed_speed)   #                             LOOIC: 460.74 [26.10], ELPD: -230.37 [13.05]
+looic(heron_brm_speed)           #                             LOOIC: 462.28 [26.39], ELPD: -231.14 [13.19]
+
+l_speed <- heron_brm_speed|> loo() 
 l_Ub <- heron_brm_Ub |> loo()
 l_wave <- heron_brm_wave |> loo()
 l_turf <- heron_brm_turf|> loo()
 l_concrete <- heron_brm_concrete|> loo()
 l_PC <- heron_brm_PCA |> loo()
 
-loo_compare(l_speed, l_Ub, l_wave, l_turf, l_concrete)
-```
+#loo_compare(l_speed, l_Ub, l_wave, l_turf, l_concrete)
 
-NOTES ON THIS: Prefer the model with the lower LOOIC, as it suggests better expected out-of-sample predictive performance. However, consider the uncertainty (SE) around these estimates. Significance of Differences: Look at the differences in LOOIC and their standard errors. A rule of thumb is that a difference greater than twice its standard error might be considered substantial, but this is not a strict threshold. If two models have similar LOOIC values, the simpler model (the one with fewer parameters) is typically preferred due to the principle of parsimony. This is not directly shown in the loo_compare() output but is an important consideration when interpreting results.
-
-# Diagnostics
-
-### brm
-
-#### **MCMC**
-
-```{r}
-#pars <- heron_brm |> get_variables()  #capture the list of variables
-pars <- str_extract(pars, "^b_.*|^sd.*") |> na.omit()
-pars
-
-heron_brm $fit |> stan_trace(pars = pars)
-heron_brm $fit |> stan_ac(pars = pars)
-heron_brm$fit |> stan_rhat()
-heron_brm$fit |> stan_ess()  # the closer to 1, the more chains have converged
-heron_brm |> mcmc_plot(type='violin')  # assess convergence and mixing of MCMC samples and skewness of the distribution
-```
-
--   **stan_ac**: All below 0.25, all good.
--   **rhat_hist**: Rhat is a **scale reduction factor** measure of convergence between the chains. The closer the values are to 1, the more the chains have converged. Values greater than 1.05 indicate a lack of convergence. There will be an Rhat value for each parameter estimated.
--   **stan_ess:** effective sample size not very efficient, most below 50%.
-
-#### **Posterior probability checks**
-
-```{r}
-heron_brm |> pp_check(type = 'dens_overlay', ndraws = 100)
-heron_brm |> pp_check (type = "error_scatter_avg")
-heron_brm  |> pp_check(group = 'Site', type = 'violin_grouped')
-```
-
--   **dens_overlay**: plots the density distribution of the observed data (black line) overlayed ontop of 50 density distributions generated from draws from the model (light blue). Ideally, the 50 realisations should be roughly consistent with the observed data.
--   **error_scatter_avg**: this plots the observed values against the average residuals. Similar to a residual plot, we do not want to see any patterns in this plot. Note, this is not really that useful for models that involve a binomial response
--   **intervals**: plots the observed data overlayed ontop of posterior predictions associated with each level of the predictor. Ideally, the observed data should all fall within the predictive intervals.
-
-#### **dHARMA residuals**
-
-```{r}
-library(DHARMa)
-heron.resids <- make_brms_dharma_res(heron_brm, integerResponse = FALSE)
-testUniformity(heron.resids)
+looic(heron_brm_speed)        #LOOIC: 462.28 [26.39]   ELPD: -231.14 [13.19]
+looic(heron_brm_Ub)           #LOOIC: 462.94 [26.44]   ELPD: -231.47 [13.22]
+looic(heron_brm_wave)         #LOOIC: 468.40 [26.69]   ELPD: -234.20 [13.35]
+looic(heron_brm_turf)         #LOOIC: 465.11 [26.02]   ELPD: -232.55 [13.01]
+looic(heron_brm_concrete)     #LOOIC: 460.32 [26.52]   ELPD: -230.16 [13.26]
+looic(heron_brm_PCA)          #LOOIC: 463.02 [26.79]   ELPD: -231.51 [13.40]
 ```
 
 ```{r}
-wrap_elements(~testUniformity(heron.resids))
-wrap_elements(~plotResiduals(heron.resids, form = factor(rep(1,nrow(heron_t3))))) 
-wrap_elements(~plotResiduals(heron.resids, quantreg = TRUE))   # leave the quartile calculations off if you have a small amount of data
-wrap_elements(~testDispersion(heron.resids))
+summary(heron_brm_speed)
 ```
 
-**Conclusions:**
+**Group-Level Effects:**
 
--   the simulated residuals do not suggest any issues with the residuals
--   there is no evidence of a lack of fit.
+-   **ReefDev Variability:** The standard deviation of the random intercept for "ReefDev" is 0.39, indicating moderate variation in survival rates between different devices.
 
-### brm- Speed
+-   **Site Variability:** The standard deviation for "Site" is 0.27, showing moderate variability in survival across different sites.
 
-#### **MCMC**
+**Population-Level Effects:**
+
+-   **Intercept:** The intercept estimate of -2.80 suggests low baseline log-odds of survival when median speed is zero and *A. hyacinthus* is the species.
+
+    ```{r}
+    #odds = exp(-2.80)
+    exp(-2.80)
+    # answer = 0.06081006 -- meaning that the odds of A. hyacinthus surviving under these conditions are approximately 0.061. In practical terms, this implies that for every 1 A. hyacinthus coral that survives, around 16.4 do not survive
+    ```
+
+-   **Median Speed:** The positive estimate (6.04) indicates a potential positive effect of median speed on survival, but the wide credible interval (-1.53 to 14.15) suggests uncertainty in this effect.
+
+-   **Species Effect (*A. kenti*):** The estimate for *A. kenti* is 0.68, indicating that *A. kenti* has a higher survival rate than *A. hyacinthus*, with credible intervals suggesting this effect is statistically significant.
+
+    ```{r}
+    #log-odds for A. kenti = -2.80 + 0.68 = -2.12
+    #odds for A. kenti = exp(-2.12)
+    exp(-2.12)
+    # answer = 0.1200316 -- meaning that the odds of survival for A. kenti are approximately 0.120, which implies that for every 1 A. kenti coral that survives, about 8.3 do not survive. This indicates that A. kenti has a higher baseline survival probability than A. hyacinthus.
+    ```
+
+**Conclusion:**
+
+This model suggests that *A. kenti* has a higher survival probability than *A. hyacinthus*, and there might be a positive effect of median speed on survival. However, the effect of median speed is uncertain due to the wide credible intervals. The variability in survival is more significant at the device level (ReefDev) than at the site level.
 
 ```{r}
-pars <- heron_brm_speed |> get_variables()  #capture the list of variables
-pars <- str_extract(pars, "^b_.*|^sd.*") |> na.omit()
-pars
-
-heron_brm_speed$fit |> stan_trace(pars = pars)
-heron_brm_speed$fit |> stan_ac(pars = pars)
-heron_brm_speed$fit |> stan_rhat()
-heron_brm_speed$fit |> stan_ess()
+summary(heron_brm_Ub)
 ```
 
--   **stan_ac**: All below 0.25, all good.
--   **rhat_hist**: Rhat is a **scale reduction factor** measure of convergence between the chains. The closer the values are to 1, the more the chains have converged. Values greater than 1.05 indicate a lack of convergence. There will be an Rhat value for each parameter estimated.
--   **stan_ess:** effective sample size better than previous model, more around 70%
+**Group-Level Effects:**
 
-#### **Posterior probability checks**
+-   **ReefDev Variability:** The standard deviation of the random intercept for "ReefDev" is 0.39, indicating moderate variability in survival rates across different devices.
+
+-   **Site Variability:** The standard deviation for "Site" is 0.30, showing moderate variability in survival between sites.
+
+**Population-Level Effects:**
+
+-   **Intercept:** The intercept estimate is -2.36, indicating low baseline log-odds of survival when *Ub_avrg* is 0 and the species is *A. hyacinthus*.
+
+-   **Ub_avrg (Average Bottom Velocity):** The estimate is 1.12, suggesting that higher average bottom velocity may positively influence survival. However, the credible interval (-0.58 to 2.98) is wide, indicating uncertainty in this effect.
+
+-   **Species Effect (*A. kenti*):** The estimate for *A. kenti* is 0.68, indicating that *A. kenti* has a higher survival rate compared to *A. hyacinthus*. The credible intervals suggest that this effect is statistically significant.
+
+    ```{r}
+    exp(-2.36)
+    -2.36 + 0.68
+    exp(-1.68)
+
+    #odds A. hya = 0.09442022  - The odds of A. hyacinthus surviving are approximately 0.094, or about 1 in 10.6.
+    #odds A. kenti = 0.186374 - The odds of A. kenti surviving are approximately 0.186, or about 1 in 5.4.
+    ```
+
+# Summary
+
+### brm time
 
 ```{r}
-heron_brm_speed |> pp_check(type = 'dens_overlay', ndraws = 100)
-heron_brm_speed |> pp_check (type = "error_scatter_avg")
-heron_brm_speed |> mcmc_plot(type='violin')
+heron_brm_census_interaction |> summary()  
+#SurvDev_Spp ~ Spp * Census + (1 | Site) + (1 | ReefDev)
+heron_brm_wave_3wayinteraction_v1|> summary()  
+#SurvDev_Spp ~ WaveEnergyLevel * Spp * Census + (1 | Site) + (1 | ReefDev)
+heron_brm_ub_interaction|> summary() 
+#SurvDev_Spp ~ Ub_avrg * Spp * Census + (1 | Site) + (1 | ReefDev) 
+heron_brm_speed_interaction |> summary()
+#SurvDev_Spp ~ median_speed * Spp * Census + (1 | Site) + (1 | ReefDev)
+heron_brm_turf_interaction |> summary()
+#SurvDev_Spp ~ turf * Spp * Census + (1 | Site) + (1 | ReefDev) 
+heron_brm_concrete_interaction |> summary()
+#SurvDev_Spp ~ concrete * Spp * Census + (1 | Site) + (1 | ReefDev) 
+heron_brm_PCA|> summary()
+#SurvDev_Spp ~ PC1 + PC2 + Spp + (1 | Site) + (1 | ReefDev) 
 ```
 
-#### **dHARMA residuals**
+### brm t3
 
 ```{r}
-library(DHARMa)
-heron.resids <- make_brms_dharma_res(heron_brm_speed, integerResponse = TRUE)
-testUniformity(heron.resids)
-```
-
-```{r}
-#remove NA values of predictor variable
-heron_t3 <- heron_t3[complete.cases(heron_t3$median_speed),  ]
-
-wrap_elements(~testUniformity(heron.resids))
-wrap_elements(~plotResiduals(heron.resids, form = factor(rep(1,nrow(heron_t3))))) 
-wrap_elements(~plotResiduals(heron.resids, quantreg = TRUE))   # leave the quartile calculations off if you have a small amount of data
-wrap_elements(~testDispersion(heron.resids))
-```
-
-### brm- Ub
-
-#### **MCMC**
-
-```{r}
-pars <- heron_brm_Ub |> get_variables()  #capture the list of variables
-pars <- str_extract(pars, "^b_.*|^sd.*") |> na.omit()
-pars
-
-heron_brm_Ub$fit |> stan_trace(pars = pars)
-heron_brm_Ub$fit |> stan_ac(pars = pars)
-heron_brm_Ub$fit |> stan_rhat()
-heron_brm_Ub$fit |> stan_ess()
-```
-
-#### **Posterior probability checks**
-
-```{r}
-heron_brm_Ub |> pp_check(type = 'dens_overlay', ndraws = 100)
-heron_brm_Ub |> pp_check (type = "error_scatter_avg")
-heron_brm_Ub |> mcmc_plot(type='violin')
-```
-
-#### **dHARMA residuals**
-
-```{r}
-library(DHARMa)
-heron.resids <- make_brms_dharma_res(heron_brm_Ub, integerResponse = TRUE)
-testUniformity(heron.resids)
-```
-
-```{r}
-wrap_elements(~testUniformity(heron.resids))
-wrap_elements(~plotResiduals(heron.resids, form = factor(rep(1,nrow(heron_t3))))) 
-wrap_elements(~plotResiduals(heron.resids, quantreg = TRUE))   # leave the quartile calculations off if you have a small amount of data
-wrap_elements(~testDispersion(heron.resids))
-```
-
-### brm- Wave
-
-#### **MCMC**
-
-```{r}
-pars <- heron_brm_wave |> get_variables()  #capture the list of variables
-pars <- str_extract(pars, "^b_.*|^sd.*") |> na.omit()
-pars
-
-heron_brm_wave$fit |> stan_trace(pars = pars)
-heron_brm_wave$fit |> stan_ac(pars = pars)
-heron_brm_wave$fit |> stan_rhat()
-heron_brm_wave$fit |> stan_ess()
-```
-
-#### **Posterior probability checks**
-
-```{r}
-heron_brm_wave |> pp_check(type = 'dens_overlay', ndraws = 100)
-heron_brm_wave |> pp_check (type = "error_scatter_avg")
-heron_brm_wave |> mcmc_plot(type='violin')
-```
-
-#### **dHARMA residuals**
-
-```{r}
-library(DHARMa)
-heron.resids <- make_brms_dharma_res(heron_brm_wave, integerResponse = FALSE)
-testUniformity(heron.resids)
-```
-
-```{r}
-wrap_elements(~testUniformity(heron.resids))
-wrap_elements(~plotResiduals(heron.resids, form = factor(rep(1,nrow(heron_t3))))) 
-wrap_elements(~plotResiduals(heron.resids, quantreg = TRUE))   # leave the quartile calculations off if you have a small amount of data
-wrap_elements(~testDispersion(heron.resids))
-```
-
-### brm - turf
-
-#### **MCMC**
-
-```{r}
-pars <- heron_brm_turf |> get_variables()  #capture the list of variables
-pars <- str_extract(pars, "^b_.*|^sd.*") |> na.omit()
-
-heron_brm_turf$fit |> stan_trace(pars = pars)
-heron_brm_turf$fit |> stan_ac(pars = pars)
-heron_brm_turf$fit |> stan_rhat()
-heron_brm_turf$fit |> stan_ess()
-```
-
-#### **Posterior probability checks**
-
-```{r}
-heron_brm_turf |> pp_check(type = 'dens_overlay', ndraws = 100)
-heron_brm_turf |> pp_check (type = "error_scatter_avg")
-heron_brm_turf |> mcmc_plot(type='violin')
-```
-
-#### **dHARMA residuals**
-
-```{r}
-library(DHARMa)
-heron.resids <- make_brms_dharma_res(heron_brm_turf, integerResponse = FALSE)
-testUniformity(heron.resids)
-```
-
-```{r}
-wrap_elements(~testUniformity(heron.resids))
-wrap_elements(~plotResiduals(heron.resids, form = factor(rep(1,nrow(heron_t3))))) 
-wrap_elements(~plotResiduals(heron.resids, quantreg = TRUE))   # leave the quartile calculations off if you have a small amount of data
-wrap_elements(~testDispersion(heron.resids))
-```
-
-### brm- PC1
-
-#### **MCMC**
-
-```{r}
-pars <- heron_brm_PC1 |> get_variables()  #capture the list of variables
-pars <- str_extract(pars, "^b_.*|^sd.*") |> na.omit()
-
-
-heron_brm_PC1$fit |> stan_trace(pars = pars)
-heron_brm_PC1$fit |> stan_ac(pars = pars)
-heron_brm_PC1$fit |> stan_rhat()
-heron_brm_PC1$fit |> stan_ess()
-```
-
-#### **Posterior probability checks**
-
-```{r}
-heron_brm_PC1 |> pp_check(type = 'dens_overlay', ndraws = 100)
-heron_brm_PC1 |> pp_check (type = "error_scatter_avg")
-heron_brm_PC1 |> mcmc_plot(type='violin')
-```
-
-#### **dHARMA residuals**
-
-```{r}
-library(DHARMa)
-heron.resids <- make_brms_dharma_res(heron_brm_PC1, integerResponse = FALSE)
-testUniformity(heron.resids)
-```
-
-```{r}
-wrap_elements(~testUniformity(heron.resids))
-wrap_elements(~plotResiduals(heron.resids, form = factor(rep(1,nrow(heron_t3))))) 
-wrap_elements(~plotResiduals(heron.resids, quantreg = TRUE))   # leave the quartile calculations off if you have a small amount of data
-wrap_elements(~testDispersion(heron.resids))
-```
-
-# Further analyses
-
-## Visualization
-
-```{r}
-#heron_brm |> conditional_effects() |> plot(points=TRUE)
-heron_brm_speed |> conditional_effects() |> plot(points=TRUE)
-heron_brm_Ub |> conditional_effects() |> plot(points=TRUE)
-heron_brm_turf |> conditional_effects() |> plot(points=TRUE)
-heron_brm_wave |> conditional_effects() |> plot(points=TRUE)
-heron_brm_PC|> conditional_effects() |> plot(points=TRUE)
-```
-
-### Figure 1
-
-```{r partialPlot2h1b, results='markdown', eval=TRUE, mhidden=TRUE, fig.width=8, fig.height=5}
-
-ggpredict(heron_brm_speed, terms = ~median_speed) %>%
-   plot(add.data = TRUE)
- 
-
-Fig1a <- ggemmeans(heron_brm_speed, terms = ~median_speed) %>%
-  plot(add.data = TRUE) 
-
-conditional_effects(heron_brm_speed) |> 
-  plot(points = TRUE)
-
-Fig1b <- heron_brm_speed %>% emmeans(~median_speed , type = 'link') %>%
-    as.data.frame() %>%
-    ggplot(aes(y = emmean, x = median_speed)) +
-   # geom_hline(yintercept = c(5,-5), linetype = 'dashed') +
-    geom_pointrange(aes(ymin = lower.HPD, ymax = upper.HPD)) +
-    geom_point(data = heron_t3, aes(y = SurvDev),
-              # position = position_jitter(width=0.02, height = 0),
-               alpha=0.4, color = 'red') +  
-     labs(title = "heron Reef", x = "Median Speed (m/s)", y = "Estimated marginal mean - Survival (yield)") +  # Axis labels
-  theme_minimal()  # Apply minimal theme
-
-print(Fig1a)
-print(Fig1b)
-
-#ggsave("Fig1a - heron Predicted probabilities SurvDev.jpeg", Fig1a, width = 10, height = 6)
-#ggsave("Fig1b - heron Estimated marginal means SurvDev.jpeg", Fig1b, width = 10, height = 6)
-#saved on 05/04/2024
-
-
-```
-
-### Figure 2
-
-```{r}
-new_data <- data.frame(
-  median_speed = median_speed_seq
-)
-
-# Extract fitted draws for the new data
-#fitted_draws <- add_epred_draws(heron.speed.brm, newdata = new_data, allow_new_levels = TRUE)
-
-fitted_draws <- heron.speed.brm |>
-  add_fitted_draws(newdata = new_data, allow_new_levels = TRUE)
-
-summary_stats <- fitted_draws |>
-    summarise(
-    mean_survival_probability = mean(.value), #calculating the predicted means
-    se = sd(.value) / sqrt(n())  # Calculate standard error
-  ) |>
-  ungroup()
-
-
-# Plotting the results
-Fig2 <- ggplot(summary_stats, aes(x = median_speed_seq, y = mean_survival_probability, group = 1)) +
-  geom_line() +  
-  geom_point() +  
-#  geom_errorbar(aes(ymin = mean_survival_probability - se, ymax = mean_survival_probability + se), 
-#                width = 0.1) +  # Set the width of the error bars  
-  labs( title = "heron Reef", y = "survival probability", x = "median speed (m/s)") +
-  theme_bw() + theme(text = element_text(size = 12)) 
-
-print(Fig2)
-#ggsave("Fig2 - heron Survival probabilities.jpeg", Fig2, width = 10, height = 6)
-#saved on 05/04/2024
-```
-
-# Interpretation
-
-### brm time:
-
-```{r}
-heron_brm_time |> summary()
-heron_brm_Spp_dev|> summary()
-heron_brm_Spp_time|> summary()
-heron_brm_time_wave|> summary()
-heron_brm_time_Ub|> summary()
-heron_brm_time_Speed|> summary()
-heron_brm_time_turf|> summary()
-heron_brm_time_concrete|> summary()
-heron_brm_time_PCA|> summary()
-```
-
-### brm t3:
-
-```{r}
-heron_brm |> summary()
-#heron_brm_t3_Spp_dev|> summary()
+heron_brm_t3_Spp_dev|> summary()
 #heron_brm_t3_Spp|> summary()
+#heron_brm_SppSiteDev |> summary()
 heron_brm_wave|> summary()
 heron_brm_Ub|> summary()
 heron_brm_speed|> summary()
@@ -1240,88 +1880,44 @@ heron_brm_concrete|> summary()
 heron_brm_PCA|> summary()
 ```
 
-```{r}
-heron_brm |> r2_loo()
-heron_brm_t3_Spp_dev|> r2_loo()
-heron_brm_t3_Spp|> r2_loo()
-heron_brm_wave|> r2_loo()
-heron_brm_Ub|> r2_loo()
-heron_brm_speed|> r2_loo()
-heron_brm_turf|> r2_loo()
-heron_brm_concrete|> r2_loo()
-heron_brm_PC|> r2_loo()
-```
-
-### speed
+# Pairwise comparisons
 
 ```{r}
-heron_brm_speed |> summary()
+emms <- emmeans(heron_brm_census_interaction, ~ Spp )
+contrast(emms, method = "pairwise")
+#can only do it for species because it is the only fixed effect in the model, cannot make pairwise comparisons for random effect of site or deviceID because they represent variability in the data rather than specific conditions or categories. Therefore, pairwise comparisons are limited to fixed effects (Spp).
 ```
 
 ```{r}
-heron_brm_speed$fit |> tidyMCMC(estimate.method = "median", 
-                            conf.int = TRUE, 
-                            conf.method = "HPDinterval", 
-                            rhat = TRUE, 
-                            ess = TRUE, 
-                            exponential = TRUE)
+# Hypothesis: Survival for A. kenti > A. hyacinthus at Site 1
+hypothesis(heron_brm_census_interaction, "SppA.kenti > 0")
+
 ```
+
+# R2
 
 ```{r}
-heron_speed_tidy <- heron_brm_speed |> as_draws_df()  |>
-  dplyr::select(matches("^b_.*")) |>    # a more sophisticated way of selecting (and searching) for pattersn in our column headers
-  mutate(across(everything(), exp)) |>
-  summarise_draws("median",            #  for every column calculate the median
-                 ~HDInterval::hdi(.x), #  highest density intervals come from a specific package and threfore you need to specify the package it comes from, and therefore you need to put a ~ infront of it, and (.x) 
-                  "rhat",               # for every column give me the rhat 
-                  "ess_bulk",           # for every column give me the ess_bulk
-                 P = ~mean(.x <1),    # what is the probability that there is any effect (100%)
-                 P5 = ~mean(.x <0.95),  # what is the probability that there is a 5% decline?
-                 P50= ~mean(.x <0.5)) # what is the probability that there is a 50% decline?
-  
-#RUN IN CONSOLE
-#write.xlsx(heron.speed.brm.tidy, file = "data/Heron survival-speed brm tidy_odds ratio.xlsx") #Saving this data for interpretation in a manuscript
-
+#heron_brm |> r2_loo()
+#heron_brm_t3_Spp|> r2_loo()
+heron_brm_census_interaction|> r2_loo()
+heron_brm_wave_3wayinteraction_v1|> r2_loo()
+heron_brm_ub_interaction|> r2_loo()
+heron_brm_speed_interaction|> r2_loo()
+heron_brm_turf_interaction|> r2_loo()
+heron_brm_concrete_interaction|> r2_loo()
+heron_brm_PCA|> r2_loo()
 ```
-
-[**This table is the easiest to describe as your narrative for the biology/ecology of your data.**]{.underline} Also we have now first done the exponential of each number and then summarized this, instead of first summarizing it and then calculating the exponential of it. Therefore, for the Confidence Interval of b_median_current_speed we are now looking for that this range [**does not exceed 1**]{.underline} (as the exponential of zero is 1). Does the interval of \[0.0000- 0.0001489\] includes 1? NO! Therefore we have evidence that our slope decreases with current
-
-### Ub
-
-```{r}
-heron_brm_Ub |> summary()
-```
-
-### Wave
-
-```{r}
-heron_brm_wave |> summary()
-```
-
-### Turf
-
-```{r}
-heron_brm_turf |> summary()
-```
-
-### Concrete
-
-```{r}
-heron_brm_concrete |> summary()
-```
-
-### R2
 
 ```{r}
 # Store models in a list
 models <- list(
-  heron_brm = heron_brm,
+  heron_brm = heron_brm_SppSiteDev,
   heron_brm_speed = heron_brm_speed,
   heron_brm_wave = heron_brm_wave,
   heron_brm_Ub = heron_brm_Ub,
   heron_brm_turf = heron_brm_turf,
   heron_brm_concrete = heron_brm_concrete,
-  heron_brm_PC1 = heron_brm_PC1
+  heron_brm_PC1 = heron_brm_PCA
 )
 
 # Apply operations and store results in a list
@@ -1333,13 +1929,539 @@ results <- lapply(models, function(model) {
 
 # Print the list of results
 print(results)
+```
+
+# \-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\--
+
+# Figures
+
+### Conditional effects
+
+```{r}
+heron_brm_census_interaction |> conditional_effects() |> plot(points=TRUE)
+heron_brm_wave_3wayinteraction_v1 |> conditional_effects() |> plot(points=TRUE)
+heron_brm_ub_interaction |> conditional_effects() |> plot(points=TRUE)
+heron_brm_speed_interaction |> conditional_effects() |> plot(points=TRUE)
+heron_brm_turf_interaction |> conditional_effects() |> plot(points=TRUE)
+heron_brm_concrete_interaction |> conditional_effects() |> plot(points=TRUE)
+heron_brm_PCA |> conditional_effects() |> plot(points=TRUE)
 
 ```
 
+# \-\-\-\-- Interaction --------
+
 ```{r}
-heron_brm_speed |> 
-  as_draws_df() |>
-  dplyr::select(matches("^b_.*")) |>
-  mutate(LD50 = -1*b_Intercept / b_median_speed) |>
-  median_hdci(LD50)
+heron_variables <- heronSpp_subset |>
+  select(c(Census, SurvDev_Spp, Ub_avrg, WaveEnergyLevel, turf, concrete, median_speed, Spp))
+
+
+heron_variables_new <- data.frame(
+  Ub_avrg = NA,  # Use NA since there are no actual values
+  WaveEnergyLevel = NA,
+  turf = NA,
+  concrete = NA,
+  median_speed = NA,
+  SurvDev_Spp = NA, 
+  Spp = NA,
+  Census = "t6"
+)
+
+# Combine the new species data with the original heron data
+heron_combined <- rbind(heron_variables, heron_variables_new)
+heron_combined$Census <- factor(heron_combined$Census, levels = c("t1", "t2", "t6", "t3"))
+heron_combined <- heron_combined |>   filter(!is.na(Census))
+
+remove(heron_variables_new)
+```
+
+##### Species
+
+```{r}
+# Generate the conditional effects for both species together
+heron_conditional_effects_brmCensus <- conditional_effects(heron_brm_census_interaction, effects = "Spp:Census")
+
+# Extract the data for the census effect
+census_effects_data <- heron_conditional_effects_brmCensus$`Spp:Census`
+```
+
+```{r}
+# Plot the effects with separate lines and ribbons for each species and census time
+plot_heron_Spp <- ggplot(census_effects_data, aes(x = Spp, y = estimate__, color = Census, group = interaction(Spp, Census))) +
+  geom_point(position = position_dodge(width = 0.5), size = 3) +
+  geom_errorbar(aes(ymin = lower__, ymax = upper__), position = position_dodge(width = 0.5), width = 0.2) +
+  
+  # Add jittered raw data points for individual observations
+  geom_jitter(data = heron_variables, 
+              aes(x = Spp, y = SurvDev_Spp, color = Census), 
+              alpha = 0.5, width = 0.05, height = 0) +
+  
+  labs(color = "Census time", y = "Survival probability", x = "Species") +
+  
+  # Define manual colors for the census times
+  scale_color_manual(values = c("t1" = "orange", "t2" = "#009E73", "t3" = "#F0E442"),
+                     labels = c("t1" = "72 days", "t2" = "417 days", "t3" = "842 days")) +
+    theme_minimal() +
+  theme(
+    panel.border = element_rect(color = "black", fill = NA, linewidth = 0.5),
+    axis.ticks = element_line(color = "black", linewidth = 0.5),
+    axis.ticks.length = unit(0.25, "cm"),
+    axis.title.x = element_text(size = 12),
+    axis.title.y = element_text(size = 12)
+  )
+
+# Display the plot
+print(plot_heron_Spp)
+```
+
+##### Bottom Stress
+
+Generate conditional effects for each timepoint
+
+```{r}
+heron_heron_conditional_effects_brmUb_t1 <- conditional_effects(heron_brm_ub_interaction, conditions = data.frame(Census = "t1"))
+heron_heron_conditional_effects_brmUb_t2 <- conditional_effects(heron_brm_ub_interaction, conditions = data.frame(Census = "t2"))
+heron_heron_conditional_effects_brmUb_t3 <- conditional_effects(heron_brm_ub_interaction, conditions = data.frame(Census = "t3"))
+```
+
+```{r}
+# Corrected plot with x-axis label
+plot_heron_Ub <- ggplot() +
+  geom_line(data = heron_heron_conditional_effects_brmUb_t1$Ub_avrg, aes(x = Ub_avrg, y = estimate__), color = "orange") +
+  geom_ribbon(data = heron_heron_conditional_effects_brmUb_t1$Ub_avrg, aes(x = Ub_avrg, ymin = lower__, ymax = upper__), fill = "orange", alpha = 0.3) +
+  
+  geom_line(data = heron_heron_conditional_effects_brmUb_t2$Ub_avrg, aes(x = Ub_avrg, y = estimate__), color = "#009E73") +
+  geom_ribbon(data = heron_heron_conditional_effects_brmUb_t2$Ub_avrg, aes(x = Ub_avrg, ymin = lower__, ymax = upper__), fill = "#009E73", alpha = 0.3) +
+  
+  geom_line(data = heron_heron_conditional_effects_brmUb_t3$Ub_avrg, aes(x = Ub_avrg, y = estimate__), color = "#D4A517") +
+  geom_ribbon(data = heron_heron_conditional_effects_brmUb_t3$Ub_avrg, aes(x = Ub_avrg, ymin = lower__, ymax = upper__), fill = "#F0E442", alpha = 0.3) +
+  
+  geom_jitter(data = heron_combined, 
+              aes(x = Ub_avrg, y = SurvDev_Spp, color = Census), 
+              alpha = 0.5, width = 0.05, height = 0) +
+  
+  labs(x = "Bottom stress\n(m s-1)", y = NULL, color = "Census time") + # Add x-axis label here
+  
+ # Modify the plot legend to use months-based labels
+scale_color_manual(
+    values = c("t1" = "orange", "t2" = "#009E73", "t6" = "#0072B2", "t3" = "#F0E442"),  
+    labels = c("t1" = "3 months", 
+               "t2" = "10-14 months", 
+               "t6" = "17 months",
+               "t3" = "28 months")
+  ) +
+  theme_minimal() +
+  theme(
+     axis.text.x = element_text(size = 12),  # Increase x-axis tick label size
+  axis.text.y = element_text(size = 12),  # Increase y-axis tick label size
+   axis.title.x = element_text(size = 13),  # Increase x-axis title size
+    panel.border = element_rect(color = "black", fill = NA, linewidth = 0.5),
+    axis.ticks = element_line(color = "black", linewidth = 0.5),
+    axis.ticks.length = unit(0.25, "cm")
+  )
+
+print(plot_heron_Ub)
+```
+
+##### Wave Energy
+
+Generate conditional effects for each timepoint
+
+```{r}
+heron_conditional_effects_brmwave_t1 <- conditional_effects(heron_brm_wave_3wayinteraction_v1, conditions = data.frame(Census = "t1"))
+heron_conditional_effects_brmwave_t2 <- conditional_effects(heron_brm_wave_3wayinteraction_v1, conditions = data.frame(Census = "t2"))
+heron_conditional_effects_brmwave_t3 <- conditional_effects(heron_brm_wave_3wayinteraction_v1, conditions = data.frame(Census = "t3"))
+```
+
+```{r}
+# Plot the effects with separate lines and ribbons for each species
+plot_heron_wave <- ggplot() +
+  geom_line(data = heron_conditional_effects_brmwave_t1$WaveEnergyLevel, aes(x = WaveEnergyLevel, y = estimate__), color = "orange") +
+  geom_ribbon(data = heron_conditional_effects_brmwave_t1$WaveEnergyLevel, aes(x = WaveEnergyLevel, ymin = lower__, ymax = upper__), fill = "orange", alpha = 0.3) +
+  
+  geom_line(data = heron_conditional_effects_brmwave_t2$WaveEnergyLevel, aes(x = WaveEnergyLevel, y = estimate__), color = "#009E73") +
+  geom_ribbon(data = heron_conditional_effects_brmwave_t2$WaveEnergyLevel, aes(x = WaveEnergyLevel, ymin = lower__, ymax = upper__), fill = "#009E73", alpha = 0.3) +
+  
+  geom_line(data = heron_conditional_effects_brmwave_t3$WaveEnergyLevel, aes(x = WaveEnergyLevel, y = estimate__), color = "#D4A517") +
+  geom_ribbon(data = heron_conditional_effects_brmwave_t3$WaveEnergyLevel, aes(x = WaveEnergyLevel, ymin = lower__, ymax = upper__), fill = "#F0E442", alpha = 0.3) +
+  
+  geom_jitter(data = heron_combined, 
+              aes(x = WaveEnergyLevel, y = SurvDev_Spp, color = Census), 
+              alpha = 0.5, width = 0.2, height = 0) +
+  labs(x = "Nom. Wave Energy Level\n", y = NULL, color = "Census time") + # Add x-axis label here
+  
+  # Modify the plot legend to use months-based labels
+scale_color_manual(
+    values = c("t1" = "orange", "t2" = "#009E73", "t6" = "#0072B2", "t3" = "#F0E442"),  
+    labels = c("t1" = "3 months", 
+               "t2" = "10-14 months", 
+               "t6" = "17 months",
+               "t3" = "28 months")
+  ) +
+  theme_minimal() +
+  theme(
+     axis.text.x = element_text(size = 12),  # Increase x-axis tick label size
+  axis.text.y = element_text(size = 12),  # Increase y-axis tick label size
+   axis.title.x = element_text(size = 13),  # Increase x-axis title size
+    panel.border = element_rect(color = "black", fill = NA, linewidth = 0.5),
+    axis.ticks = element_line(color = "black", linewidth = 0.5),
+    axis.ticks.length = unit(0.25, "cm")
+  )
+
+print(plot_heron_wave)
+
+```
+
+##### Flow Velocity
+
+Generate conditional effects for each timepoint
+
+```{r}
+heron_conditional_effects_brmspeed_t1 <- conditional_effects(heron_brm_speed_interaction, conditions = data.frame(Census = "t1"))
+heron_conditional_effects_brmspeed_t2 <- conditional_effects(heron_brm_speed_interaction, conditions = data.frame(Census = "t2"))
+heron_conditional_effects_brmspeed_t3 <- conditional_effects(heron_brm_speed_interaction, conditions = data.frame(Census = "t3"))
+```
+
+```{r}
+# Plot the effects with separate lines and ribbons for each species
+plot_heron_speed <- ggplot() +
+  geom_line(data = heron_conditional_effects_brmspeed_t1$median_speed, aes(x = median_speed, y = estimate__), color = "orange") +
+  geom_ribbon(data = heron_conditional_effects_brmspeed_t1$median_speed, aes(x = median_speed, ymin = lower__, ymax = upper__), fill = "orange", alpha = 0.3) +
+  
+  geom_line(data = heron_conditional_effects_brmspeed_t2$median_speed, aes(x = median_speed, y = estimate__), color = "#009E73") +
+  geom_ribbon(data = heron_conditional_effects_brmspeed_t2$median_speed, aes(x = median_speed, ymin = lower__, ymax = upper__), fill = "#009E73", alpha = 0.3) +
+  
+  geom_line(data = heron_conditional_effects_brmspeed_t3$median_speed, aes(x = median_speed, y = estimate__), color = "#D4A517") +
+  geom_ribbon(data = heron_conditional_effects_brmspeed_t3$median_speed, aes(x = median_speed, ymin = lower__, ymax = upper__), fill = "#F0E442", alpha = 0.3) +
+  
+  geom_jitter(data = heron_combined, 
+              aes(x = median_speed, y = SurvDev_Spp, color = Census), 
+              alpha = 0.5, width = 0.01, height = 0)   +
+  labs(x = "Median flow velocity\n(m s-1)", y = NULL, color = "Census time") + # Add x-axis label here
+  
+ # Modify the plot legend to use months-based labels
+scale_color_manual(
+    values = c("t1" = "orange", "t2" = "#009E73", "t6" = "#0072B2", "t3" = "#F0E442"),  
+    labels = c("t1" = "3 months", 
+               "t2" = "10-14 months", 
+               "t6" = "17 months",
+               "t3" = "28 months")
+  ) +
+  theme_minimal() +
+  theme(
+     axis.text.x = element_text(size = 12),  # Increase x-axis tick label size
+  axis.text.y = element_text(size = 12),  # Increase y-axis tick label size
+   axis.title.x = element_text(size = 13),  # Increase x-axis title size
+    panel.border = element_rect(color = "black", fill = NA, linewidth = 0.5),
+    axis.ticks = element_line(color = "black", linewidth = 0.5),
+    axis.ticks.length = unit(0.25, "cm"))
+
+print(plot_heron_speed)
+
+```
+
+##### Turf
+
+```{r}
+heron_conditional_effects_brmturf_t1 <- conditional_effects(heron_brm_turf_interaction, conditions = data.frame(Census = "t1"))
+heron_conditional_effects_brmturf_t2 <- conditional_effects(heron_brm_turf_interaction, conditions = data.frame(Census = "t2"))
+heron_conditional_effects_brmturf_t3 <- conditional_effects(heron_brm_turf_interaction, conditions = data.frame(Census = "t3"))
+```
+
+```{r}
+# Plot the effects with separate lines and ribbons for each species
+plot_heron_turf <- ggplot() +
+  geom_line(data = heron_conditional_effects_brmturf_t1$turf, aes(x = turf, y = estimate__), color = "orange") +
+  geom_ribbon(data = heron_conditional_effects_brmturf_t1$turf, aes(x = turf, ymin = lower__, ymax = upper__), fill = "orange", alpha = 0.3) +
+  
+  geom_line(data = heron_conditional_effects_brmturf_t2$turf, aes(x = turf, y = estimate__), color = "#009E73") +
+  geom_ribbon(data = heron_conditional_effects_brmturf_t2$turf, aes(x = turf, ymin = lower__, ymax = upper__), fill = "#009E73", alpha = 0.3) +
+  
+  geom_line(data = heron_conditional_effects_brmturf_t3$turf, aes(x = turf, y = estimate__), color = "#D4A517") +
+  geom_ribbon(data = heron_conditional_effects_brmturf_t3$turf, aes(x = turf, ymin = lower__, ymax = upper__), fill = "#F0E442", alpha = 0.3) +
+  
+  geom_jitter(data = heron_combined, 
+              aes(x = turf, y = SurvDev_Spp, color = Census), 
+              alpha = 0.5, width = 0.05, height = 0) +
+    labs(x = "Sedimentation on turf\n(mg cm-2 day-1)", y = NULL, color = "Census time") + 
+ # Modify the plot legend to use months-based labels
+scale_color_manual(
+    values = c("t1" = "orange", "t2" = "#009E73", "t6" = "#0072B2", "t3" = "#F0E442"),  
+    labels = c("t1" = "3 months", 
+               "t2" = "10-14 months", 
+               "t6" = "17 months",
+               "t3" = "28 months")
+  ) +
+  theme_minimal() +
+  theme(
+     axis.text.x = element_text(size = 12),  # Increase x-axis tick label size
+  axis.text.y = element_text(size = 12),  # Increase y-axis tick label size
+   axis.title.x = element_text(size = 13),  # Increase x-axis title size
+    panel.border = element_rect(color = "black", fill = NA, linewidth = 0.5),
+    axis.ticks = element_line(color = "black", linewidth = 0.5),
+    axis.ticks.length = unit(0.25, "cm"))
+
+print(plot_heron_turf)
+
+```
+
+##### Concrete
+
+```{r}
+heron_conditional_effects_brmconcrete_t1 <- conditional_effects(heron_brm_concrete_interaction, conditions = data.frame(Census = "t1"))
+heron_conditional_effects_brmconcrete_t2 <- conditional_effects(heron_brm_concrete_interaction, conditions = data.frame(Census = "t2"))
+heron_conditional_effects_brmconcrete_t3 <- conditional_effects(heron_brm_concrete_interaction, conditions = data.frame(Census = "t3"))
+```
+
+```{r}
+# Plot the effects with separate lines and ribbons for each species
+plot_heron_concrete <- ggplot() +
+  geom_line(data = heron_conditional_effects_brmconcrete_t1$concrete, aes(x = concrete, y = estimate__), color = "orange") +
+  geom_ribbon(data = heron_conditional_effects_brmconcrete_t1$concrete, aes(x = concrete, ymin = lower__, ymax = upper__), fill = "orange", alpha = 0.3) +
+  
+  geom_line(data = heron_conditional_effects_brmconcrete_t2$concrete, aes(x = concrete, y = estimate__), color = "#009E73") +
+  geom_ribbon(data = heron_conditional_effects_brmconcrete_t2$concrete, aes(x = concrete, ymin = lower__, ymax = upper__), fill = "#009E73", alpha = 0.3) +
+  
+  geom_line(data = heron_conditional_effects_brmconcrete_t3$concrete, aes(x = concrete, y = estimate__), color = "#D4A517") +
+  geom_ribbon(data = heron_conditional_effects_brmconcrete_t3$concrete, aes(x = concrete, ymin = lower__, ymax = upper__), fill = "#F0E442", alpha = 0.3) +
+  
+  geom_jitter(data = heron_combined, 
+              aes(x = concrete, y = SurvDev_Spp, color = Census), 
+              alpha = 0.5, width = 0.05, height = 0) +
+  
+  labs(x = "Sedimentation on concrete\n(mg cm-2 day-1)", y = NULL, color = "Census time") + # Line break in x-axis label
+   # Modify the plot legend to use months-based labels
+scale_color_manual(
+    values = c("t1" = "orange", "t2" = "#009E73", "t6" = "#0072B2", "t3" = "#F0E442"),  
+    labels = c("t1" = "3 months", 
+               "t2" = "10-14 months", 
+               "t6" = "17 months",
+               "t3" = "28 months")
+  ) +
+  theme_minimal() +
+  theme(
+   axis.text.x = element_text(size = 12),  # Increase x-axis tick label size
+  axis.text.y = element_text(size = 12),  # Increase y-axis tick label size
+   axis.title.x = element_text(size = 13),  # Increase x-axis title size
+  panel.border = element_rect(color = "black", fill = NA, linewidth = 0.5),
+  axis.ticks = element_line(color = "black", linewidth = 0.5),
+  axis.ticks.length = unit(0.25, "cm")
+    )
+
+print(plot_heron_concrete)
+
+```
+
+# \-\-\-\-- Final Timepoint -------
+
+Select the environmental predictors for the plots, then create empty entries for Amil so that it appears in the figure legends (for complete species representation), and then combine the new species data with the selected heron data.
+
+```{r}
+heron_variables <- heron_Spp_t3 |>
+  select(c(SurvDev_Spp, Ub_avrg, WaveEnergyLevel, sedturf_t2, sedconcrete_t2, median_speed, Spp))
+
+heron_variables_new <- data.frame(
+  Ub_avrg = NA,  # Use NA since there are no actual values
+  WaveEnergyLevel = NA,
+  sedturf_t2 = NA,
+  sedconcrete_t2 = NA,
+  median_speed = NA,
+  SurvDev_Spp = NA, 
+  Spp = c("A. millepora")
+)
+
+# Combine the new species data with the original heron data
+heron_combined <- rbind(heron_variables, heron_variables_new)
+
+remove(heron_variables)
+remove(heron_variables_new)
+```
+
+##### Bottom Stress
+
+Generate conditional effects separately for each species
+
+```{r}
+heron_conditional_effects_brmUb_hyacinthus <- conditional_effects(heron_brm_Ub, conditions = data.frame(Spp = "A. hyacinthus"))
+heron_conditional_effects_brmUb_kenti <- conditional_effects(heron_brm_Ub, conditions = data.frame(Spp = "A. kenti"))
+```
+
+Create plot:
+
+```{r}
+# Plot the effects with separate lines and ribbons for each species
+plot_heron_Ub <- ggplot() +
+  geom_line(data = heron_conditional_effects_brmUb_hyacinthus$Ub_avrg, aes(x = Ub_avrg, y = estimate__), color = "orange") +
+  geom_ribbon(data = heron_conditional_effects_brmUb_hyacinthus$Ub_avrg, aes(x = Ub_avrg, ymin = lower__, ymax = upper__), fill = "orange", alpha = 0.3) +
+  geom_line(data = heron_conditional_effects_brmUb_kenti$Ub_avrg, aes(x = Ub_avrg, y = estimate__), color = "#009E73") +
+  geom_ribbon(data = heron_conditional_effects_brmUb_kenti$Ub_avrg, aes(x = Ub_avrg, ymin = lower__, ymax = upper__), fill = "#009E73", alpha = 0.3) +
+  geom_jitter(data = heron_combined, 
+              aes(x = Ub_avrg, y = SurvDev_Spp, color = Spp), 
+              alpha = 0.5, width = 0.05, height = 0) +
+  labs(color = "Species") +
+  scale_color_manual(values = c("A. hyacinthus" = "orange", "A. kenti" = "#009E73", "A. millepora" = "#F0E442")) +
+  theme_minimal() +
+  theme(
+    panel.border = element_rect(color = "black", fill = NA, linewidth = 0.5),
+    axis.ticks = element_line(color = "black", linewidth = 0.5),
+    axis.ticks.length = unit(0.25, "cm"),
+    axis.title.x = element_blank(),
+    axis.title.y = element_blank()
+  )
+
+print(plot_heron_Ub)
+
+```
+
+##### Wave Energy Level
+
+Generate conditional effects separately for each species
+
+```{r}
+heron_conditional_effects_brmWave_hyacinthus <- conditional_effects(heron_brm_wave , conditions = data.frame(Spp = "A. hyacinthus"))
+heron_conditional_effects_brmWave_kenti <- conditional_effects(heron_brm_wave , conditions = data.frame(Spp = "A. kenti"))
+```
+
+Create plot:
+
+```{r}
+# Plot the effects with separate lines and ribbons for each species
+plot_heron_wave <- ggplot() +
+  geom_line(data = heron_conditional_effects_brmWave_hyacinthus$WaveEnergyLevel, aes(x = WaveEnergyLevel, y = estimate__), color = "orange") +
+  geom_ribbon(data = heron_conditional_effects_brmWave_hyacinthus$WaveEnergyLevel, aes(x = WaveEnergyLevel, ymin = lower__, ymax = upper__), fill = "orange", alpha = 0.3) +
+  geom_line(data = heron_conditional_effects_brmWave_kenti$WaveEnergyLevel, aes(x = WaveEnergyLevel, y = estimate__), color = "#009E73") +
+  geom_ribbon(data = heron_conditional_effects_brmWave_kenti$WaveEnergyLevel, aes(x = WaveEnergyLevel, ymin = lower__, ymax = upper__), fill = "#009E73", alpha = 0.3) +
+  geom_jitter(data = heron_combined, 
+              aes(x = WaveEnergyLevel, y = SurvDev_Spp, color = Spp), 
+              alpha = 0.5, width = 0.2, height = 0) +
+  labs(color = "Species") +
+  scale_color_manual(values = c("A. hyacinthus" = "orange", "A. kenti" = "#009E73", "A. millepora" = "#F0E442")) +
+  theme_minimal() +
+  theme(
+    panel.border = element_rect(color = "black", fill = NA, linewidth = 0.5),
+    axis.ticks = element_line(color = "black", linewidth = 0.5),
+    axis.ticks.length = unit(0.25, "cm"),
+    axis.title.x = element_blank(),
+    axis.title.y = element_blank()
+  )
+
+print(plot_heron_wave)
+```
+
+##### Flow velocity
+
+Generate conditional effects separately for each species
+
+```{r}
+heron_conditional_effects_brmSpeed_hyacinthus <- conditional_effects(heron_brm_speed , conditions = data.frame(Spp = "A. hyacinthus"))
+heron_conditional_effects_brmSpeed_kenti <- conditional_effects(heron_brm_speed , conditions = data.frame(Spp = "A. kenti"))
+```
+
+Create plot:
+
+```{r}
+# Plot the effects with separate lines and ribbons for each species
+plot_heron_speed <- ggplot() +
+  geom_line(data = heron_conditional_effects_brmSpeed_hyacinthus$median_speed, aes(x = median_speed, y = estimate__), color = "orange") +
+  geom_ribbon(data = heron_conditional_effects_brmSpeed_hyacinthus$median_speed, aes(x = median_speed, ymin = lower__, ymax = upper__), fill = "orange", alpha = 0.3) +
+  geom_line(data = heron_conditional_effects_brmSpeed_kenti$median_speed, aes(x = median_speed, y = estimate__), color = "#009E73") +
+  geom_ribbon(data = heron_conditional_effects_brmSpeed_kenti$median_speed, aes(x = median_speed, ymin = lower__, ymax = upper__), fill = "#009E73", alpha = 0.3) +
+  geom_jitter(data = heron_combined, 
+              aes(x = median_speed, y = SurvDev_Spp, color = Spp), 
+              alpha = 0.5, width = 0.05, height = 0) +
+  labs(color = "Species") +
+  scale_color_manual(values = c("A. hyacinthus" = "orange", "A. kenti" = "#009E73", "A. millepora" = "#F0E442")) +
+  theme_minimal() +
+  theme(
+    panel.border = element_rect(color = "black", fill = NA, linewidth = 0.5),
+    axis.ticks = element_line(color = "black", linewidth = 0.5),
+    axis.ticks.length = unit(0.25, "cm"),
+    axis.title.x = element_blank(),
+    axis.title.y = element_blank()
+  )
+
+print(plot_heron_speed)
+```
+
+##### Turf
+
+Generate conditional effects separately for each species
+
+```{r}
+heron_conditional_effects_brmTurf_hyacinthus <- conditional_effects(heron_brm_turf , conditions = data.frame(Spp = "A. hyacinthus"))
+heron_conditional_effects_brmTurf_kenti <- conditional_effects(heron_brm_turf , conditions = data.frame(Spp = "A. kenti"))
+```
+
+Create plot:
+
+```{r}
+# Plot the effects with separate lines and ribbons for each species
+plot_heron_turf <- ggplot() +
+  geom_line(data = heron_conditional_effects_brmTurf_hyacinthus$sedturf_t2, aes(x = sedturf_t2, y = estimate__), color = "orange") +
+  geom_ribbon(data = heron_conditional_effects_brmTurf_hyacinthus$sedturf_t2, aes(x = sedturf_t2, ymin = lower__, ymax = upper__), fill = "orange", alpha = 0.3) +
+  geom_line(data = heron_conditional_effects_brmTurf_kenti$sedturf_t2, aes(x = sedturf_t2, y = estimate__), color = "#009E73") +
+  geom_ribbon(data = heron_conditional_effects_brmTurf_kenti$sedturf_t2, aes(x = sedturf_t2, ymin = lower__, ymax = upper__), fill = "#009E73", alpha = 0.3) +
+  geom_jitter(data = heron_combined, 
+              aes(x = sedturf_t2, y = SurvDev_Spp, color = Spp), 
+              alpha = 0.5, width = 0.05, height = 0) +
+  labs(color = "Species") +
+  scale_color_manual(values = c("A. hyacinthus" = "orange", "A. kenti" = "#009E73", "A. millepora" = "#F0E442")) +
+  theme_minimal() +
+  theme(
+    panel.border = element_rect(color = "black", fill = NA, linewidth = 0.5),
+    axis.ticks = element_line(color = "black", linewidth = 0.5),
+    axis.ticks.length = unit(0.25, "cm"),
+    axis.title.x = element_blank(),
+    axis.title.y = element_blank()
+  )
+
+print(plot_heron_turf)
+```
+
+##### Concrete
+
+Generate conditional effects separately for each species
+
+```{r}
+heron_conditional_effects_brmConcrete_hyacinthus <- conditional_effects(heron_brm_concrete , conditions = data.frame(Spp = "A. hyacinthus"))
+heron_conditional_effects_brmConcrete_kenti <- conditional_effects(heron_brm_concrete , conditions = data.frame(Spp = "A. kenti"))
+```
+
+Create plot:
+
+```{r}
+# Plot the effects with separate lines and ribbons for each species
+plot_heron_concrete <- ggplot() +
+  geom_line(data = heron_conditional_effects_brmConcrete_hyacinthus$sedconcrete_t2, aes(x = sedconcrete_t2, y = estimate__), color = "orange") +
+  geom_ribbon(data = heron_conditional_effects_brmConcrete_hyacinthus$sedconcrete_t2, aes(x = sedconcrete_t2, ymin = lower__, ymax = upper__), fill = "orange", alpha = 0.3) +
+  geom_line(data = heron_conditional_effects_brmConcrete_kenti$sedconcrete_t2, aes(x = sedconcrete_t2, y = estimate__), color = "#009E73") +
+  geom_ribbon(data = heron_conditional_effects_brmConcrete_kenti$sedconcrete_t2, aes(x = sedconcrete_t2, ymin = lower__, ymax = upper__), fill = "#009E73", alpha = 0.3) +
+  geom_jitter(data = heron_combined, 
+              aes(x = sedconcrete_t2, y = SurvDev_Spp, color = Spp), 
+              alpha = 0.5, width = 0.05, height = 0) +
+  labs(color = "Species") +
+  scale_color_manual(values = c("A. hyacinthus" = "orange", "A. kenti" = "#009E73", "A. millepora" = "#F0E442")) +
+  theme_minimal() +
+  theme(
+    panel.border = element_rect(color = "black", fill = NA, linewidth = 0.5),
+    axis.ticks = element_line(color = "black", linewidth = 0.5),
+    axis.ticks.length = unit(0.25, "cm"),
+    axis.title.x = element_blank(),
+    axis.title.y = element_blank()
+  )
+
+print(plot_heron_concrete)
+```
+
+### \_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_
+
+### Save figures:
+
+```{r}
+setwd("C:/Users/sjurriaa/Australian Institute of Marine Science/Carly Randall - Randall Lab/CAD/CAD Year1/")
+ggsave("output/figures survival/Heron Survival Spp interaction.jpeg", plot_heron_Spp, width = 10, height = 6)
+ggsave("output/figures survival/Heron Survival Ub interaction.jpeg", plot_heron_Ub, width = 10, height = 6)
+ggsave("output/figures survival/Heron Survival WaveEnergyLevel interaction.jpeg", plot_heron_wave, width = 10, height = 6)
+ggsave("output/figures survival/Heron Survival Median Speed interaction.jpeg", plot_heron_speed, width = 10, height = 6)
+ggsave("output/figures survival/Heron Survival Turf interaction.jpeg", plot_heron_turf, width = 10, height = 6)
+ggsave("output/figures survival/Heron Survival Concrete interaction.jpeg", plot_heron_concrete, width = 10, height = 6)
 ```

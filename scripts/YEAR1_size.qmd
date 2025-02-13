@@ -52,17 +52,19 @@ library(openxlsx)    # to write excel documents
 #library(INLAutils)  #for additional INLA outputs
 theme_set(theme_grey()) #put the default ggplot theme back
 library(lme4)
-#source('helperFunctions.R')
 library(gridExtra)
 library(gtable)
 library(grid)
 library(egg)
+#source('helperFunctions.R')
 ```
 
 # Read in the data
 
 ```{r}
 #| label: import data
+#| warning: false
+#| message: false
 survival <- read_excel("data/YEAR1_Survival.xlsx", 
     col_types = c("numeric", "skip", "text", 
         "skip", "skip", "numeric", "skip", 
@@ -200,6 +202,16 @@ davies <- davies |>
     sedconcrete_t5 = ifelse(is.na(sedconcrete_t5), max(sedconcrete_t5, na.rm = TRUE), sedconcrete_t5)
     ) |>
   ungroup()
+
+davies <- davies |> 
+  group_by(Site) |>
+  mutate(sedturf = ((sedturf_t2+sedturf_t5)/2),
+         sedconcrete = ((sedconcrete_t2+sedconcrete_t5)/2)
+         ) |>
+  select(-c(sedturf_t2, sedturf_t5, sedconcrete_t2, sedconcrete_t5))
+
+
+  
 ```
 
 Heron:
@@ -273,7 +285,6 @@ moore_lmer6 <- lmer(Size_log ~ sedturf_t5 + (1 | Site / ReefDev), data=moore)
 moore_lmer7 <- lmer(Size_log ~ sedconcrete_t5 + (1 | Site / ReefDev), data=moore)
 moore_lmer8 <- lmer(Size_log ~ PC1 + PC2 + (1 | Site / ReefDev), data=moore) 
 
-summary(moore_lmer1)
 summary(moore_lmer2)
 summary(moore_lmer3)
 summary(moore_lmer4)
@@ -356,7 +367,7 @@ head(marginal_means_cat_df)
 Calculate marginal means for log transformed response variable
 
 ```{r}
-marginal_means_log<- emmeans(moore_lmer4log, ~median_speed)
+marginal_means_log<- emmeans(moore_lmer4, ~median_speed)
 marginal_means_log_df <- as.data.frame(marginal_means)
 
 head(marginal_means_df)
@@ -535,7 +546,7 @@ head(marginal_means_cat_df)
 Calculate marginal means for log transformed response variable
 
 ```{r}
-marginal_means_log<- emmeans(davies_lmer4log, ~median_speed) 
+marginal_means_log<- emmeans(davies_lmer4, ~median_speed) 
 marginal_means_log_df <- as.data.frame(marginal_means)  
 head(marginal_means_df)
 ```
@@ -653,6 +664,8 @@ AIC(heron_lmer5a, heron_lmer6a, heron_lmer7a)
 Check models with Sedimentation as factor:
 
 ```{r}
+#| warning: false
+#| message: false
 heron_long <- heron |>
   pivot_longer(cols = c(sedturf_t2, sedconcrete_t2), 
                names_to = "SedPod", 
@@ -684,9 +697,6 @@ ggplot(data=heron, aes(y = Size_log, x = median_speed, color = Spp)) +
   geom_point()+    
   geom_smooth(method="lm", formula = y~poly(x,3), se = FALSE)  
 
-#plot with speed as categorical data 
-ggplot(data=heron, aes(y = Size_log, x = median_speed_cat, color = Spp)) +    
-  geom_point()  
 ```
 
 Calculate marginal means
@@ -698,27 +708,11 @@ marginal_means_df <- as.data.frame(marginal_means)
 head(marginal_means_df)
 ```
 
-Calculate marginal means for the categorical variable
-
-```{r}
-marginal_means_cat <- emmeans(heron_lmer4cat, ~ median_speed_cat) 
-marginal_means_cat_df <- as.data.frame(marginal_means_cat)  
-
-# Inspect the marginal means dataframe 
-head(marginal_means_cat_df) 
-```
-
-Calculate marginal means for log transformed response variable
-
-```{r}
-marginal_means_log<- emmeans(heron_lmer4Spp, ~median_speed) 
-marginal_means_log_df <- as.data.frame(marginal_means)  
-head(marginal_means_df)
-```
-
 Vizualize marginal means with median speed as a continuous variable
 
 ```{r}
+#|warning: false
+#|mmessage: false
 # Plot raw data with marginal means - RAW DATA SCALE 
 ggplot() +   geom_point(data = heron, aes(x = median_speed, y = Size, color = Spp)) +  
   geom_line(data = marginal_means_df, aes(x = median_speed, y = emmean, group = 1), size = 1) +   
@@ -745,35 +739,48 @@ ggplot() +
   theme_modern() 
 ```
 
-And with median speed as a categorical variable
-
-```{r}
-# Plot raw data with marginal means and confidence intervals for categorical variable 
-ggplot() +   
-  geom_point(data = heron, aes(x = median_speed_cat, y = Size, color = Spp), alpha = 0.3) +  # Raw data points with transparency   
-  geom_line(data = marginal_means_cat_df, aes(x = median_speed_cat, y = emmean, group = 1), color = "blue", size = 1) +   
-  geom_errorbar(data = marginal_means_cat_df, aes(x = median_speed_cat, ymin = lower.CL, ymax = upper.CL), width = 0.2, color = "blue") +   
-  theme_minimal() +   
-  labs(title = "Raw Data and Marginal Means: Size vs. Median Speed (Categorical)",        
-       x = "Median Speed (Categorical)",        
-       y = "Size") +   
-  theme_modern()
-```
-
 # \-\-\-\-\-\-\-\-\-\-\-\-- Bayesian-----------------
 
 # Moore
 
 NOTE: I tried model structures with ReefDev nested within site (1\|Site/ReefDev), however it gives problems with the model stability and robustness (see poor pareto - k values when performing looic). Therefore continuing with model structure with only site as random effect in it, because it provides a more robust model, despite higher looic values.
 
+**UPDATE** 24/08/2024 - Added **(1\|ReefDev)** as random factor to account for corals that are being counted on the same device
+
+##### brm0 - null model
+
+```{r}
+moore_size_site <-  bf(Size_log ~ (1 | Site) + (1|ReefDev), family = gaussian())
+
+priors <- prior(normal(0, 5), class = "Intercept") +  # for intercept
+  prior(cauchy(0,2), class = 'sd') +                  # for random effects - Site
+  prior(cauchy(0, 2), class = "sigma")                # for residual error (??)
+
+moore_brm0_size <- brm(moore_size_site,
+                 data=moore,
+                 prior = priors,
+                 sample_prior = 'yes',
+                 iter = 5000,
+                 warmup = 1000,
+                 chains = 3, cores = 3,
+                 thin = 5,
+                 refresh = 0,
+                 control = list(adapt_delta = 0.99),
+                backend = "rstan")
+
+# To save the model use >> 
+#save(moore_brm0_size, file = "scripts/models/moore/size/moore_brm0_size.RData") 
+```
+
 ##### brm1 - wave
 
 ```{r}
-moore_size_wave <-  bf(Size_log ~ WaveEnergyLevel + (1 | Site), family = gaussian())
+moore_size_wave <-  bf(Size_log ~ WaveEnergyLevel + (1 | Site) + (1|ReefDev), family = gaussian())
 
 priors <- prior(normal(0, 5), class = "Intercept") +  # for intercept
   prior(normal(0,5), class = "b") +                   # for fixed effects - WaveEnergyLevel
-  prior(cauchy(0,2), class = 'sd')                    # for random effects - Site
+  prior(cauchy(0,2), class = 'sd') +                  # for random effects - Site
+  prior(cauchy(0, 2), class = "sigma")                # for residual error (??)
 
 moore_brm1_size <- brm(moore_size_wave,
                  data=moore,
@@ -798,20 +805,21 @@ moore_brm1_size |> pp_check(type = 'dens_overlay', ndraws = 100)
 moore_brm1_size |> pp_check (type = "error_scatter_avg")
 moore_brm1_size  |> pp_check(group = 'Site', type = 'violin_grouped')
 
-moore.resids1 <- make_brms_dharma_res(moore_brm1_size, integerResponse = FALSE)
-testUniformity(moore.resids1)
-plotResiduals(moore.resids1)
-testDispersion(moore.resids1)
+#moore.resids1 <- make_brms_dharma_res(moore_brm1_size, integerResponse = FALSE)
+#testUniformity(moore.resids1)
+#plotResiduals(moore.resids1)
+#testDispersion(moore.resids1)
 ```
 
 ##### brm2 - Ub_avrg
 
 ```{r}
-moore_size_Ub <-  bf(Size_log ~ Ub_avrg + (1 | Site), family = gaussian())
+moore_size_Ub <-  bf(Size_log ~ Ub_avrg + (1 | Site) + (1|ReefDev), family = gaussian())
 
 priors <- prior(normal(0, 5), class = "Intercept") +  # for intercept
   prior(normal(0,5), class = "b") +                   # for fixed effects - Ub
-  prior(cauchy(0,2), class = 'sd')                    # for random effects - Site
+  prior(cauchy(0,2), class = 'sd') +                  # for random effects - Site
+  prior(cauchy(0, 2), class = "sigma")                # for residual error (??)
 
 moore_brm2_size <- brm(moore_size_Ub,
                  data=moore,
@@ -836,20 +844,21 @@ moore_brm2_size |> pp_check(type = 'dens_overlay', ndraws = 100)
 moore_brm2_size |> pp_check (type = "error_scatter_avg")
 moore_brm2_size  |> pp_check(group = 'Site', type = 'violin_grouped')
 
-moore.resids2 <- make_brms_dharma_res(moore_brm2_size, integerResponse = FALSE)
-testUniformity(moore.resids2)
-plotResiduals(moore.resids2)
-testDispersion(moore.resids2)
+#moore.resids2 <- make_brms_dharma_res(moore_brm2_size, integerResponse = FALSE)
+#testUniformity(moore.resids2)
+#plotResiduals(moore.resids2)
+#testDispersion(moore.resids2)
 ```
 
 ##### brm3 - median_speed
 
 ```{r}
-moore_size_speed <-  bf(Size_log ~ median_speed + (1|Site), family = gaussian())
+moore_size_speed <-  bf(Size_log ~ median_speed + (1|Site) + (1|ReefDev), family = gaussian())
 
 priors <- prior(normal(0, 5), class = "Intercept") +  # for intercept
-  prior(normal(0,5), class = "b") +                   # for fixed effects - speed
-  prior(cauchy(0,2), class = 'sd')                    # for random effects - Site
+  prior(normal(0, 5), class = "b") +                 # for fixed effects - median_speed
+  prior(cauchy(0, 2), class = 'sd') +                # for random effects - Site and ReefDev
+  prior(cauchy(0, 2), class = "sigma")               # for residual error (??)
 
 moore_brm3_size <- brm(moore_size_speed,
                  data=moore,
@@ -875,20 +884,21 @@ moore_brm3_size |> pp_check(type = 'dens_overlay', ndraws = 100)
 moore_brm3_size |> pp_check (type = "error_scatter_avg")
 moore_brm3_size  |> pp_check(group = 'Site', type = 'violin_grouped')
 
-moore.resids3 <- make_brms_dharma_res(moore_brm3_size, integerResponse = FALSE)
-testUniformity(moore.resids3)
-plotResiduals(moore.resids3)
-testDispersion(moore.resids3)
+#moore.resids3 <- make_brms_dharma_res(moore_brm3_size, integerResponse = FALSE)
+#testUniformity(moore.resids3)
+#plotResiduals(moore.resids3)
+#testDispersion(moore.resids3)
 ```
 
 ##### brm4- sedturf_t5
 
 ```{r}
-moore_size_sedturf <-  bf(Size_log ~ sedturf_t5 + (1|Site), family = gaussian())
+moore_size_sedturf <-  bf(Size_log ~ sedturf_t5 + (1|Site) + (1|ReefDev), family = gaussian())
 
 priors <- prior(normal(0, 5), class = "Intercept") +  # for intercept
   prior(normal(0,5), class = "b") +                   # for fixed effects - speed
-  prior(cauchy(0,2), class = 'sd')                    # for random effects - Site
+  prior(cauchy(0,2), class = 'sd') +                  # for random effects - Site
+  prior(cauchy(0, 2), class = "sigma")                # for residual error (??)
 
 moore_brm4_size <- brm(moore_size_sedturf,
                  data=moore,
@@ -904,7 +914,6 @@ moore_brm4_size <- brm(moore_size_sedturf,
 
 # To save the model use >> 
 #save(moore_brm4_size, file = "scripts/models/moore/size/moore_brm4_size.RData")
-
 ```
 
 Model diagnostics:
@@ -914,20 +923,21 @@ moore_brm4_size |> pp_check(type = 'dens_overlay', ndraws = 100)
 moore_brm4_size |> pp_check (type = "error_scatter_avg")
 moore_brm4_size  |> pp_check(group = 'Site', type = 'violin_grouped')
 
-moore.resids4 <- make_brms_dharma_res(moore_brm4_size, integerResponse = FALSE)
-testUniformity(moore.resids4)
-plotResiduals(moore.resids4)
-testDispersion(moore.resids4)
+#moore.resids4 <- make_brms_dharma_res(moore_brm4_size, integerResponse = FALSE)
+#testUniformity(moore.resids4)
+#plotResiduals(moore.resids4)
+#testDispersion(moore.resids4)
 ```
 
 ##### brm5 - sedconcrete_t5
 
 ```{r}
-moore_size_concrete <-  bf(Size_log ~ sedconcrete_t5 + (1|Site), family = gaussian())  
+moore_size_concrete <-  bf(Size_log ~ sedconcrete_t5 + (1|Site) + (1|ReefDev), family = gaussian())  
 
 priors <- prior(normal(0, 5), class = "Intercept") +  # for intercept   
   prior (normal(0,5), class = "b") +                 # for fixed effects - concrete
-  prior(cauchy(0,2), class = 'sd')                    # for random effects - Site  
+  prior(cauchy(0,2), class = 'sd') +                    # for random effects - Site 
+  prior(cauchy(0, 2), class = "sigma")               # for residual error (??)
 
 moore_brm5_size <- brm(moore_size_concrete,         
                        data=moore,          
@@ -953,19 +963,21 @@ moore_brm5_size |> pp_check(type = 'dens_overlay', ndraws = 100)
 moore_brm5_size |> pp_check (type = "error_scatter_avg") 
 moore_brm5_size  |> pp_check(group = 'Site', type = 'violin_grouped')  
 
-moore.resids5 <- make_brms_dharma_res(moore_brm5_size, integerResponse = FALSE) testUniformity(moore.resids5) 
-plotResiduals(moore.resids5) 
-testDispersion(moore.resids5)
+#moore.resids5 <- make_brms_dharma_res(moore_brm5_size, integerResponse = FALSE) 
+#testUniformity(moore.resids5) 
+#plotResiduals(moore.resids5) 
+#testDispersion(moore.resids5)
 ```
 
 ##### brm6 - habitat
 
 ```{r}
-moore_size_habitat <-  bf(Size_log ~ PC1 + PC2 + (1|Site), family = gaussian())
+moore_size_habitat <-  bf(Size_log ~ PC1 + PC2 + (1|Site) + (1|ReefDev), family = gaussian())
 
 priors <- prior(normal(0, 5), class = "Intercept") +  # for intercept
   prior(normal(0,5), class = "b") +                   # for fixed effects - speed
-  prior(cauchy(0,2), class = 'sd')                    # for random effects - Site
+  prior(cauchy(0,2), class = 'sd') +                    # for random effects - Site
+  prior(cauchy(0, 2), class = "sigma")               # for residual error (??)
 
 moore_brm6_size <- brm(moore_size_habitat,
                  data=moore,
@@ -990,10 +1002,10 @@ moore_brm6_size |> pp_check(type = 'dens_overlay', ndraws = 100)
 moore_brm6_size |> pp_check (type = "error_scatter_avg")
 moore_brm6_size  |> pp_check(group = 'Site', type = 'violin_grouped')
 
-moore.resids6 <- make_brms_dharma_res(moore_brm6_size, integerResponse = FALSE)
-testUniformity(moore.resids6)
-plotResiduals(moore.resids6)
-testDispersion(moore.resids6)
+#moore.resids6 <- make_brms_dharma_res(moore_brm6_size, integerResponse = FALSE)
+#testUniformity(moore.resids6)
+#plotResiduals(moore.resids6)
+#testDispersion(moore.resids6)
 ```
 
 INTERPRETATION:
@@ -1013,6 +1025,7 @@ INTERPRETATION:
 ### Load models
 
 ```{r}
+load(file = "scripts/models/moore/size/moore_brm0_size.RData")
 load(file = "scripts/models/moore/size/moore_brm1_size.RData")
 load(file = "scripts/models/moore/size/moore_brm2_size.RData")
 load(file = "scripts/models/moore/size/moore_brm3_size.RData")
@@ -1039,12 +1052,12 @@ l_turf <- moore_brm4_size|> loo()
 l_concrete <- moore_brm5_size|> loo()
 l_habitat <- moore_brm6_size|> loo()
 
-looic(moore_brm1_size)       #  LOOIC: 332.38 [16.84]
-looic(moore_brm2_size)       #  LOOIC: 331.93 [16.93]
-looic(moore_brm3_size)       #  LOOIC: 332.46 [16.88]
-looic(moore_brm4_size)       #  LOOIC: 332.39 [16.73]
-looic(moore_brm5_size)       #  LOOIC: 332.68 [16.80]
-looic(moore_brm6_size)       #  LOOIC: 309.34 [16.93]
+looic(moore_brm1_size)       #  LOOIC: 319.81 [15.50]
+looic(moore_brm2_size)       #  LOOIC: 318.10 [15.52]
+looic(moore_brm3_size)       #  LOOIC: 319.76 [15.47]
+looic(moore_brm4_size)       #  LOOIC: 320.39 [15.53]
+looic(moore_brm5_size)       #  LOOIC: 318.99 [15.31]
+looic(moore_brm6_size)       #  LOOIC: 303.06 [16.54]
 
 l_speed
 l_Ub
@@ -1062,13 +1075,14 @@ l_habitat
 
 **Standard Error (SE)**: The standard error of the LOOIC or ELPD estimates.
 
-**\*\* Best Model**: `moore_brm6_size` ([l_habitat]{.underline}) has the highest ELPD(-154.67) and the lowest LOOIC (309.34), indicating the best predictive performance among the models compared.
+**\*\* Best Model**: `moore_brm6_size` ([l_habitat]{.underline}) has the highest ELPD(-151.53) and the lowest LOOIC (303.06), indicating the best predictive performance among the models compared.
 
-**\*\* Worst Model**: `moore_brm5_size` ([l_concrete]{.underline}) has the lowest ELPD and the highest LOOIC, indicating the worst predictive performance among the models compared.
+**\*\* Worst Model**: `moore_brm4_size` ([l_turf]{.underline}) has the lowest ELPD and the highest LOOIC, indicating the worst predictive performance among the models compared.
 
 ### Summary
 
 ```{r}
+summary(moore_brm0_size)
 summary(moore_brm1_size)
 summary(moore_brm2_size)
 summary(moore_brm3_size)
@@ -1085,7 +1099,7 @@ All models have good convergence diagnostics (Rhat = 1.00) and sufficient effect
 
 ```{r}
 # Fit your model
-#moore_brm <- brm(Size ~ Site + (1|ReefDev), data = moore, family = gaussian())
+moore_brm <- brm(Size ~ Site + (1|ReefDev), data = moore, family = gaussian())
 
 # Define hypotheses for pairwise comparisons
 hypotheses <- c(
@@ -1116,14 +1130,42 @@ hypothesis_results_summary
 
 NOTE: Same as with Moore models, I tried model structures with ReefDev nested within site (1\|Site/ReefDev), however it gives problems with the model stability and robustness (see poor pareto - k values when performing looic). Therefore continuing with model structure with only site as random effect in it, because it provides a more robust model, despite higher looic values.
 
+UPDATE 24/08/2024 - Added (1\|ReefDev) to account for corals being counted on the same device
+
+##### brm0 - site
+
+```{r}
+davies_size_site <-  bf(Size_log ~ (1|Site) + (1|ReefDev), family = gaussian())  
+
+priors <- prior(normal(0, 5), class = "Intercept") +  # for intercept   
+  prior(cauchy(0,2), class = 'sd') +                   # for random effects - Site 
+  prior(cauchy(0, 2), class = "sigma")               # for residual error (??)
+
+davies_brm0_size <- brm(davies_size_site,                  
+                       data=davies,                  
+                       prior = priors,                  
+                       sample_prior = 'yes',                  
+                       iter = 5000,                  
+                       warmup = 1000,                  
+                       chains = 3, cores = 3,                  
+                       thin = 5,                  
+                       refresh = 0,                  
+                       control = list(adapt_delta = 0.99),                 
+                       backend = "rstan")  
+
+# To save the model use >>  
+#save(davies_brm0_size, file = "scripts/models/davies/size/davies_brm0_size.RData")
+```
+
 ##### brm1 - wave
 
 ```{r}
-davies_size_wave <-  bf(Size_log ~ WaveEnergyLevel + (1|Site), family = gaussian())  
+davies_size_wave <-  bf(Size_log ~ WaveEnergyLevel + (1|Site) + (1|ReefDev), family = gaussian())  
 
 priors <- prior(normal(0, 5), class = "Intercept") +  # for intercept   
   prior(normal(0,5), class = "b") +                   # for fixed effects - WaveEnergyLevel   
-  prior(cauchy(0,2), class = 'sd')                    # for random effects - Site  
+  prior(cauchy(0,2), class = 'sd') +                   # for random effects - Site 
+  prior(cauchy(0, 2), class = "sigma")               # for residual error (??)
 
 davies_brm1_size <- brm(davies_size_wave,                  
                        data=davies,                  
@@ -1148,19 +1190,20 @@ davies_brm1_size |> pp_check(type = 'dens_overlay', ndraws = 100)
 davies_brm1_size |> pp_check (type = "error_scatter_avg") 
 davies_brm1_size  |> pp_check(group = 'Site', type = 'violin_grouped') 
 
-davies.resids1 <- make_brms_dharma_res(davies_brm1_size, integerResponse = FALSE) 
-testUniformity(davies.resids1) 
-plotResiduals(davies.resids1) 
-testDispersion(davies.resids1)
+#davies.resids1 <- make_brms_dharma_res(davies_brm1_size, integerResponse = FALSE) 
+#testUniformity(davies.resids1) 
+#plotResiduals(davies.resids1) 
+#testDispersion(davies.resids1)
 ```
 
 ##### brm2 - Ub_avrg
 
 ```{r}
-davies_size_Ub <-  bf(Size_log ~ Ub_avrg + (1|Site), family = gaussian())  
+davies_size_Ub <-  bf(Size_log ~ Ub_avrg + (1|Site)+ (1|ReefDev), family = gaussian())  
 priors <- prior(normal(0, 5), class = "Intercept") +  # for intercept   
   prior(normal(0,5), class = "b") +                   # for fixed effects - Ub   
-  prior(cauchy(0,2), class = 'sd')                    # for random effects - Site  
+  prior(cauchy(0,2), class = 'sd') +                    # for random effects - Site  
+  prior(cauchy(0, 2), class = "sigma")               # for residual error (??)
 
 davies_brm2_size <- brm(davies_size_Ub,                  
                        data=davies,                  
@@ -1186,19 +1229,20 @@ davies_brm2_size |> pp_check(type = 'dens_overlay', ndraws = 100)
 davies_brm2_size |> pp_check (type = "error_scatter_avg") 
 davies_brm2_size  |> pp_check(group = 'Site', type = 'violin_grouped')  
 
-davies.resids2 <- make_brms_dharma_res(davies_brm2_size, integerResponse = FALSE) 
-testUniformity(davies.resids2) 
-plotResiduals(davies.resids2) 
-testDispersion(davies.resids2)
+#davies.resids2 <- make_brms_dharma_res(davies_brm2_size, integerResponse = FALSE) 
+#testUniformity(davies.resids2) 
+#plotResiduals(davies.resids2) 
+#testDispersion(davies.resids2)
 ```
 
 ##### brm3 - median_speed
 
 ```{r}
-davies_size_speed <-  bf(Size_log ~ median_speed + (1|Site), family = gaussian())  
+davies_size_speed <-  bf(Size_log ~ median_speed + (1|Site)+ (1|ReefDev), family = gaussian())  
 priors <- prior(normal(0, 5), class = "Intercept") +  # for intercept   
   prior(normal(0,5), class = "b") +                   # for fixed effects - speed   
-  prior(cauchy(0,2), class = 'sd')                    # for random effects - Site  
+  prior(cauchy(0,2), class = 'sd') +                   # for random effects - Site 
+  prior(cauchy(0, 2), class = "sigma")               # for residual error (??)
 
 davies_brm3_size <- brm(davies_size_speed,               
                        data=davies,              
@@ -1224,22 +1268,23 @@ davies_brm3_size |> pp_check(type = 'dens_overlay', ndraws = 100)
 davies_brm3_size |> pp_check (type = "error_scatter_avg")
 davies_brm3_size  |> pp_check(group = 'Site', type = 'violin_grouped') 
 
-davies.resids3 <- make_brms_dharma_res(davies_brm3_size, integerResponse = FALSE)
-testUniformity(davies.resids3) 
-plotResiduals(davies.resids3) 
-testDispersion(davies.resids3)
+#davies.resids3 <- make_brms_dharma_res(davies_brm3_size, integerResponse = FALSE)
+#testUniformity(davies.resids3) 
+#plotResiduals(davies.resids3) 
+#testDispersion(davies.resids3)
 ```
 
-##### brm4- sedturf_t2
+##### brm4- sedturf
 
 ```{r}
-davies_size_turf2 <-  bf(Size_log ~ sedturf_t2 + (1|Site), family = gaussian()) 
+davies_size_turf <-  bf(Size_log ~ sedturf + (1|Site)+ (1|ReefDev), family = gaussian()) 
 
 priors <- prior(normal(0, 5), class = "Intercept") +  # for intercept  
   prior(normal(0,5), class = "b") +                   # for fixed effects - speed 
-  prior(cauchy(0,2), class = 'sd')                    # for random effects - Site 
+  prior(cauchy(0,2), class = 'sd') +                    # for random effects - Site
+  prior(cauchy(0, 2), class = "sigma")               # for residual error (??)
 
-davies_brm4_size <- brm(davies_size_turf2,                
+davies_brm4_size <- brm(davies_size_turf,                
                        data=davies,           
                        prior = priors,             
                        sample_prior = 'yes',             
@@ -1263,21 +1308,22 @@ davies_brm4_size |> pp_check(type = 'dens_overlay', ndraws = 100)
 davies_brm4_size |> pp_check (type = "error_scatter_avg") 
 davies_brm4_size  |> pp_check(group = 'Site', type = 'violin_grouped') 
 
-davies.resids4 <- make_brms_dharma_res(davies_brm4_size, integerResponse = FALSE) 
-testUniformity(davies.resids4) 
-plotResiduals(davies.resids4) 
-testDispersion(davies.resids4)
+#davies.resids4 <- make_brms_dharma_res(davies_brm4_size, integerResponse = FALSE) 
+#testUniformity(davies.resids4) 
+#plotResiduals(davies.resids4) 
+#testDispersion(davies.resids4)
 ```
 
-##### brm5 - sedconcrete_t2
+##### brm5 - sedconcrete
 
 ```{r}
-davies_size_concrete2 <-  bf(Size_log ~ sedconcrete_t2 + (1|Site), family = gaussian()) 
+davies_size_concrete <-  bf(Size_log ~ sedconcrete + (1|Site)+ (1|ReefDev), family = gaussian()) 
 priors <- prior(normal(0, 5), class = "Intercept") +  # for intercept  
   prior(normal(0,5), class = "b") +                   # for fixed effects - speed   
-  prior(cauchy(0,2), class = 'sd')                    # for random effects - Site  
+  prior(cauchy(0,2), class = 'sd') +                   # for random effects - Site
+  prior(cauchy(0, 2), class = "sigma")               # for residual error (??)
 
-davies_brm5_size_Spp <- brm(davies_size_concrete2,            
+davies_brm5_size <- brm(davies_size_concrete,            
                        data=davies,              
                        prior = priors,               
                        sample_prior = 'yes',              
@@ -1301,96 +1347,23 @@ davies_brm5_size |> pp_check(type = 'dens_overlay', ndraws = 100)
 davies_brm5_size |> pp_check (type = "error_scatter_avg") 
 davies_brm5_size  |> pp_check(group = 'Site', type = 'violin_grouped') 
 
-davies.resids5 <- make_brms_dharma_res(davies_brm5_size, integerResponse = FALSE) 
-testUniformity(davies.resids5) 
-plotResiduals(davies.resids5)
-testDispersion(davies.resids5)
-```
-
-##### brm6 - sedturf_t5
-
-```{r}
-davies_size_turf5 <-  bf(Size_log ~ sedturf_t5 + (1|Site), family = gaussian()) 
-
-priors <- prior(normal(0, 5), class = "Intercept") +  # for intercept  
-  prior(normal(0,5), class = "b") +                   # for fixed effects - speed 
-  prior(cauchy(0,2), class = 'sd')                    # for random effects - Site 
-
-davies_brm6_size_Spp <- brm(davies_size_turf5,                
-                       data=davies,           
-                       prior = priors,             
-                       sample_prior = 'yes',             
-                       iter = 5000,         
-                       warmup = 1000,    
-                       chains = 3, 
-                       cores = 3,    
-                       thin = 5,             
-                       refresh = 0,                 
-                       control = list(adapt_delta = 0.99),      
-                       backend = "rstan") 
-
-# To save the model use >>  
-#save(davies_brm6_size, file = "scripts/models/davies/size/davies_brm6_size.RData") 
-```
-
-Model diagnostics
-
-```{r}
-davies_brm6_size |> pp_check(type = 'dens_overlay', ndraws = 100)
-davies_brm6_size |> pp_check (type = "error_scatter_avg") 
-davies_brm6_size  |> pp_check(group = 'Site', type = 'violin_grouped') 
-
-davies.resids6 <- make_brms_dharma_res(davies_brm6_size, integerResponse = FALSE) 
-testUniformity(davies.resids6) 
-plotResiduals(davies.resids6)
-testDispersion(davies.resids6)
-```
-
-##### brm7 - sedconcrete_t5
-
-```{r}
-davies_size_concrete5 <-  bf(Size_log ~ sedconcrete_t5 + (1|Site), family = gaussian()) 
-priors <- prior(normal(0, 5), class = "Intercept") +  # for intercept  
-  prior(normal(0,5), class = "b") +                   # for fixed effects - speed   
-  prior(cauchy(0,2), class = 'sd')                    # for random effects - Site  
-
-davies_brm7_size <- brm(davies_size_concrete5,            
-                       data=davies,              
-                       prior = priors,               
-                       sample_prior = 'yes',              
-                       iter = 5000,            
-                       warmup = 1000,     
-                       chains = 3, 
-                       cores = 3,       
-                       thin = 5,            
-                       refresh = 0,               
-                       control = list(adapt_delta = 0.99), 
-                       backend = "rstan")  
-
-# To save the model use >>  
-#save(davies_brm7_size, file = "scripts/models/davies/size/davies_brm7_size.RData")
-```
-
-Model diagnostics
-
-```{r}
-davies_brm7_size |> pp_check(type = 'dens_overlay', ndraws = 100)
-davies_brm7_size |> pp_check (type = "error_scatter_avg") 
-davies_brm7_size  |> pp_check(group = 'Site', type = 'violin_grouped') 
-
-davies.resids7 <- make_brms_dharma_res(davies_brm7_size, integerResponse = FALSE) 
-testUniformity(davies.resids7) 
-plotResiduals(davies.resids7)
-testDispersion(davies.resids7)
+#davies.resids5 <- make_brms_dharma_res(davies_brm5_size, integerResponse = FALSE) 
+#testUniformity(davies.resids5) 
+#plotResiduals(davies.resids5)
+#testDispersion(davies.resids5)
 ```
 
 ##### brm8 - habitat
 
 ```{r}
-davies_size_habitat <-  bf(Size_log ~ PC1 + PC2 + (1|Site), family = gaussian())  
-priors <- prior(normal(0, 5), class = "Intercept") +  # for intercept 
-  prior(normal(0,5), class = "b") +                   # for fixed effects - speed   
-  prior(cauchy(0,2), class = 'sd')                    # for random effects - Site  
+davies_size_habitat <-  bf(Size_log ~ PC1 + PC2 + (1|Site)+ (1|ReefDev), family = gaussian())  
+
+priors <- 
+  prior(normal(0, 5), class = "Intercept") +  # for the intercept   
+  prior(normal(0, 5), class = "b") +  # for fixed effects - PC1, PC2, Spp, and interactions
+  prior(cauchy(0, 2), class = 'sd') +  # for random effects - Site and ReefDev
+  prior(cauchy(0, 2), class = "sigma")  # for residual error (??)
+
 
 davies_brm8_size <- brm(davies_size_habitat, 
                        data=davies,             
@@ -1416,10 +1389,10 @@ davies_brm8_size |> pp_check(type = 'dens_overlay', ndraws = 100)
 davies_brm8_size |> pp_check (type = "error_scatter_avg") 
 davies_brm8_size  |> pp_check(group = 'Site', type = 'violin_grouped') 
 
-davies.resids8 <- make_brms_dharma_res(davies_brm8_size, integerResponse = FALSE) 
-testUniformity(davies.resids8) 
-plotResiduals(davies.resids8)
-testDispersion(davies.resids8)
+#davies.resids8 <- make_brms_dharma_res(davies_brm8_size, integerResponse = FALSE) 
+#testUniformity(davies.resids8) 
+#plotResiduals(davies.resids8)
+#testDispersion(davies.resids8)
 ```
 
 INTERPRETATION:
@@ -1444,12 +1417,10 @@ load(file = "scripts/models/davies/size/davies_brm2_size.RData")
 load(file = "scripts/models/davies/size/davies_brm3_size.RData")
 load(file = "scripts/models/davies/size/davies_brm4_size.RData") 
 load(file = "scripts/models/davies/size/davies_brm5_size.RData")
-load(file = "scripts/models/davies/size/davies_brm6_size.RData")
-load(file = "scripts/models/davies/size/davies_brm7_size.RData")
 load(file = "scripts/models/davies/size/davies_brm8_size.RData")
 
 #OR models with (1|Site/ReefDev) as random effect
-load(file = "scripts/models/davies/size/davies_brm1_nested.RData")
+#load(file = "scripts/models/davies/size/davies_brm1_nested.RData")
 ```
 
 #### Loo compare
@@ -1459,29 +1430,24 @@ load(file = "scripts/models/davies/size/davies_brm1_nested.RData")
 l_wave <- davies_brm1_size |> loo() 
 l_Ub <- davies_brm2_size |> loo() 
 l_speed <- davies_brm3_size |> loo() 
-l_turf2 <- davies_brm4_size|> loo() 
-l_concrete2 <- davies_brm5_size|> loo()
-l_turf5 <- davies_brm6_size|> loo() 
-l_concrete5 <- davies_brm7_size|> loo()
+l_turf <- davies_brm4_size|> loo() 
+l_concrete <- davies_brm5_size|> loo()
 l_habitat <- davies_brm8_size|> loo() 
 
-looic(davies_brm1_size)          #  LOOIC: 133.64 [10.01] 
-looic(davies_brm2_size)          #  LOOIC: 133.35 [9.87]
-looic(davies_brm3_size)          #  LOOIC: 133.41 [10.20]
-looic(davies_brm4_size)          #  LOOIC: 133.06 [10.48]
-looic(davies_brm5_size)          #  LOOIC: 131.72 [10.51]
-looic(davies_brm6_size)          #  LOOIC: 133.71 [10.12]
-looic(davies_brm7_size)          #  LOOIC: 133.31 [10.11] 
-looic(davies_brm8_size)          #  LOOIC: 134.95 [9.71]
+looic(davies_brm0_size)          #  LOOIC: 131.66 [11.21]
+looic(davies_brm1_size)          #  LOOIC: 132.65 [10.79]
+looic(davies_brm2_size)          #  LOOIC: 132.85 [11.06]
+looic(davies_brm3_size)          #  LOOIC: 133.06 [11.11]
+looic(davies_brm4_size)          #  LOOIC: 132.60 [11.74]
+looic(davies_brm5_size)          #  LOOIC: 131.95 [11.08]
+looic(davies_brm8_size)          #  LOOIC: 134.29 [10.67]
 
 
 l_speed 
 l_Ub
 l_wave
-l_turf2 
-l_concrete2
-l_turf5 
-l_concrete5 
+l_turf
+l_concrete
 l_habitat
 ```
 
@@ -1498,13 +1464,12 @@ l_habitat
 #### Summary
 
 ```{r}
+summary(davies_brm0_size)
 summary(davies_brm1_size)
 summary(davies_brm2_size)
 summary(davies_brm3_size)
 summary(davies_brm4_size)
 summary(davies_brm5_size)
-summary(davies_brm6_size)
-summary(davies_brm7_size)
 summary(davies_brm8_size)
 ```
 
@@ -1526,14 +1491,55 @@ All models have good convergence diagnostics (Rhat = 1.00) and sufficient effect
 
 NOTE: Same as with Moore and Davies models, I tried model structures with ReefDev nested within site (1\|Site/ReefDev), however it gives problems with the model stability and robustness (see poor pareto - k values when performing looic). And also some divergent transactions after warm-up. Therefore continuing with model structure with only site as random effect in it, because it provides a more robust model, despite higher looic values.
 
-##### brm1 - wave
+##### brm0 - site
 
 ```{r}
-heron_size_wave <-  bf(Size_log ~ WaveEnergyLevel + (1|Site) + Spp, family = gaussian())
+heron_size <-  bf(Size_log ~ (1|Site)+ (1|ReefDev) + Spp, family = gaussian())
 
 priors <- prior(normal(0, 5), class = "Intercept") +  # for intercept   
   prior(normal(0,5), class = "b") +                   # for fixed effects - WaveEnergyLevel   
-  prior(cauchy(0,2), class = 'sd')                    # for random effects - Site  
+  prior(cauchy(0,2), class = 'sd')  +                  # for random effects - Site 
+  prior(cauchy(0, 2), class = "sigma")  # for residual error (??)
+
+heron_brm0_size_Spp <- brm(heron_size,                  
+                       data=heron,                  
+                       prior = priors,                 
+                       sample_prior = 'yes',          
+                       iter = 5000,               
+                       warmup = 1000,             
+                       chains = 3, 
+                       cores = 3,        
+                       thin = 5,            
+                       refresh = 0,            
+                       control = list(adapt_delta = 0.99),   
+                       backend = "rstan")  
+
+# To save the model use >>  
+#save(heron_brm0_size_Spp, file = "scripts/models/heron/size/heron_brm0_size_Spp.RData")
+```
+
+Model diagnostics
+
+```{r}
+heron_brm0_size_Spp |> pp_check(type = 'dens_overlay', ndraws = 100) 
+heron_brm0_size_Spp |> pp_check (type = "error_scatter_avg") 
+heron_brm0_size_Spp  |> pp_check(group = 'Site', type = 'violin_grouped') 
+
+#heron.resids0 <- make_brms_dharma_res(heron_brm0_size_Spp, integerResponse = FALSE)
+#testUniformity(heron.resids0) 
+#plotResiduals(heron.resids0)
+#testDispersion(heron.resids0)
+```
+
+##### brm1 - wave
+
+```{r}
+heron_size_wave <-  bf(Size_log ~ WaveEnergyLevel * Spp + (1|Site) + (1|ReefDev), family = gaussian())
+
+priors <- prior(normal(0, 5), class = "Intercept") +  # for intercept   
+  prior(normal(0,5), class = "b") +                   # for fixed effects - WaveEnergyLevel   
+  prior(cauchy(0,2), class = 'sd') +                   # for random effects - Site  
+  prior(cauchy(0, 2), class = "sigma")  # for residual error (??)
 
 heron_brm1_size_Spp <- brm(heron_size_wave,                  
                        data=heron,                  
@@ -1559,20 +1565,21 @@ heron_brm1_size_Spp |> pp_check(type = 'dens_overlay', ndraws = 100)
 heron_brm1_size_Spp |> pp_check (type = "error_scatter_avg") 
 heron_brm1_size_Spp  |> pp_check(group = 'Site', type = 'violin_grouped') 
 
-heron.resids1 <- make_brms_dharma_res(heron_brm1_size_Spp, integerResponse = FALSE)
-testUniformity(heron.resids1) 
-plotResiduals(heron.resids1)
-testDispersion(heron.resids1)
+#heron.resids1 <- make_brms_dharma_res(heron_brm1_size_Spp, integerResponse = FALSE)
+#testUniformity(heron.resids1) 
+#plotResiduals(heron.resids1)
+#testDispersion(heron.resids1)
 ```
 
 ##### brm2 - Ub_avrg
 
 ```{r}
-heron_size_Ub <-  bf(Size_log ~ Ub_avrg + (1|Site) + Spp, family = gaussian())  
+heron_size_Ub <-  bf(Size_log ~ Ub_avrg * Spp + (1|Site) + (1|ReefDev), family = gaussian())  
 
 priors <- prior(normal(0, 5), class = "Intercept") +  # for intercept   
   prior(normal(0,5), class = "b") +                   # for fixed effects - Ub  
-  prior(cauchy(0,2), class = 'sd')                    # for random effects - Site  
+  prior(cauchy(0,2), class = 'sd')  +                  # for random effects - Site 
+  prior(cauchy(0, 2), class = "sigma")  # for residual error (??)
 
 heron_brm2_size_Spp <- brm(heron_size_Ub,                 
                        data=heron,          
@@ -1598,20 +1605,21 @@ heron_brm2_size_Spp |> pp_check(type = 'dens_overlay', ndraws = 100)
 heron_brm2_size_Spp |> pp_check (type = "error_scatter_avg") 
 heron_brm2_size_Spp  |> pp_check(group = 'Site', type = 'violin_grouped') 
 
-heron.resids2 <- make_brms_dharma_res(heron_brm2_size_Spp, integerResponse = FALSE)
-testUniformity(heron.resids2) 
-plotResiduals(heron.resids2)
-testDispersion(heron.resids2)
+#heron.resids2 <- make_brms_dharma_res(heron_brm2_size_Spp, integerResponse = FALSE)
+#testUniformity(heron.resids2) 
+#plotResiduals(heron.resids2)
+#testDispersion(heron.resids2)
 ```
 
 ##### brm3 - median_speed
 
 ```{r}
-heron_size_speed <-  bf(Size_log ~ median_speed + Spp + (1|Site), family = gaussian())  
+heron_size_speed <-  bf(Size_log ~ median_speed * Spp + (1|Site) + (1|ReefDev), family = gaussian())  
 
 priors <- prior(normal(0, 5), class = "Intercept") +  # for intercept   
   prior(normal(0,5), class = "b") +                   # for fixed effects - Speed 
-  prior(cauchy(0,2), class = 'sd')                    # for random effects - Site  
+  prior(cauchy(0,2), class = 'sd')  +                  # for random effects - Site  
+  prior(cauchy(0, 2), class = "sigma")  # for residual error (??)
 
 heron_brm3_size_Spp <- brm(heron_size_speed,                 
                        data=heron,          
@@ -1637,20 +1645,21 @@ heron_brm3_size_Spp |> pp_check(type = 'dens_overlay', ndraws = 100)
 heron_brm3_size_Spp |> pp_check (type = "error_scatter_avg") 
 heron_brm3_size_Spp  |> pp_check(group = 'Site', type = 'violin_grouped') 
 
-heron.resids3 <- make_brms_dharma_res(heron_brm3_size_Spp, integerResponse = FALSE)
-testUniformity(heron.resids3) 
-plotResiduals(heron.resids3)
-testDispersion(heron.resids3)
+#heron.resids3 <- make_brms_dharma_res(heron_brm3_size_Spp, integerResponse = FALSE)
+#testUniformity(heron.resids3) 
+#plotResiduals(heron.resids3)
+#testDispersion(heron.resids3)
 ```
 
 ##### brm4- sedturf_t2
 
 ```{r}
-heron_size_turf <-  bf(Size_log ~ sedturf_t2 + Spp + (1|Site), family = gaussian())  
+heron_size_turf <-  bf(Size_log ~ sedturf_t2 * Spp + (1|Site) + (1|ReefDev), family = gaussian())  
 
 priors <- prior(normal(0, 5), class = "Intercept") +  # for intercept   
   prior(normal(0,5), class = "b") +                   # for fixed effects - sedturf 
-  prior(cauchy(0,2), class = 'sd')                    # for random effects - Site  
+  prior(cauchy(0,2), class = 'sd')  +                  # for random effects - Site 
+  prior(cauchy(0, 2), class = "sigma")  # for residual error (??)
 
 heron_brm4_size_Spp <- brm(heron_size_turf,                 
                        data=heron,          
@@ -1677,20 +1686,21 @@ heron_brm4_size_Spp |> pp_check(type = 'dens_overlay', ndraws = 100)
 heron_brm4_size_Spp |> pp_check (type = "error_scatter_avg") 
 heron_brm4_size_Spp  |> pp_check(group = 'Site', type = 'violin_grouped') 
 
-heron.resids4 <- make_brms_dharma_res(heron_brm4_size_Spp, integerResponse = FALSE)
-testUniformity(heron.resids4) 
-plotResiduals(heron.resids4)
-testDispersion(heron.resids4)
+#heron.resids4 <- make_brms_dharma_res(heron_brm4_size_Spp, integerResponse = FALSE)
+#testUniformity(heron.resids4) 
+#plotResiduals(heron.resids4)
+#testDispersion(heron.resids4)
 ```
 
 ##### brm5 - sedconcrete_t2
 
 ```{r}
-heron_size_concrete <-  bf(Size_log ~ sedconcrete_t2 + Spp + (1|Site), family = gaussian())  
+heron_size_concrete <-  bf(Size_log ~ sedconcrete_t2 * Spp + (1|Site) + (1|ReefDev), family = gaussian())  
 
 priors <- prior(normal(0, 5), class = "Intercept") +  # for intercept   
-  prior(normal(0,5), class = "b") +                   # for fixed effects - sedconcrete
-  prior(cauchy(0,2), class = 'sd')                    # for random effects - Site  
+  prior(normal(0,5), class = "b") +                   # for fixed effects - sedconcrete, Spp, interaction
+  prior(cauchy(0,2), class = 'sd') +                  # for random effects - Site and ReefDev
+  prior(cauchy(0, 2), class = "sigma")                # for residual error (??)
 
 heron_brm5_size_Spp <- brm(heron_size_concrete,                 
                        data=heron,          
@@ -1717,20 +1727,21 @@ heron_brm5_size_Spp |> pp_check(type = 'dens_overlay', ndraws = 100)
 heron_brm5_size_Spp |> pp_check (type = "error_scatter_avg") 
 heron_brm5_size_Spp  |> pp_check(group = 'Site', type = 'violin_grouped') 
 
-heron.resids5 <- make_brms_dharma_res(heron_brm5_size_Spp, integerResponse = FALSE)
-testUniformity(heron.resids5) 
-plotResiduals(heron.resids5)
-testDispersion(heron.resids5)
+#heron.resids5 <- make_brms_dharma_res(heron_brm5_size_Spp, integerResponse = FALSE)
+#testUniformity(heron.resids5) 
+#plotResiduals(heron.resids5)
+#testDispersion(heron.resids5)
 ```
 
 ##### brm6 - habitat
 
 ```{r}
-heron_size_habitat <-  bf(Size_log ~ PC1 + PC2 + Spp + (1|Site), family = gaussian())  
+heron_size_habitat <-  bf(Size_log ~ (PC1 * Spp) + (PC2 * Spp) + (1|Site) + (1|ReefDev), family = gaussian())  
 
 priors <- prior(normal(0, 5), class = "Intercept") +  # for intercept   
-  prior(normal(0,5), class = "b") +                   # for fixed effects - PC1 and PC2
-  prior(cauchy(0,2), class = 'sd')                    # for random effects - Site  
+  prior(normal(0,5), class = "b") +                   # for fixed effects - PC1 and PC2, Spp, and interaction
+  prior(cauchy(0,2), class = 'sd')+                   # for random effects - Site and ReefDev
+  prior(cauchy(0,2), class = "sigma")                 # for residual error (??)
 
 heron_brm6_size_Spp <- brm(heron_size_habitat,                 
                        data=heron,          
@@ -1756,10 +1767,10 @@ heron_brm6_size_Spp |> pp_check(type = 'dens_overlay', ndraws = 100)
 heron_brm6_size_Spp |> pp_check (type = "error_scatter_avg") 
 heron_brm6_size_Spp  |> pp_check(group = 'Site', type = 'violin_grouped') 
 
-heron.resids6 <- make_brms_dharma_res(heron_brm6_size_Spp, integerResponse = FALSE)
-testUniformity(heron.resids6) 
-plotResiduals(heron.resids6)
-testDispersion(heron.resids6)
+#heron.resids6 <- make_brms_dharma_res(heron_brm6_size_Spp, integerResponse = FALSE)
+#testUniformity(heron.resids6) 
+#plotResiduals(heron.resids6)
+#testDispersion(heron.resids6)
 ```
 
 NOTES ON THIS:
@@ -1769,14 +1780,8 @@ The models fit the data well, as indicated by the graphical posterior predictive
 ### Load models
 
 ```{r}
-load(file = "scripts/models/heron/size/heron_brm1_size.RData") 
-load(file = "scripts/models/heron/size/heron_brm2_size.RData") 
-load(file = "scripts/models/heron/size/heron_brm3_size.RData") 
-load(file = "scripts/models/heron/size/heron_brm4_size.RData") 
-load(file = "scripts/models/heron/size/heron_brm5_size.RData") 
-load(file = "scripts/models/heron/size/heron_brm6_size.RData")
-
 # OR with Species fixed effect: 
+load(file = "scripts/models/heron/size/heron_brm0_size_Spp.RData")
 load(file = "scripts/models/heron/size/heron_brm1_size_Spp.RData") 
 load(file = "scripts/models/heron/size/heron_brm2_size_Spp.RData") 
 load(file = "scripts/models/heron/size/heron_brm3_size_Spp.RData") 
@@ -1787,10 +1792,10 @@ load(file = "scripts/models/heron/size/heron_brm7_size_Spp_sed.RData")
 load(file = "scripts/models/heron/size/heron_brm8_size_Spp_sedt2.RData")
 
 #OR models with (1|Site/ReefDev) as random effect
-load(file = "scripts/models/heron/size/heron_brm1_size_nested.RData") 
+#load(file = "scripts/models/heron/size/heron_brm1_size_nested.RData") 
 
 #OR models with (1|ReefDev) as random effect
-load(file = "scripts/models/heron/size/heron_brm1_size_reefdev.RData") 
+#load(file = "scripts/models/heron/size/heron_brm1_size_reefdev.RData") 
 ```
 
 ### Loo compare
@@ -1804,12 +1809,13 @@ l_turf_Spp <- heron_brm4_size_Spp|> loo()
 l_concrete_Spp <- heron_brm5_size_Spp|> loo() 
 l_habitat_Spp <- heron_brm6_size_Spp|> loo() 
 
-looic(heron_brm1_size_Spp)      #  LOOIC: 367.82 [14.18]
-looic(heron_brm2_size_Spp)      #  LOOIC: 368.35 [13.74]
-looic(heron_brm3_size_Spp)      #  LOOIC: 367.00 [14.19]
-looic(heron_brm4_size_Spp)      #  LOOIC: 365.94 [13.49]
-looic(heron_brm5_size_Spp)      #  LOOIC: 368.61 [13.58]
-looic(heron_brm6_size_Spp)      #  LOOIC: 365.07 [13.17] 
+looic(heron_brm0_size_Spp)      #  LOOIC: 359.02 [13.08]
+looic(heron_brm1_size_Spp)      #  LOOIC: 358.30 [12.31]
+looic(heron_brm2_size_Spp)      #  LOOIC: 357.69 [12.68]
+looic(heron_brm3_size_Spp)      #  LOOIC: 355.26 [12.77]
+looic(heron_brm4_size_Spp)      #  LOOIC: 357.63 [12.61]
+looic(heron_brm5_size_Spp)      #  LOOIC: 355.71 [12.71]
+looic(heron_brm6_size_Spp)      #  LOOIC: 356.98 [12.34]
 
 l_speed_Spp
 l_Ub_Spp 
@@ -1834,6 +1840,7 @@ The Pareto k diagnostics provide information about the reliability of the LOO es
 ### Summary
 
 ```{r}
+summary(heron_brm0_size_Spp)
 summary(heron_brm1_size_Spp) 
 summary(heron_brm2_size_Spp) 
 summary(heron_brm3_size_Spp) 
@@ -1863,10 +1870,18 @@ Descriptive figure of mean size per reef.
 First re-create dataframe with three reefs and only rows with size values
 
 ```{r}
+moore <- moore |> select(-c(sedturf_t2,sedconcrete_t2)) |>
+  rename(sedturf = sedturf_t5,
+         sedconcrete = sedconcrete_t5)
+heron <- heron |> select(-c(sedturf_t5, sedconcrete_t5)) |>
+    rename(sedturf = sedturf_t2,
+         sedconcrete = sedconcrete_t2)
+ 
 #heron <- heron |>
 #  select(-median_speed_cat)
 
-size_allreef <- rbind(heron, moore, davies)
+size_allreef <- bind_rows(heron, moore, davies)
+str(size_allreef)
 ```
 
 ### Overall Descriptive Statistics by Reef
@@ -1884,7 +1899,7 @@ overall_summary <- size_allreef |>
     devices_count = n_distinct(ReefDev)            # Count the number of unique devices
   )
 
-view(overall_summary)
+overall_summary
 ```
 
 ### Per Site Descriptive Statistics
@@ -1902,7 +1917,7 @@ size_summary_site <- size_allreef |>
     sd_size = sd(Size, na.rm = TRUE)  # Calculate the standard deviation of the size, excluding NA values
   )
 
-view(size_summary_site)
+size_summary_site
 ```
 
 ### Device Observations Count
@@ -1932,7 +1947,7 @@ device_summary <- device_counts |>
   filter(observations_count %in% c(1,2, 3))  # Filter for devices with 2 or 3 observations
 
 # Print the device summary
-print(device_summary)
+device_summary
 ```
 
 # \-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\--
@@ -1950,17 +1965,17 @@ plot_size_site <- ggplot(size_allreef, aes(x= Site, y = Size, color = Spp)) +
    geom_boxplot() +
   scale_color_manual(values = c("A. millepora" = "green", "A. hyacinthus" = "orange", "A. kenti" = "purple")) +
   facet_wrap(~Reef, scales = "free") +
-  labs(title = "Coral Size Distribution Across Sites and Reefs",
-       x = "Site",
+  labs(x = "Site",
        y = "Coral Size (mm3)",
        color = "Species") +
   theme_bw() +
   ylim(0,150) +
-  theme(panel.border = element_rect(color = "black", fill = NA),
+   theme(panel.border = element_rect(color = "black", fill = NA),
         axis.line = element_line(color = "black"),
         axis.text = element_text(size = 12),
-        axis.title = element_text(size = 14), 
-        legend.text = element_text(size = 12))
+        axis.title = element_text(size = 13), 
+        legend.text = element_text(size = 12),
+        strip.text = element_blank())
 
 plot_size_site
 ggsave("Fig3b - Coral Size by site.jpeg", plot=plot_size_site, width = 14, height = 6, dpi = 300)
@@ -2009,7 +2024,7 @@ moore_variables_new <- data.frame(
   sedconcrete_t5 = NA,
   median_speed = NA,
   Size_log = NA, 
-  Spp = c("A_hyacinthus", "A_tenuis")
+  Spp = c("A. hyacinthus", "A. kenti")
 )
 
 # Combine the new species data with the original moore data
@@ -2027,7 +2042,7 @@ new_species_moore <- data.frame(
   sedturf_t5 = rep(NA, length(10)),
   sedconcrete_t5 = rep(NA, length(10)),
   median_speed = rep(NA, length(10)),
-  Spp = c("A_hyacinthus", "A_tenuis"),
+  Spp = c("A. hyacinthus", "A. kenti"),
   Fitted = NA,  
   Lower = NA,   
   Upper = NA    
@@ -2062,6 +2077,14 @@ predicted_data_moore_brm2 <- data.frame(
 
 # Combine the new species data with the original predicted data
 predicted_data_moore_brm2 <- rbind(predicted_data_moore_brm2, moore_brm2)
+
+predicted_data_moore_brm2 <- predicted_data_moore_brm2 |>
+  group_by(Ub_avrg) |>
+  summarise(
+    Fitted = mean(Fitted, na.rm = TRUE),
+    Lower = mean(Lower, na.rm = TRUE),
+    Upper = mean(Upper, na.rm = TRUE)
+  )
 ```
 
 Create plot:
@@ -2075,14 +2098,16 @@ plot_moore_Ub<- ggplot() +
    labs(
      color = "Species",
     fill = "Species") +
-    scale_color_manual(values = c("A_hyacinthus" = "orange", "A_tenuis" = "purple", "A_millepora" = "green")) +
+    scale_color_manual(values = c("A. hyacinthus" = "orange", "A. kenti" = "purple", "A. millepora" = "green")) +
   theme_minimal() +
-  theme(
+     xlab("Bottom stress\n(m s-1)")+
+  theme( axis.text.x = element_text(size = 12),  # Increase x-axis tick label size
+  axis.text.y = element_text(size = 12),  # Increase y-axis tick label size.
+  axis.title.x = element_text(size = 13),  # Increase x-axis title size
     panel.border = element_rect(color = "black", fill = NA, size = 0.5),
     axis.ticks = element_line(color = "black", size = 0.5),
     axis.ticks.length = unit(0.25, "cm"),
-    axis.title.x = element_blank(), # Remove x-axis title
-    axis.title.y = element_blank() 
+     axis.title.y = element_blank()
   )
  
 
@@ -2106,6 +2131,14 @@ predicted_data_moore_brm1 <- data.frame(
 
 # Combine the new species data with the original predicted data
 predicted_data_moore_brm1 <- rbind(predicted_data_moore_brm1, moore_brm1)
+
+predicted_data_moore_brm1 <- predicted_data_moore_brm1 |>
+  group_by(WaveEnergyLevel) |>
+  summarise(
+    Fitted = mean(Fitted, na.rm = TRUE),
+    Lower = mean(Lower, na.rm = TRUE),
+    Upper = mean(Upper, na.rm = TRUE)
+  )
 ```
 
 Create plot:
@@ -2118,20 +2151,20 @@ plot_moore_WaveEnergyLevel <- ggplot() +
   geom_errorbar(data = predicted_data_moore_brm1, aes(x = WaveEnergyLevel, ymin = Lower, ymax = Upper), color = "black", width = 0.1, alpha = 0.5) +
   geom_point(data = predicted_data_moore_brm1, aes(x = WaveEnergyLevel, y = Fitted), color = "black") +
    labs(
-    
     x = "Wave Energy Level",
     y = "Predicted growth log (mm3)",
     color = "Species",
     fill = "Species") +
-   scale_color_manual(values = c("A_hyacinthus" = "orange", "A_tenuis" = "purple", "A_millepora" = "green")) +
+   scale_color_manual(values = c("A. hyacinthus" = "orange", "A. kenti" = "purple", "A. millepora" = "green")) +
   theme_minimal() +
-  theme(
+    xlab("Nom. Wave Energy Level")+
+   theme( axis.text.x = element_text(size = 12),  # Increase x-axis tick label size
+  axis.text.y = element_text(size = 12),  # Increase y-axis tick label size.
+  axis.title.x = element_text(size = 13),  # Increase x-axis title size
     panel.border = element_rect(color = "black", fill = NA, size = 0.5),
     axis.ticks = element_line(color = "black", size = 0.5),
-    axis.ticks.length = unit(0.25, "cm") ,
-    axis.title.x = element_blank(), # Remove x-axis title
-    axis.title.y = element_blank()  # Remove y-axis title
-    
+    axis.ticks.length = unit(0.25, "cm"),
+     axis.title.y = element_blank()
   )
 
 plot(plot_moore_WaveEnergyLevel)
@@ -2155,6 +2188,14 @@ predicted_data_moore_brm3 <- data.frame(
 
 # Combine the new species data with the original predicted data
 predicted_data_moore_brm3 <- rbind(predicted_data_moore_brm3, moore_brm3)
+
+predicted_data_moore_brm3 <- predicted_data_moore_brm3 |>
+  group_by(median_speed) |>
+  summarise(
+    Fitted = mean(Fitted, na.rm = TRUE),
+    Lower = mean(Lower, na.rm = TRUE),
+    Upper = mean(Upper, na.rm = TRUE)
+  )
 ```
 
 Create plot:
@@ -2167,18 +2208,19 @@ plot_moore_speed<- ggplot() +
   geom_point(data = predicted_data_moore_brm3, aes(x = median_speed, y = Fitted), color = "black") +
    labs(
      
-    x = "Median flow velocity (m/s)",
+    x = "Median flow velocity\n(m s-1)",
     y = "Predicted growth (mm3)",
     color = "Species",
     fill = "Species") +
-    scale_color_manual(values = c("A_hyacinthus" = "orange", "A_tenuis" = "purple", "A_millepora" = "green")) +
+    scale_color_manual(values = c("A. hyacinthus" = "orange", "A. kenti" = "purple", "A. millepora" = "green")) +
   theme_minimal() +
-  theme(
+  theme( axis.text.x = element_text(size = 12),  # Increase x-axis tick label size
+  axis.text.y = element_text(size = 12),  # Increase y-axis tick label size.
+  axis.title.x = element_text(size = 13),  # Increase x-axis title size
     panel.border = element_rect(color = "black", fill = NA, size = 0.5),
     axis.ticks = element_line(color = "black", size = 0.5),
-    axis.ticks.length = unit(0.25, "cm") ,
-    axis.title.x = element_blank(), # Remove x-axis title
-    axis.title.y = element_blank()  # Remove y-axis title
+    axis.ticks.length = unit(0.25, "cm"),
+     axis.title.y = element_blank()
        )
  
 plot(plot_moore_speed)
@@ -2202,6 +2244,14 @@ predicted_data_moore_brm4 <- data.frame(
 
 # Combine the new species data with the original predicted data
 predicted_data_moore_brm4 <- rbind(predicted_data_moore_brm4, moore_brm4)
+
+predicted_data_moore_brm4 <- predicted_data_moore_brm4 |>
+  group_by(sedturf_t5) |>
+  summarise(
+    Fitted = mean(Fitted, na.rm = TRUE),
+    Lower = mean(Lower, na.rm = TRUE),
+    Upper = mean(Upper, na.rm = TRUE)
+  )
 ```
 
 Create plot:
@@ -2213,21 +2263,21 @@ plot_moore_turf <- ggplot() +
   geom_jitter(data = moore_combined, aes(x = sedturf_t5, y = Size_log, color = Spp), alpha = 0.5, width = 0.08, height = 0) +
   geom_errorbar(data = predicted_data_moore_brm4, aes(x = sedturf_t5, ymin = Lower, ymax = Upper), color = "black", width = 0.08, alpha = 0.5) +
   geom_point(data = predicted_data_moore_brm4, aes(x = sedturf_t5, y = Fitted), color = "black") +
-   labs(
+     labs(
      
-     x = "Sedimentation on turf (mg cm-2",
+     x = "Sedimentation on turf \n(mg cm-2)",
     y = "Predicted growth (mm3)",
     color = "Species",
     fill = "Species") +
-    scale_color_manual(values = c("A_hyacinthus" = "orange", "A_tenuis" = "purple", "A_millepora" = "green")) +
+    scale_color_manual(values = c("A. hyacinthus" = "orange", "A. kenti" = "purple", "A. millepora" = "green")) +
   theme_minimal() +
-  theme(
+   theme( axis.text.x = element_text(size = 12),  # Increase x-axis tick label size
+  axis.text.y = element_text(size = 12),  # Increase y-axis tick label size.
+  axis.title.x = element_text(size = 13),  # Increase x-axis title size
     panel.border = element_rect(color = "black", fill = NA, size = 0.5),
     axis.ticks = element_line(color = "black", size = 0.5),
     axis.ticks.length = unit(0.25, "cm"),
-    axis.title.x = element_blank(), # Remove x-axis title
-    axis.title.y = element_blank()  # Remove y-axis title
-    
+     axis.title.y = element_blank()
   )
 
 plot(plot_moore_turf)
@@ -2249,6 +2299,14 @@ predicted_data_moore_brm5 <- data.frame(
 
 # Combine the new species data with the original predicted data
 predicted_data_moore_brm5 <- rbind(predicted_data_moore_brm5, moore_brm5)
+
+predicted_data_moore_brm5 <- predicted_data_moore_brm5 |>
+  group_by(sedconcrete_t5) |>
+  summarise(
+    Fitted = mean(Fitted, na.rm = TRUE),
+    Lower = mean(Lower, na.rm = TRUE),
+    Upper = mean(Upper, na.rm = TRUE)
+  )
 ```
 
 ```{r}
@@ -2259,20 +2317,19 @@ plot_moore_concrete <- ggplot() +
   geom_errorbar(data = predicted_data_moore_brm5, aes(x = sedconcrete_t5, ymin = Lower, ymax = Upper), color = "black", width = 0.05, alpha = 0.5) +
   geom_point(data = predicted_data_moore_brm5, aes(x = sedconcrete_t5, y = Fitted), color = "black") +
    labs(
-  
-    x = "Sedimentation on concrete (mg cm-2",
+      x = "Sedimentation on concrete \n(mg cm-2)",
     y = "Predicted growth (mm3)",
     color = "Species",
     fill = "Species") +
-    scale_color_manual(values = c("A_hyacinthus" = "orange", "A_tenuis" = "purple", "A_millepora" = "green")) +
+    scale_color_manual(values = c("A. hyacinthus" = "orange", "A. kenti" = "purple", "A. millepora" = "green")) +
   theme_minimal() +
-  theme(
+    theme( axis.text.x = element_text(size = 12),  # Increase x-axis tick label size
+  axis.text.y = element_text(size = 12),  # Increase y-axis tick label size.
+  axis.title.x = element_text(size = 13),  # Increase x-axis title size
     panel.border = element_rect(color = "black", fill = NA, size = 0.5),
     axis.ticks = element_line(color = "black", size = 0.5),
     axis.ticks.length = unit(0.25, "cm"),
-    axis.title.x = element_blank(), # Remove x-axis title
-    axis.title.y = element_blank()  # Remove y-axis title
-    
+     axis.title.y = element_blank()
   )
 
 plot(plot_moore_concrete)
@@ -2282,18 +2339,16 @@ plot(plot_moore_concrete)
 
 ```{r}
 davies_variables <- davies |>
-  select(c(Spp, Size_log, Ub_avrg, WaveEnergyLevel, sedturf_t5, sedconcrete_t5, sedturf_t2, sedconcrete_t2,median_speed))
+  select(c(Spp, Size_log, Ub_avrg, WaveEnergyLevel, sedturf, sedconcrete, median_speed))
 
 davies_variables_new <- data.frame(
   Ub_avrg = NA,  # Use NA since there are no actual values
   WaveEnergyLevel = NA,
-  sedturf_t5 = NA,
-  sedconcrete_t5 = NA,
-  sedturf_t2 = NA,
-  sedconcrete_t2 = NA,
+  sedturf = NA,
+  sedconcrete = NA,
   median_speed = NA,
   Size_log = NA, 
-  Spp = c("A_millepora", "A_tenuis")
+  Spp = c("A. millepora", "A. kenti")
 )
 
 # Combine the new species data with the original davies data
@@ -2308,12 +2363,10 @@ remove(davies_variables_new)
 new_species_davies <- data.frame(
   Ub_avrg = rep(NA, length(10)),
   WaveEnergyLevel = rep(NA, length(10)),
-  sedturf_t5 = rep(NA, length(10)),
-  sedconcrete_t5 = rep(NA, length(10)),
-  sedturf_t2 = rep(NA, length(10)),
-  sedconcrete_t2 = rep(NA, length(10)),
+  sedturf = rep(NA, length(10)),
+  sedconcrete = rep(NA, length(10)),
   median_speed = rep(NA, length(10)),
-  Spp = c("A_millepora", "A_tenuis"),
+  Spp = c("A. millepora", "A. kenti"),
   Fitted = NA,  
   Lower = NA,   
   Upper = NA    
@@ -2326,13 +2379,9 @@ davies_brm2 <- new_species_davies |>
 davies_brm3 <- new_species_davies |>
   select(c(median_speed, Spp, Fitted, Lower, Upper))
 davies_brm4 <- new_species_davies |>
-  select(c(sedturf_t2, Spp, Fitted, Lower, Upper))
+  select(c(sedturf, Spp, Fitted, Lower, Upper))
 davies_brm5 <- new_species_davies |>
-  select(c(sedconcrete_t2, Spp, Fitted, Lower, Upper))
-davies_brm6 <- new_species_davies |>
-  select(c(sedturf_t5, Spp, Fitted, Lower, Upper))
-davies_brm7 <- new_species_davies |>
-  select(c(sedconcrete_t5, Spp, Fitted, Lower, Upper))
+  select(c(sedconcrete, Spp, Fitted, Lower, Upper))
 ```
 
 ##### Bottom Stress
@@ -2352,6 +2401,14 @@ predicted_data_davies_brm2 <- data.frame(
 
 # Combine the new species data with the original predicted data
 predicted_data_davies_brm2 <- rbind(predicted_data_davies_brm2, davies_brm2)
+
+predicted_data_davies_brm2 <- predicted_data_davies_brm2 |>
+  group_by(Ub_avrg) |>
+  summarise(
+    Fitted = mean(Fitted, na.rm = TRUE),
+    Lower = mean(Lower, na.rm = TRUE),
+    Upper = mean(Upper, na.rm = TRUE)
+  )
 ```
 
 Create plot:
@@ -2367,14 +2424,16 @@ plot_davies_Ub<- ggplot() +
     y = "Predicted growth (mm3)",
     color = "Species",
     fill = "Species") +
-    scale_color_manual(values = c("A_hyacinthus" = "orange", "A_tenuis" = "purple", "A_millepora" = "green")) +
+    scale_color_manual(values = c("A. hyacinthus" = "orange", "A. kenti" = "purple", "A. millepora" = "green")) +
   theme_minimal() +
-  theme(
+   xlab("Bottom stress\n(m s-1)")+
+   theme( axis.text.x = element_text(size = 12),  # Increase x-axis tick label size
+  axis.text.y = element_text(size = 12),  # Increase y-axis tick label size.
+  axis.title.x = element_text(size = 13),  # Increase x-axis title size
     panel.border = element_rect(color = "black", fill = NA, size = 0.5),
     axis.ticks = element_line(color = "black", size = 0.5),
     axis.ticks.length = unit(0.25, "cm"),
-     axis.title.x = element_blank(), # Remove x-axis title
-    axis.title.y = element_blank()  # Remove y-axis title
+     axis.title.y = element_blank()
   )
 
 plot(plot_davies_Ub)
@@ -2397,6 +2456,14 @@ predicted_data_davies_brm1 <- data.frame(
 
 # Combine the new species data with the original predicted data
 predicted_data_davies_brm1 <- rbind(predicted_data_davies_brm1, davies_brm1)
+
+predicted_data_davies_brm1 <- predicted_data_davies_brm1 |>
+  group_by(WaveEnergyLevel) |>
+  summarise(
+    Fitted = mean(Fitted, na.rm = TRUE),
+    Lower = mean(Lower, na.rm = TRUE),
+    Upper = mean(Upper, na.rm = TRUE)
+  )
 ```
 
 Create plot:
@@ -2413,14 +2480,16 @@ plot_davies_WaveEnergyLevel <- ggplot() +
     y = "Predicted growth (mm3)",
     color = "Species",
     fill = "Species") +
-   scale_color_manual(values = c("A_hyacinthus" = "orange", "A_tenuis" = "purple", "A_millepora" = "green")) +
+   scale_color_manual(values = c("A. hyacinthus" = "orange", "A. kenti" = "purple", "A. millepora" = "green")) +
   theme_minimal() +
-  theme(
+    xlab("Nom. Wave Energy Level")+
+  theme( axis.text.x = element_text(size = 12),  # Increase x-axis tick label size
+  axis.text.y = element_text(size = 12),  # Increase y-axis tick label size.
+  axis.title.x = element_text(size = 13),  # Increase x-axis title size
     panel.border = element_rect(color = "black", fill = NA, size = 0.5),
     axis.ticks = element_line(color = "black", size = 0.5),
     axis.ticks.length = unit(0.25, "cm"),
-     axis.title.x = element_blank(), # Remove x-axis title
-    axis.title.y = element_blank()  # Remove y-axis title
+     axis.title.y = element_blank()
   )
 
 plot(plot_davies_WaveEnergyLevel)
@@ -2443,6 +2512,14 @@ predicted_data_davies_brm3 <- data.frame(
 
 # Combine the new species data with the original predicted data
 predicted_data_davies_brm3 <- rbind(predicted_data_davies_brm3, davies_brm3)
+
+predicted_data_davies_brm3 <- predicted_data_davies_brm3 |>
+  group_by(median_speed) |>
+  summarise(
+    Fitted = mean(Fitted, na.rm = TRUE),
+    Lower = mean(Lower, na.rm = TRUE),
+    Upper = mean(Upper, na.rm = TRUE)
+  )
 ```
 
 Create plot:
@@ -2454,24 +2531,25 @@ plot_davies_speed<- ggplot() +
   geom_errorbar(data = predicted_data_davies_brm3, aes(x = median_speed, ymin = Lower, ymax = Upper), color = "black", width = 0.0025, alpha = 0.5) +
   geom_point(data = predicted_data_davies_brm3, aes(x = median_speed, y = Fitted), color = "black") +
    labs(
-       x = "Median flow velocity (m/s)",
+       x = "Median flow velocity\n(m s-1)",
     y = "Predicted growth (mm3)",
     color = "Species",
     fill = "Species") +
-    scale_color_manual(values = c("A_hyacinthus" = "orange", "A_tenuis" = "purple", "A_millepora" = "green")) +
+    scale_color_manual(values = c("A. hyacinthus" = "orange", "A. kenti" = "purple", "A. millepora" = "green")) +
   theme_minimal() +
-  theme(
+  theme( axis.text.x = element_text(size = 12),  # Increase x-axis tick label size
+  axis.text.y = element_text(size = 12),  # Increase y-axis tick label size.
+  axis.title.x = element_text(size = 13),  # Increase x-axis title size
     panel.border = element_rect(color = "black", fill = NA, size = 0.5),
     axis.ticks = element_line(color = "black", size = 0.5),
     axis.ticks.length = unit(0.25, "cm"),
-     axis.title.x = element_blank(), # Remove x-axis title
-    axis.title.y = element_blank()  # Remove y-axis title
+     axis.title.y = element_blank()
   )
 
 plot(plot_davies_speed)
 ```
 
-##### Sedturf t2
+##### Sedturf
 
 Extract fitted values and predictors:
 
@@ -2480,7 +2558,7 @@ Extract fitted values and predictors:
 fitted_values_davies_brm4 <- fitted(davies_brm4_size, summary = FALSE)
 
 predicted_data_davies_brm4 <- data.frame(  
-  sedturf_t2 = davies$sedturf_t2,  
+  sedturf = davies$sedturf,  
   Spp = davies$Spp,  
   Fitted = apply(fitted_values_davies_brm4, 2, mean), 
   Lower = apply(fitted_values_davies_brm4, 2, function(x) quantile(x, 0.025)), 
@@ -2488,43 +2566,53 @@ predicted_data_davies_brm4 <- data.frame(
 
 # Combine the new species data with the original predicted data
 predicted_data_davies_brm4 <- rbind(predicted_data_davies_brm4, davies_brm4)
+
+predicted_data_davies_brm4 <- predicted_data_davies_brm4 |>
+  group_by(sedturf) |>
+  summarise(
+    Fitted = mean(Fitted, na.rm = TRUE),
+    Lower = mean(Lower, na.rm = TRUE),
+    Upper = mean(Upper, na.rm = TRUE)
+  )
 ```
 
 Create plot:
 
 ```{r}
 # Create the plot with points, error bars, and raw data
-plot_davies_turf2 <- ggplot() +
+plot_davies_turf <- ggplot() +
   # Plot the raw data points, colored in green
-  geom_jitter(data = davies_combined, aes(x = sedturf_t2, y = Size_log, color = Spp), alpha = 0.5, width = 0.08, height = 0) +
-  geom_errorbar(data = predicted_data_davies_brm4, aes(x = sedturf_t2, ymin = Lower, ymax = Upper), color = "black", width = 0.08, alpha = 0.5) +
-  geom_point(data = predicted_data_davies_brm4, aes(x = sedturf_t2, y = Fitted), color = "black") +
+  geom_jitter(data = davies_combined, aes(x = sedturf, y = Size_log, color = Spp), alpha = 0.5, width = 0.08, height = 0) +
+  geom_errorbar(data = predicted_data_davies_brm4, aes(x = sedturf, ymin = Lower, ymax = Upper), color = "black", width = 0.08, alpha = 0.5) +
+  geom_point(data = predicted_data_davies_brm4, aes(x = sedturf, y = Fitted), color = "black") +
    labs(
     x = "Sedimentation on turf (mg cm-2",
     y = "Predicted growth (mm3)",
     color = "Species",
     fill = "Species") +
-    scale_color_manual(values = c("A_hyacinthus" = "orange", "A_tenuis" = "purple", "A_millepora" = "green")) +
+    scale_color_manual(values = c("A. hyacinthus" = "orange", "A. kenti" = "purple", "A. millepora" = "green")) +
+   xlab("Sedimentation on turf\n(mg cm-2)")+
   theme_minimal() +
-  theme(
+   theme( axis.text.x = element_text(size = 12),  # Increase x-axis tick label size
+  axis.text.y = element_text(size = 12),  # Increase y-axis tick label size.
+  axis.title.x = element_text(size = 13),  # Increase x-axis title size
     panel.border = element_rect(color = "black", fill = NA, size = 0.5),
     axis.ticks = element_line(color = "black", size = 0.5),
     axis.ticks.length = unit(0.25, "cm"),
-     axis.title.x = element_blank(), # Remove x-axis title
-    axis.title.y = element_blank()  # Remove y-axis title
+     axis.title.y = element_blank()
   )
 
-plot(plot_davies_turf2)
+plot(plot_davies_turf)
 ```
 
-##### Sedconcrete t2
+##### Sedconcrete
 
 ```{r}
 # Extract fitted values and predictors 
 fitted_values_davies_brm5 <- fitted(davies_brm5_size, summary = FALSE)
 
 predicted_data_davies_brm5 <- data.frame(  
-  sedconcrete_t2 = davies$sedconcrete_t2,  
+  sedconcrete = davies$sedconcrete,  
   Spp = davies$Spp,  
   Fitted = apply(fitted_values_davies_brm5, 2, mean), 
   Lower = apply(fitted_values_davies_brm5, 2, function(x) quantile(x, 0.025)), 
@@ -2532,98 +2620,14 @@ predicted_data_davies_brm5 <- data.frame(
 
 # Combine the new species data with the original predicted data
 predicted_data_davies_brm5 <- rbind(predicted_data_davies_brm5, davies_brm5)
-```
 
-Create plot:
-
-```{r}
-# Create the plot with points, error bars, and raw data
-plot_davies_concrete2 <- ggplot() +
-  # Plot the raw data points, colored in green
-  geom_jitter(data = davies_combined, aes(x = sedconcrete_t2, y = Size_log, color = Spp), alpha = 0.5, width = 0.02, height = 0) +
-  geom_errorbar(data = predicted_data_davies_brm5, aes(x = sedconcrete_t2, ymin = Lower, ymax = Upper), color = "black", width = 0.025, alpha = 0.5) +
-  geom_point(data = predicted_data_davies_brm5, aes(x = sedconcrete_t2, y = Fitted), color = "black") +
-   labs(
-        x = "Sedimentation on concrete (mg cm-2",
-    y = "Predicted growth (mm3)",
-    color = "Species",
-    fill = "Species") +
-    scale_color_manual(values = c("A_hyacinthus" = "orange", "A_tenuis" = "purple", "A_millepora" = "green")) +
-  theme_minimal() +
-  theme(
-    panel.border = element_rect(color = "black", fill = NA, size = 0.5),
-    axis.ticks = element_line(color = "black", size = 0.5),
-    axis.ticks.length = unit(0.25, "cm"),
-     axis.title.x = element_blank(), # Remove x-axis title
-    axis.title.y = element_blank()  # Remove y-axis title
+predicted_data_davies_brm5 <- predicted_data_davies_brm5 |>
+  group_by(sedconcrete) |>
+  summarise(
+    Fitted = mean(Fitted, na.rm = TRUE),
+    Lower = mean(Lower, na.rm = TRUE),
+    Upper = mean(Upper, na.rm = TRUE)
   )
-
-plot(plot_davies_concrete2)
-```
-
-##### Sedturf t5
-
-Extract fitted values and predictors:
-
-```{r}
-# Extract fitted values and predictors 
-fitted_values_davies_brm6 <- fitted(davies_brm6_size, summary = FALSE)
-
-predicted_data_davies_brm6 <- data.frame(  
-  sedturf_t5 = davies$sedturf_t5,  
-  Spp = davies$Spp,  
-  Fitted = apply(fitted_values_davies_brm6, 2, mean), 
-  Lower = apply(fitted_values_davies_brm6, 2, function(x) quantile(x, 0.025)), 
-  Upper = apply(fitted_values_davies_brm6, 2, function(x) quantile(x, 0.975)) )
-
-# Combine the new species data with the original predicted data
-predicted_data_davies_brm6 <- rbind(predicted_data_davies_brm6, davies_brm6)
-```
-
-Create plot:
-
-```{r}
-# Create the plot with points, error bars, and raw data
-plot_davies_turf5 <- ggplot() +
-  # Plot the raw data points, colored in green
-  geom_jitter(data = davies_combined, aes(x = sedturf_t5, y = Size_log, color = Spp), alpha = 0.5, width = 0.08, height = 0) +
-  geom_errorbar(data = predicted_data_davies_brm6, aes(x = sedturf_t5, ymin = Lower, ymax = Upper), color = "black", width = 0.025, alpha = 0.5) +
-  geom_point(data = predicted_data_davies_brm6, aes(x = sedturf_t5, y = Fitted), color = "black") +
-   labs(
-        x = "Sedimentation on turf (mg cm-2",
-    y = "Predicted growth (mm3)",
-    color = "Species",
-    fill = "Species") +
-    scale_color_manual(values = c("A_hyacinthus" = "orange", "A_tenuis" = "purple", "A_millepora" = "green")) +
-  theme_minimal() +
-  theme(
-    panel.border = element_rect(color = "black", fill = NA, size = 0.5),
-    axis.ticks = element_line(color = "black", size = 0.5),
-    axis.ticks.length = unit(0.25, "cm"),
-     axis.title.x = element_blank(), # Remove x-axis title
-    axis.title.y = element_blank()  # Remove y-axis title
-  )
-
-plot(plot_davies_turf5)
-```
-
-##### Sedconcrete t5
-
-Extract fitted values and predictors:
-
-```{r}
-# Extract fitted values and predictors 
-fitted_values_davies_brm7 <- fitted(davies_brm7_size, summary = FALSE)
-
-predicted_data_davies_brm7 <- data.frame(  
-  sedconcrete_t5 = davies$sedconcrete_t5,  
-  Spp = davies$Spp,  
-  Fitted = apply(fitted_values_davies_brm7, 2, mean), 
-  Lower = apply(fitted_values_davies_brm7, 2, function(x) quantile(x, 0.025)), 
-  Upper = apply(fitted_values_davies_brm7, 2, function(x) quantile(x, 0.975)) )
-
-# Combine the new species data with the original predicted data
-predicted_data_davies_brm7 <- rbind(predicted_data_davies_brm7, davies_brm7)
 ```
 
 Create plot:
@@ -2632,23 +2636,23 @@ Create plot:
 # Create the plot with points, error bars, and raw data
 plot_davies_concrete <- ggplot() +
   # Plot the raw data points, colored in green
-  geom_jitter(data = davies_combined, aes(x = sedconcrete_t5, y = Size_log, color = Spp), alpha = 0.5, width = 0.02, height = 0) +
-  geom_errorbar(data = predicted_data_davies_brm7, aes(x = sedconcrete_t5, ymin = Lower, ymax = Upper), color = "black", width = 0.05, alpha = 0.5) +
-  geom_point(data = predicted_data_davies_brm7, aes(x = sedconcrete_t5, y = Fitted), color = "black") +
+  geom_jitter(data = davies_combined, aes(x = sedconcrete, y = Size_log, color = Spp), alpha = 0.5, width = 0.02, height = 0) +
+  geom_errorbar(data = predicted_data_davies_brm5, aes(x = sedconcrete, ymin = Lower, ymax = Upper), color = "black", width = 0.025, alpha = 0.5) +
+  geom_point(data = predicted_data_davies_brm5, aes(x = sedconcrete, y = Fitted), color = "black") +
    labs(
-    
-    x = "Sedimentation on concrete (mg cm-2",
+        x = "Sedimentation on concrete\n(mg cm-2)",
     y = "Predicted growth (mm3)",
     color = "Species",
     fill = "Species") +
-    scale_color_manual(values = c("A_hyacinthus" = "orange", "A_tenuis" = "purple", "A_millepora" = "green")) +
+    scale_color_manual(values = c("A. hyacinthus" = "orange", "A. kenti" = "purple", "A. millepora" = "green")) +
   theme_minimal() +
-  theme(
+  theme( axis.text.x = element_text(size = 12),  # Increase x-axis tick label size
+  axis.text.y = element_text(size = 12),  # Increase y-axis tick label size.
+  axis.title.x = element_text(size = 13),  # Increase x-axis title size
     panel.border = element_rect(color = "black", fill = NA, size = 0.5),
     axis.ticks = element_line(color = "black", size = 0.5),
     axis.ticks.length = unit(0.25, "cm"),
-     axis.title.x = element_blank(), # Remove x-axis title
-    axis.title.y = element_blank()  # Remove y-axis title
+     axis.title.y = element_blank()
   )
 
 plot(plot_davies_concrete)
@@ -2667,7 +2671,7 @@ heron_variables_new <- data.frame(
   sedconcrete_t2 = NA,
   median_speed = NA,
   Size_log = NA, 
-  Spp = c("A_millepora")
+  Spp = c("A. millepora")
 )
 
 # Combine the new species data with the original heron data
@@ -2685,7 +2689,7 @@ new_species_heron <- data.frame(
   sedturf_t2 = rep(NA, length(10)),
   sedconcrete_t2 = rep(NA, length(10)),
   median_speed = rep(NA, length(10)),
-  Spp = c("A_millepora"),
+  Spp = c("A. millepora"),
   Fitted = NA,  
   Lower = NA,   
   Upper = NA    
@@ -2720,6 +2724,14 @@ predicted_data_heron_brm2 <- data.frame(
 
 # Combine the new species data with the original predicted data
 predicted_data_heron_brm2 <- rbind(predicted_data_heron_brm2, heron_brm2)
+
+predicted_data_heron_brm2 <- predicted_data_heron_brm2 |>
+  group_by(Ub_avrg) |>
+  summarise(
+    Fitted = mean(Fitted, na.rm = TRUE),
+    Lower = mean(Lower, na.rm = TRUE),
+    Upper = mean(Upper, na.rm = TRUE)
+  )
 ```
 
 Create plot:
@@ -2736,15 +2748,18 @@ plot_heron_Ub<- ggplot() +
     y = "Predicted growth (mm3)",
     color = "Species",
     fill = "Species") +
-    scale_color_manual(values = c("A_hyacinthus" = "orange", "A_tenuis" = "purple", "A_millepora" = "green")) +
+    scale_color_manual(values = c("A. hyacinthus" = "orange", "A. kenti" = "purple", "A. millepora" = "green")) +
   theme_minimal() +
-  theme(
+ theme( axis.text.x = element_text(size = 12),  # Increase x-axis tick label size
+  axis.text.y = element_text(size = 12),  # Increase y-axis tick label size.
+  axis.title.x = element_text(size = 13),  # Increase x-axis title size
     panel.border = element_rect(color = "black", fill = NA, size = 0.5),
     axis.ticks = element_line(color = "black", size = 0.5),
     axis.ticks.length = unit(0.25, "cm"),
-     axis.title.x = element_blank(), # Remove x-axis title
-    axis.title.y = element_blank()  # Remove y-axis title
-  )
+     axis.title.y = element_blank()
+  ) + 
+    xlab("Bottom stress\n(m s-1)")
+
 
 plot(plot_heron_Ub)
 ```
@@ -2766,6 +2781,14 @@ predicted_data_heron_brm1 <- data.frame(
 
 # Combine the new species data with the original predicted data
 predicted_data_heron_brm1 <- rbind(predicted_data_heron_brm1, heron_brm1)
+
+predicted_data_heron_brm1 <- predicted_data_heron_brm1 |>
+  group_by(WaveEnergyLevel) |>
+  summarise(
+    Fitted = mean(Fitted, na.rm = TRUE),
+    Lower = mean(Lower, na.rm = TRUE),
+    Upper = mean(Upper, na.rm = TRUE)
+  )
 ```
 
 Create plot:
@@ -2783,15 +2806,17 @@ plot_heron_WaveEnergyLevel <- ggplot() +
     y = "Predicted growth (mm3)",
     color = "Species",
     fill = "Species") +
-   scale_color_manual(values = c("A_hyacinthus" = "orange", "A_tenuis" = "purple", "A_millepora" = "green")) +
+   scale_color_manual(values = c("A. hyacinthus" = "orange", "A. kenti" = "purple", "A. millepora" = "green")) +
   theme_minimal() +
-  theme(
+   theme( axis.text.x = element_text(size = 12),  # Increase x-axis tick label size
+  axis.text.y = element_text(size = 12),  # Increase y-axis tick label size.
+  axis.title.x = element_text(size = 13),  # Increase x-axis title size
     panel.border = element_rect(color = "black", fill = NA, size = 0.5),
     axis.ticks = element_line(color = "black", size = 0.5),
     axis.ticks.length = unit(0.25, "cm"),
-     axis.title.x = element_blank(), # Remove x-axis title
-    axis.title.y = element_blank()  # Remove y-axis title
-  )
+     axis.title.y = element_blank()
+  ) + 
+  xlab("Nom. Wave Energy Level")
 
 plot(plot_heron_WaveEnergyLevel)
 ```
@@ -2813,6 +2838,14 @@ predicted_data_heron_brm3 <- data.frame(
 
 # Combine the new species data with the original predicted data
 predicted_data_heron_brm3 <- rbind(predicted_data_heron_brm3, heron_brm3)
+
+predicted_data_heron_brm3 <- predicted_data_heron_brm3 |>
+  group_by(median_speed) |>
+  summarise(
+    Fitted = mean(Fitted, na.rm = TRUE),
+    Lower = mean(Lower, na.rm = TRUE),
+    Upper = mean(Upper, na.rm = TRUE)
+  )
 ```
 
 Create plot:
@@ -2829,15 +2862,17 @@ plot_heron_speed<- ggplot() +
     y = "Predicted growth (mm3)",
     color = "Species",
     fill = "Species") +
-    scale_color_manual(values = c("A_hyacinthus" = "orange", "A_tenuis" = "purple", "A_millepora" = "green")) +
+    scale_color_manual(values = c("A. hyacinthus" = "orange", "A. kenti" = "purple", "A. millepora" = "green")) +
   theme_minimal() +
-  theme(
+  theme( axis.text.x = element_text(size = 12),  # Increase x-axis tick label size
+  axis.text.y = element_text(size = 12),  # Increase y-axis tick label size.
+  axis.title.x = element_text(size = 13),  # Increase x-axis title size
     panel.border = element_rect(color = "black", fill = NA, size = 0.5),
     axis.ticks = element_line(color = "black", size = 0.5),
     axis.ticks.length = unit(0.25, "cm"),
-     axis.title.x = element_blank(), # Remove x-axis title
-    axis.title.y = element_blank()  # Remove y-axis title
-  )
+     axis.title.y = element_blank()
+  ) + 
+  xlab("Median flow velocity\n(m s-1)")
 
 plot(plot_heron_speed)
 ```
@@ -2859,6 +2894,14 @@ predicted_data_heron_brm4 <- data.frame(
 
 # Combine the new species data with the original predicted data
 predicted_data_heron_brm4 <- rbind(predicted_data_heron_brm4, heron_brm4)
+
+predicted_data_heron_brm4 <- predicted_data_heron_brm4 |>
+  group_by(sedturf_t2) |>
+  summarise(
+    Fitted = mean(Fitted, na.rm = TRUE),
+    Lower = mean(Lower, na.rm = TRUE),
+    Upper = mean(Upper, na.rm = TRUE)
+  )
 ```
 
 Create plot:
@@ -2876,15 +2919,17 @@ plot_heron_turf <- ggplot() +
     y = "Predicted growth (mm3)",
     color = "Species",
     fill = "Species") +
-    scale_color_manual(values = c("A_hyacinthus" = "orange", "A_tenuis" = "purple", "A_millepora" = "green")) +
+    scale_color_manual(values = c("A. hyacinthus" = "orange", "A. kenti" = "purple", "A. millepora" = "green")) +
   theme_minimal() +
-  theme(
+   theme( axis.text.x = element_text(size = 12),  # Increase x-axis tick label size
+  axis.text.y = element_text(size = 12),  # Increase y-axis tick label size.
+  axis.title.x = element_text(size = 13),  # Increase x-axis title size
     panel.border = element_rect(color = "black", fill = NA, size = 0.5),
     axis.ticks = element_line(color = "black", size = 0.5),
     axis.ticks.length = unit(0.25, "cm"),
-     axis.title.x = element_blank(), # Remove x-axis title
-    axis.title.y = element_blank()  # Remove y-axis title
-  )
+     axis.title.y = element_blank()
+  ) + 
+  xlab("Sedimentation on turf\n(mg cm-2)")
 
 plot(plot_heron_turf)
 ```
@@ -2904,6 +2949,14 @@ predicted_data_heron_brm5 <- data.frame(
 
 # Combine the new species data with the original predicted data
 predicted_data_heron_brm5 <- rbind(predicted_data_heron_brm5, heron_brm5)
+
+predicted_data_heron_brm5 <- predicted_data_heron_brm5 |>
+  group_by(sedconcrete_t2) |>
+  summarise(
+    Fitted = mean(Fitted, na.rm = TRUE),
+    Lower = mean(Lower, na.rm = TRUE),
+    Upper = mean(Upper, na.rm = TRUE)
+  )
 ```
 
 ```{r}
@@ -2919,15 +2972,17 @@ plot_heron_concrete <- ggplot() +
     y = "Predicted growth (mm3)",
     color = "Species",
     fill = "Species") +
-    scale_color_manual(values = c("A_hyacinthus" = "orange", "A_tenuis" = "purple", "A_millepora" = "green")) +
+    scale_color_manual(values = c("A. hyacinthus" = "orange", "A. kenti" = "purple", "A. millepora" = "green")) +
   theme_minimal() +
-  theme(
+   theme( axis.text.x = element_text(size = 12),  # Increase x-axis tick label size
+  axis.text.y = element_text(size = 12),  # Increase y-axis tick label size.
+  axis.title.x = element_text(size = 13),  # Increase x-axis title size
     panel.border = element_rect(color = "black", fill = NA, size = 0.5),
     axis.ticks = element_line(color = "black", size = 0.5),
     axis.ticks.length = unit(0.25, "cm"),
-     axis.title.x = element_blank(), # Remove x-axis title
-    axis.title.y = element_blank()  # Remove y-axis title
-  )
+     axis.title.y = element_blank()
+  ) + 
+  xlab("Sedimentation on concrete\n(mg cm-2)")
 
 plot(plot_heron_concrete)
 ```
@@ -2939,6 +2994,7 @@ plot(plot_heron_concrete)
 ### Moore
 
 ```{r}
+setwd("C:/Users/sjurriaa/Australian Institute of Marine Science/Carly Randall - Randall Lab/CAD/CAD Year1/")
 ggsave("output/figures growth/Moore Predicted growth Ub.jpeg", plot_moore_Ub, width = 10, height = 6)
 ggsave("output/figures growth/Moore Predicted growth WaveEnergyLevel.jpeg", plot_moore_WaveEnergyLevel, width = 10, height = 6)
 ggsave("output/figures growth/Moore Predicted growth Median Speed.jpeg", plot_moore_speed, width = 10, height = 6)
@@ -2949,18 +3005,18 @@ ggsave("output/figures growth/Moore Predicted growth Concrete.jpeg", plot_moore_
 ### Davies
 
 ```{r}
+setwd("C:/Users/sjurriaa/Australian Institute of Marine Science/Carly Randall - Randall Lab/CAD/CAD Year1/")
 ggsave("output/figures growth/Davies Predicted growth Ub.jpeg", plot_davies_Ub, width = 10, height = 6)
 ggsave("output/figures growth/Davies Predicted growth WaveEnergyLevel.jpeg", plot_davies_WaveEnergyLevel, width = 10, height = 6)
 ggsave("output/figures growth/Davies Predicted growth Median Speed.jpeg", plot_davies_speed, width = 10, height = 6)
-ggsave("output/figures growth/Davies Predicted growth Turf2.jpeg", plot_davies_turf2, width = 10, height = 6)
-ggsave("output/figures growth/Davies Predicted growth Turf5.jpeg", plot_davies_turf5, width = 10, height = 6)
-ggsave("output/figures growth/Davies Predicted growth Concrete5.jpeg", plot_davies_concrete, width = 10, height = 6)
-ggsave("output/figures growth/Davies Predicted growth Concrete2.jpeg", plot_davies_concrete2, width = 10, height = 6)
+ggsave("output/figures growth/Davies Predicted growth Turf.jpeg", plot_davies_turf, width = 10, height = 6)
+ggsave("output/figures growth/Davies Predicted growth Concrete.jpeg", plot_davies_concrete, width = 10, height = 6)
 ```
 
 ### Heron
 
 ```{r}
+setwd("C:/Users/sjurriaa/Australian Institute of Marine Science/Carly Randall - Randall Lab/CAD/CAD Year1/")
 ggsave("output/figures growth/Heron Predicted growth Ub.jpeg", plot_heron_Ub, width = 4, height = 4)
 ggsave("output/figures growth/Heron Predicted growth WaveEnergyLevel.jpeg", plot_heron_WaveEnergyLevel, width = 4, height = 4)
 ggsave("output/figures growth/Heron Predicted growth Median Speed.jpeg", plot_heron_speed, width = 4, height = 4)
@@ -3019,11 +3075,13 @@ grid_arrange_shared_legend <-
 ```{r}
 capture_plot <- function() {
   grid_arrange_shared_legend(
-  plot_moore_WaveEnergyLevel,plot_moore_Ub,plot_moore_speed,plot_moore_turf,plot_moore_concrete,
-  plot_davies_WaveEnergyLevel,plot_davies_Ub,plot_davies_speed,plot_davies_turf2,plot_davies_concrete2,
-  plot_heron_WaveEnergyLevel,plot_heron_Ub,plot_heron_speed,plot_heron_turf,plot_heron_concrete,
-             ncol = 5, 
-             nrow = 3)
+  plot_moore_WaveEnergyLevel,plot_davies_WaveEnergyLevel,plot_heron_WaveEnergyLevel,
+  plot_moore_Ub,plot_davies_Ub,plot_heron_Ub,
+  plot_moore_speed,plot_davies_speed,plot_heron_speed,
+  plot_moore_turf,plot_davies_turf,plot_heron_turf,
+  plot_moore_concrete,plot_davies_concrete,plot_heron_concrete,
+             ncol = 3, 
+             nrow = 5)
 }
 
 capture_plot()
@@ -3031,5 +3089,5 @@ capture_plot()
 
 ```{r}
 # Save the plot using ggsave
-ggsave("Figure Growth AllReefs.jpeg", plot = capture_plot(), width = 8, height = 6)
+ggsave("Figure Multiplot Growth AllReefs.jpeg", plot = capture_plot(), width = 9, height = 12)
 ```

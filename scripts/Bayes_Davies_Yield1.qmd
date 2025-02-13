@@ -51,6 +51,10 @@ library(openxlsx)    # to write excel documents
 #library(INLAutils)  #for additional INLA outputs
 theme_set(theme_grey()) #put the default ggplot theme back
 source('helperFunctions.R')
+library(lme4)
+
+remove(plot0)
+remove(plot0.1)
 ```
 
 # Read in the data
@@ -77,257 +81,240 @@ survival <- survival |>
   select(-c(ID, Observer, CensusT, DeploymentDate, CensusDate, Device_ID))
 ```
 
-# davies Yield
-
-### Subset data: davies yield (device level)
+Subset data: davies yield (device level)
 
 ```{r}
-davies_surv_t6 <- survival |> filter (Reef == "Davies",
-                             Census == "t6",
-                             Tab_ID == 1) |>
-  select(-c(Tab_ID, SurvTab, LinLength_mm, Height_mm, PerpLenght_mm))
-
 davies_surv <- survival |> filter (Reef == "Davies",
-                             Tab_ID == 1) |>
-  select(-c(Tab_ID, SurvTab, LinLength_mm, Height_mm, PerpLenght_mm))
+                                   Tab_ID == 1) |>
+  select(-c(Tab_ID, SurvTab, LinLength_mm, Height_mm, PerpLenght_mm)) |>
+  mutate(Site = as.factor(Site),
+         ReefDev = as.factor(ReefDev),
+         Census = as.factor(Census))
 
 davies_env <- environment |> 
   filter (Reef == "Davies") |>
   select(-c(Reef1, Device_ID))
 ```
 
-### Merge survival and environment
+Merge survival and environment
 
 ```{r}
-#create one dataset for final timepoint
-davies_t5 <- merge(davies_env, davies_surv_t6, by = c("Reef", "Site", "ReefDev"), all = TRUE)
-
-#create one dataset with all timepoints
+#create one dataset 
 davies <- merge(davies_env, davies_surv, by = c("Reef", "Site", "ReefDev"), all = TRUE)
 
 #free up space
 remove(davies_surv, davies_env)
 
 # Remove rows with missing values
-davies_t5$SurvDev <- as.numeric(davies_t5$SurvDev)
-davies_t5 <- davies_t5[complete.cases(davies_t5$SurvDev),  ]
-davies_t5 <- davies_t5[complete.cases(davies_t5$PC1),  ]
-davies_t5 <- davies_t5 |> select(-c(sedturf_t2, sedconcrete_t2))
-
-# Remove rows with missing values
 davies$SurvDev <- as.numeric(davies$SurvDev)
 davies <- davies[complete.cases(davies$SurvDev),  ]
 davies <- davies[complete.cases(davies$PC1),  ]
-davies <- davies |> select(-c(sedturf_t2, sedconcrete_t2))
+
+#average sedimentation concentration for two timepoints of turf and concrete
+davies <- davies |>
+  mutate(turf = ((sedturf_t2 + sedturf_t5)/2),
+         concrete = ((sedconcrete_t2 + sedconcrete_t5)/2)) |>
+  select(-c(sedconcrete_t2, sedconcrete_t5, sedturf_t2, sedturf_t5))
 ```
 
-### GLM
+Create subsets
 
 ```{r}
-library(lme4)
-davies_t5$Site <- as.factor(davies_t5$Site)
-davies_t5$ReefDev<- as.factor(davies_t5$ReefDev)
+#subset data to have survival at final timepoint only
+davies_t6 <- davies |>
+  filter(Census == "t6")
 
-davies_glmer1a<- glmer(SurvDev ~ (1|Site) + (1|ReefDev), data=davies_t5, family = binomial(link = "logit")) #allowing for random intercepts but not random slopes --> accounting for potential variability in survival beteeen different sites and devices, but assuming that the effect of device on  survival is constant across different sites.
-davies_glmer1b<- glmer(SurvDev ~ (1|Site) , data=davies_t5, family = binomial(link = "logit"))
-
-davies_glmer2<- glmer(SurvDev ~ Ub_avrg + (1|Site) + (1|ReefDev), data=davies_t5, family = binomial(link = "logit")) 
-davies_glmer3<- glmer(SurvDev ~ WaveEnergyLevel + (1|Site) + (1|ReefDev), data=davies_t5, family = binomial(link = "logit")) 
-davies_glmer4<- glmer(SurvDev ~ median_speed + (1|Site) + (1|ReefDev), data=davies_t5, family = binomial(link = "logit")) 
-davies_glmer5<- glmer(SurvDev ~ sedturf_t5 + (1|Site) + (1|ReefDev), data=davies_t5, family = binomial(link = "logit")) 
-
-summary(davies_glmer1a)
-summary(davies_glmer1b)
-summary(davies_glmer2)
-summary(davies_glmer3)
-summary(davies_glmer4)
-summary(davies_glmer5)
-
-AIC(davies_glmer1a, davies_glmer1b, davies_glmer2, davies_glmer3, davies_glmer4, davies_glmer5)
+#subset data to have survival for all census points except t0 at which survival is 100%
+davies_subset <- davies |>
+  filter(!Census == "t0")
 ```
 
-OUTPUT: all models behave very similar
-
-### Visualize data
-
-### **median_speed**
+# GLM
 
 ```{r}
-ggplot(data=davies_t5, aes(y = SurvDev, x = median_speed)) + 
+davies_glm_census<- glm(SurvDev ~ Census, data=davies_subset, family = binomial(link = "logit"))
+davies_glmer_site<- glmer(SurvDev ~ (1|Site), data=davies_subset, family = binomial(link = "logit"))
+davies_glmer<- glmer(SurvDev ~ Census + (1|Site), data=davies_subset, family = binomial(link = "logit"))
+
+davies_glmer_speed <- glmer(SurvDev ~ median_speed + (1|Site), data = davies_t6, family = binomial(link = "logit"))
+davies_glmer_speed_interaction <- glmer(SurvDev ~ Census * median_speed + (1|Site), data=davies_subset, family = binomial(link = "logit"))
+
+
+AIC(davies_glm_census, davies_glmer_site,davies_glmer, davies_glmer_speed, davies_glmer_speed_interaction)
+```
+
+GLMs with environmental paramaters + census time (main effects)
+
+```{r}
+davies_glmer_speed_main <- glmer(SurvDev ~ Census + median_speed + (1|Site), 
+                                        data=davies_subset, 
+                                        family = binomial(link = "logit"))
+davies_glmer_wave_main <- glmer(SurvDev ~ Census + WaveEnergyLevel + (1|Site), 
+                                       data=davies_subset, 
+                                       family = binomial(link = "logit"))
+davies_glmer_ub_main <- glmer(SurvDev ~ Census + Ub_avrg + (1|Site), 
+                                     data=davies_subset, 
+                                     family = binomial(link = "logit"))
+davies_glmer_turf_main <- glmer(SurvDev ~ Census + turf + (1|Site), 
+                                data = davies_subset, 
+                                family = binomial(link = "logit"))
+davies_glmer_concrete_main <- glmer(SurvDev ~ Census + concrete + (1|Site), 
+                                           data=davies_subset, 
+                                           family = binomial(link = "logit"))
+davies_glmer_PCA_main <- glmer(SurvDev ~ Census + PC1 + PC2 + (1|Site),
+                                      data=davies_subset, 
+                                      family = binomial(link = "logit"))
+```
+
+GLMs with environmental paramaters \* census time (interactions)
+
+```{r}
+davies_glmer_speed_interaction <- glmer(SurvDev ~ Census * median_speed + (1|Site), 
+                                        data=davies_subset, 
+                                        family = binomial(link = "logit"))
+davies_glmer_wave_interaction <- glmer(SurvDev ~ Census * WaveEnergyLevel + (1|Site), 
+                                       data=davies_subset, 
+                                       family = binomial(link = "logit"))
+davies_glmer_ub_interaction <- glmer(SurvDev ~ Census * Ub_avrg + (1|Site), 
+                                     data=davies_subset, 
+                                     family = binomial(link = "logit"))
+davies_glmer_turf_interaction <- glmer(SurvDev ~ Census * turf + (1|Site), 
+                                       data=davies_subset, 
+                                       family = binomial(link = "logit"))
+## WARNING - issues with this model: Model failed to converge with max|grad| = 0.00259429 (tol = 0.002, component 1) - try to only use main effects without interactions:
+davies_glmer_concrete_interaction <- glmer(SurvDev ~ Census * concrete + (1|Site), 
+                                           data=davies_subset, 
+                                           family = binomial(link = "logit"))
+davies_glmer_PCA_interaction <- glmer(SurvDev ~ (Census * PC1) + (Census * PC2) + (1|Site),
+                                      data=davies_subset, 
+                                      family = binomial(link = "logit"))
+```
+
+```{r}
+AIC(davies_glmer_speed_main, davies_glmer_wave_main, davies_glmer_ub_main, davies_glmer_turf_main, davies_glmer_concrete_main, davies_glmer_PCA_main, 
+  davies_glmer_speed_interaction, davies_glmer_wave_interaction, davies_glmer_ub_interaction, davies_glmer_turf_interaction,  davies_glmer_concrete_interaction, davies_glmer_PCA_interaction)
+```
+
+**OUTPUT**: all models behave very similar, models with main effects are slighly better with lower AIC values, but the difference is not big and the interaction effect is biologically relevant to keep in (to test if the relationship between the environmental parameter and survival varies across the different timepoints).
+
+### Speed
+
+```{r}
+summary(davies_glmer_speed_main)
+summary(davies_glmer_speed_interaction)
+```
+
+For flow velocity (speed), census time has a significant negative effect on survival except for census t2 - meaining that survival decreases with time (duh). In both the main effect and interaction model, median speed does not have a significant effect on survival, with the large standard errors and non-sign p values indicating that median speed does not explain much of the variation in survival. Likewise,the relationship between median_speed and survival does not change over time.
+
+```{r}
+#with facetwrap by Census time
+ggplot(data=davies_subset, aes(y = SurvDev, x = concrete)) + 
   geom_point(position = position_jitter(width = 0.01, height = 0)) +
-  geom_smooth(method="lm")
-
-ggplot(data=davies_t5, aes(y = SurvDev, x = median_speed)) + 
-  geom_point(position = position_jitter(width = 0.01, height = 0)) +
-  geom_smooth(method="lm", formula = y~poly(x,3), se = FALSE)
-
-#with facetwrap by site
-ggplot(data=davies_t5, aes(y = SurvDev, x = median_speed)) + 
-  geom_point(position = position_jitter(width = 0.01, height = 0)) +
-  facet_wrap(~Site) +
+  facet_wrap(~Census) +
   geom_smooth(method="lm")
 ```
 
-Wave Energy Level
+### Wave Energy Level
 
 ```{r}
-ggplot(data=davies_t5, aes(y = SurvDev, x = WaveEnergyLevel)) + 
-  geom_point(position = position_jitter(width = 0.2, height = 0)) +
-  geom_smooth(method="lm")
+summary(davies_glmer_wave_main)
+summary(davies_glmer_wave_interaction)
+```
 
-ggplot(data=davies_t5, aes(y = SurvDev, x = WaveEnergyLevel)) + 
+```{r}
+#with facetwrap by Census time
+ggplot(data=davies_subset, aes(y = SurvDev, x = Ub_avrg)) + 
   geom_point(position = position_jitter(width = 0.2, height = 0)) +
-  geom_smooth(method="lm", formula = y~poly(x,3), se = FALSE)
-
-#with facetwrap by site
-ggplot(data=davies_t5, aes(y = SurvDev, x = WaveEnergyLevel)) + 
-  geom_point(position = position_jitter(width = 0.2, height = 0)) +
-  facet_wrap(~Site) +
+  facet_wrap(~Census) +
   geom_smooth(method="lm")
 ```
 
-```{r}
-Davies_current <- ggplot(davies_t5, aes(x = median_speed, y = SurvDev)) +
-  geom_point(position = position_jitter(width = 0.2, height = 0)) +
-  geom_smooth(method="lm") +
-  labs(title = "Davies Reef",
-       x = "In-situ current - median speed (m/s)",
-       y = "% Survival (yield)") +
-  theme_bw() +
-  ylim(0,1) +
-  theme(panel.border = element_rect(color = "black", fill = NA),
-        axis.line = element_line(color = "black"),
-        axis.text = element_text(size = 12),
-        axis.title = element_text(size = 14)) 
+# \-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\--
 
-Davies_current
+# Brm with Census
 
-ggsave("Davies - Survival final census Current - yield.png", plot=Davies_current, width = 4, height = 6, dpi = 600)
-```
-
-# Brm with Census 
-
-We need to make sure that the categorical variables and the random effects are defined as factors:
+##### Census
 
 ```{r}
-davies_t5 <- davies_t5 |> mutate(Site = factor(Site),
-                               ReefDev = factor(ReefDev))
+davies_form_census <- bf(SurvDev ~ Census + (1|Site), family = bernoulli(link='logit'))
 
-davies <- davies |> mutate(Site = factor(Site),
-                               ReefDev = factor(ReefDev))
-```
-
-### Formulas
-
-Logistic mixed-effects regression model with random intercepts for Site and Device:
-
-```{r}
-davies_form <- bf(SurvDev ~ (1|Site), family = bernoulli(link='logit'))
-
-davies_form_speed <- bf(SurvDev ~ median_speed +    (1|Site), family = bernoulli(link='logit'))
-davies_form_Ub <-    bf(SurvDev ~ Ub_avrg +         (1|Site), family = bernoulli(link='logit'))
-davies_form_turf <-   bf(SurvDev ~ sedturf_t5 +     (1|Site), family = bernoulli(link='logit'))
-davies_form_concrete <-bf(SurvDev ~ sedconcrete_t5 +(1|Site), family = bernoulli(link='logit'))
-davies_form_Wave <-  bf(SurvDev ~ WaveEnergyLevel + (1|Site), family = bernoulli(link='logit'))
-davies_form_PCA <-   bf(SurvDev ~ PC1 + PC2+            (1|Site), family = bernoulli(link='logit'))
-```
-
-Now with polynomial terms:
-
-```{r}
-davies_form_speed_poly <- bf(SurvDev ~ poly(median_speed,3) +    (1|Site) , family = bernoulli(link='logit'))
-davies_form_Ub_poly <-    bf(SurvDev ~ poly(Ub_avrg,3) +         (1|Site) , family = bernoulli(link='logit'))
-davies_form_turf_poly <-   bf(SurvDev ~ poly(sedturf_t5,3) +      (1|Site) , family = bernoulli(link='logit'))
-davies_form_Wave_poly <-  bf(SurvDev ~ poly(WaveEnergyLevel,3) + (1|Site) , family = bernoulli(link='logit'))
-davies_form_PCA_poly <-   bf(SurvDev ~ poly(PC1,3) +  poly(PC2,3) +           (1|Site) , family = bernoulli(link='logit'))
-```
-
-### Priors
-
-class "Intercept" -\> for random effects
-
-class "b" -\> for regression coefficent
-
-class "sd" -\> for standard deviations of random effects
-
-```{r}
-priors <- prior(normal(0, 1.7), class = "Intercept") +
-   prior(student_t(3, 0, 1.5), class = 'sd')
-```
-
-**median speed**
-
-```{r}
-2.5 * sd(davies_t5$SurvDev, na.rm = TRUE)/sd(davies_t5$median_speed, na.rm = TRUE)
-
-priors_speed <- prior(normal(0, 1.7), class = "Intercept") +
-  prior(normal(0,40), class = "b")  +
-   prior(student_t(3, 0, 1.5), class = 'sd')
-```
-
-**Ub**
-
-```{r}
-2.5 * sd(davies_t5$SurvDev, na.rm = TRUE)/sd(davies_t5$Ub_avrg, na.rm = TRUE)
-
-priors_Ub <- prior(normal(0, 1.7), class = "Intercept") +
-  prior(normal(0,6), class = "b")  +
-   prior(student_t(3, 0, 1.5), class = 'sd')
-```
-
-**turf**
-
-```{r}
-2.5 * sd(davies_t5$SurvDev, na.rm = TRUE)/sd(davies_t5$sedturf_t5, na.rm = TRUE)
-
-priors_turf <- prior(normal(0, 1.7), class = "Intercept") +
-  prior(normal(0,5), class = "b")  +
-   prior(student_t(3, 0, 1.5), class = 'sd')
-```
-
-**concrete**
-
-```{r}
-2.5 * sd(davies_t5$SurvDev, na.rm = TRUE)/sd(davies_t5$sedconcrete_t5, na.rm = TRUE)
-
-priors_concrete <- prior(normal(0, 1.7), class = "Intercept") +
-  prior(normal(0,2), class = "b")  +
-   prior(student_t(3, 0, 1.5), class = 'sd')
-```
-
-**WaveEnergyLevel**
-
-```{r}
-2.5 * sd(davies_t5$SurvDev, na.rm = TRUE)/sd(davies_t5$WaveEnergyLevel, na.rm = TRUE)
-
-priors_wave <- prior(normal(0, 1.7), class = "Intercept") +
-  prior(normal(0,1), class = "b")  +
-   prior(student_t(3, 0, 1.5), class = 'sd')
-
-```
-
-**PCA**
-
-```{r}
-2.5 * sd(davies_t5$SurvDev, na.rm = TRUE)/sd(davies_t5$PC1, na.rm = TRUE)
-
-priors_PCA <- prior(normal(0, 1.7), class = "Intercept") +
-  prior(normal(0,8), class = "b")  +
-   prior(student_t(3, 0, 1.5), class = 'sd')
-```
-
-##### brm1- Random effects + time
-
-```{r}
-davies_form_time <- bf(SurvDev ~ Census + (1|Site), family = bernoulli(link='logit'))
-
-priors_time <- prior(normal(0, 1.7), class = "Intercept") +
+priors_census <- 
+  prior(normal(0, 1.7), class = "Intercept") +
   prior(normal(0,5), class = "b") +
-   prior(student_t(3, 0, 1.5), class = 'sd')
+  prior(student_t(3, 0, 1.5), class = 'sd')
 
-davies_brm1_time <- brm(davies_form_time,
-                 data=davies,
-                 prior = priors_time,
+davies_brm_census <- brm(davies_form_census,
+                 data=davies_subset,
+                 prior = priors_census,
+                 sample_prior = 'yes',
+                 iter = 5000,
+                 warmup = 1000,
+                 chains = 3, cores = 3,
+                 thin = 5,
+                 refresh = 0,
+                 control = list(adapt_delta = 0.99),
+                backend = "rstan")
+
+posterior_summary(davies_brm_census)
+
+# To save the model use >> 
+#save(davies_brm_census, file = "scripts/models/davies/davies_brm_census.RData")
+```
+
+##### Wave interaction
+
+```{r}
+davies_form_wave_interaction <-  bf(SurvDev ~ WaveEnergyLevel * Census + (1|Site), family = bernoulli(link='logit'))
+
+priors_wave <- 
+  prior(normal(0, 1.7), class = "Intercept") +
+  prior(normal(0,5), class = "b") +
+  prior(student_t(3, 0, 1.5), class = 'sd')
+
+priors_wave_refined <- 
+  prior(normal(1, 0.5), class = "Intercept") +                        # Prior for the intercept
+  prior(normal(0, 2), class = "b", coef = "WaveEnergyLevel") +         # Prior for WaveEnergyLevel
+  prior(normal(-0.5, 1), class = "b", coef = "Censust2") +             # Prior for Census t2
+  prior(normal(-1, 1), class = "b", coef = "Censust3") +               # Prior for Census t3
+  prior(normal(-1.5, 1), class = "b", coef = "Censust4") +             # Prior for Census t4
+  prior(normal(-2, 1), class = "b", coef = "Censust6") +               # Prior for Census t6
+  prior(normal(0, 1), class = "b", coef = "WaveEnergyLevel:Censust2") + # Prior for WaveEnergyLevel * Census t2 interaction
+  prior(normal(0, 1), class = "b", coef = "WaveEnergyLevel:Censust3") + # Prior for WaveEnergyLevel * Census t3 interaction
+  prior(normal(0, 1), class = "b", coef = "WaveEnergyLevel:Censust4") + # Prior for WaveEnergyLevel * Census t4 interaction
+  prior(normal(0, 1), class = "b", coef = "WaveEnergyLevel:Censust6") + # Prior for WaveEnergyLevel * Census t6 interaction
+  prior(student_t(3, 0, 1.5), class = "sd", group = "Site")            # Prior for the random effect (site)
+
+priors_wave_refined_v2 <- 
+  prior(normal(1.5, 0.3), class = "Intercept") +                          # Stronger prior on intercept, expecting higher survival
+  prior(normal(0, 1), class = "b", coef = "WaveEnergyLevel") +             # Tighter prior for WaveEnergyLevel around zero
+  prior(normal(-0.5, 0.5), class = "b", coef = "Censust2") +               # Prior for t2 with some negative effect
+  prior(normal(-1.2, 0.5), class = "b", coef = "Censust3") +               # Prior for t3 with a more negative effect
+  prior(normal(-1.5, 0.5), class = "b", coef = "Censust4") +               # Prior for t4
+  prior(normal(-2, 0.5), class = "b", coef = "Censust6") +                 # Prior for t6, expecting a larger effect
+  prior(normal(0, 0.5), class = "b", coef = "WaveEnergyLevel:Censust2") +  # Interaction terms with tighter priors around zero
+  prior(normal(0, 0.5), class = "b", coef = "WaveEnergyLevel:Censust3") + 
+  prior(normal(0, 0.5), class = "b", coef = "WaveEnergyLevel:Censust4") + 
+  prior(normal(0, 0.5), class = "b", coef = "WaveEnergyLevel:Censust6") + 
+  prior(student_t(3, 0, 1.5), class = "sd", group = "Site")               # Keeping the prior for the random effect site the same
+
+priors_wave_refined_v3 <- 
+  prior(normal(2, 0.5), class = "Intercept") +                         # More refined prior for intercept
+  prior(normal(0, 0.2), class = "b", coef = "WaveEnergyLevel") +        # Tighter prior for WaveEnergyLevel
+  prior(normal(-0.5, 0.5), class = "b", coef = "Censust2") +            # Time prior remains as is
+  prior(normal(-1.2, 0.5), class = "b", coef = "Censust3") +            # Time prior remains as is
+  prior(normal(-1.5, 0.5), class = "b", coef = "Censust4") +            # Time prior remains as is
+  prior(normal(-2, 0.5), class = "b", coef = "Censust6") +              # Time prior remains as is
+  prior(normal(0, 0.3), class = "b", coef = "WaveEnergyLevel:Censust2") + # Tighter interaction priors
+  prior(normal(0, 0.3), class = "b", coef = "WaveEnergyLevel:Censust3") + 
+  prior(normal(0, 0.3), class = "b", coef = "WaveEnergyLevel:Censust4") + 
+  prior(normal(0, 0.3), class = "b", coef = "WaveEnergyLevel:Censust6") + 
+  prior(student_t(3, 0, 1), class = "sd", group = "Site")              # Slightly more restrictive random effect prior
+
+
+
+davies_brm_wave_interaction <- brm(davies_form_wave_interaction,
+                 data=davies_subset,
+                 prior = priors_wave_refined_v3,
                  sample_prior = 'yes',
                  iter = 5000,
                  warmup = 1000,
@@ -338,98 +325,80 @@ davies_brm1_time <- brm(davies_form_time,
                 backend = "rstan")
 
 # To save the model use >> 
-#save(davies_brm1_time, file = "scripts/models/davies_brm_time.RData")
-
+#save(davies_brm_wave_interaction, file = "scripts/models/davies/davies_brm_wave_interaction.RData")
 ```
 
-##### brm2- time \* Wave
+##### Ub interaction
 
 ```{r}
-davies_form_time_wave <-  bf(SurvDev ~ Census + WaveEnergyLevel + (1|Site), family = bernoulli(link='logit'))
+davies_form_ub_interaction <-    bf(SurvDev ~ Ub_avrg * Census + (1|Site), family = bernoulli(link='logit'))
 
-priors_time <- prior(normal(0, 1.7), class = "Intercept") +
-  prior(normal(0,5), class = "b") +
-   prior(student_t(3, 0, 1.5), class = 'sd')
+priors_ub <- 
+  prior(normal(1, 1), class = "Intercept") + # Positive intercept
+  prior(normal(-1, 1), class = "b", coef = "Ub_avrg") + # Negative effect of Ub_avrg
+  prior(normal(0, 2), class = "b", coef = "Censust2") + # Adjusted for each census time
+  prior(normal(0, 2), class = "b", coef = "Censust3") + 
+  prior(normal(0, 2), class = "b", coef = "Censust4") + 
+  prior(normal(0, 2), class = "b", coef = "Censust6") + 
+  prior(normal(-1, 1), class = "b", coef = "Ub_avrg:Censust2") + # Interaction terms
+  prior(normal(-1, 1), class = "b", coef = "Ub_avrg:Censust3") + 
+  prior(normal(-1, 1), class = "b", coef = "Ub_avrg:Censust4") + 
+  prior(normal(-1, 1), class = "b", coef = "Ub_avrg:Censust6") + 
+  prior(student_t(3, 0, 1.5), class = 'sd') # Random effects for Site
 
-davies_brm2_time_wave <- brm(davies_form_time_wave,
-                 data=davies,
-                 prior = priors_time,
-                 sample_prior = 'yes',
-                 iter = 5000,
-                 warmup = 1000,
-                 chains = 3, cores = 3,
-                 thin = 5,
-                 refresh = 0,
-                 control = list(adapt_delta = 0.99),
-                backend = "rstan")
+priors_ub_refined <- 
+  prior(normal(1, 0.5), class = "Intercept") +
+  prior(normal(-1, 1), class = "b", coef = "Ub_avrg") +
+  prior(normal(-1, 0.5), class = "b", coef = "Censust2") +
+  prior(normal(-1.5, 0.5), class = "b", coef = "Censust3") +
+  prior(normal(-1.5, 0.5), class = "b", coef = "Censust4") +
+  prior(normal(-2, 0.5), class = "b", coef = "Censust6") +
+  prior(normal(0, 1), class = "b", coef = "Ub_avrg:Censust2") +
+  prior(normal(0, 1), class = "b", coef = "Ub_avrg:Censust3") +
+  prior(normal(0, 1), class = "b", coef = "Ub_avrg:Censust4") +
+  prior(normal(0, 1), class = "b", coef = "Ub_avrg:Censust6") +
+  prior(student_t(3, 0, 1.5), class = "sd", group = "Site")
 
-# To save the model use >> 
-#save(davies_brm2_time_wave, file = "scripts/models/davies_brm2_time_wave.RData")
-```
+priors_ub_refined <- 
+  prior(normal(0, 2), class = "Intercept") +                # Prior for the intercept
+  prior(normal(-1, 1), class = "b", coef = "Ub_avrg") +      # Prior for main effect of Ub_avrg, expecting a negative effect
+  prior(normal(-0.5, 1), class = "b", coef = "Censust2") +   # Prior for main effect of Census t2, expecting negative effect on survival
+  prior(normal(-1, 1), class = "b", coef = "Censust3") +     # Prior for main effect of Census t3
+  prior(normal(-1.5, 1), class = "b", coef = "Censust4") +   # Prior for main effect of Census t4
+  prior(normal(-2, 1), class = "b", coef = "Censust6") +     # Prior for main effect of Census t6
+  prior(normal(0.3, 1), class = "b", coef = "Ub_avrg:Censust2") +  # Positive prior for interaction, expecting diminishing effect
+  prior(normal(0.4, 1), class = "b", coef = "Ub_avrg:Censust3") +
+  prior(normal(0.5, 1), class = "b", coef = "Ub_avrg:Censust4") +
+  prior(normal(0.7, 1), class = "b", coef = "Ub_avrg:Censust6") +  # Larger positive prior for later time points (flattening trend)
+  prior(student_t(3, 0, 1.5), class = 'sd')                   # Prior for random site effect
 
-##### brm3- time \* Ub
+priors_ub_refined_v2 <- 
+  prior(normal(0, 1.5), class = "Intercept") +           # Slightly tighter prior on Intercept
+  prior(normal(0, 2.5), class = "b") +                    # Tighter prior for fixed effects
+  prior(normal(0, 1), class = "b", coef = "Ub_avrg") +    # Tighter prior for Ub_avrg
+  prior(normal(0, 0.75), class = "b", coef = "Censust2") +  # Priors for Census terms
+  prior(normal(0, 0.75), class = "b", coef = "Censust3") +
+  prior(normal(0, 0.75), class = "b", coef = "Censust4") +
+  prior(normal(0, 0.75), class = "b", coef = "Censust6") +
+  prior(normal(0, 0.75), class = "b", coef = "Ub_avrg:Censust2") +  # Interaction terms
+  prior(normal(0, 0.75), class = "b", coef = "Ub_avrg:Censust3") +
+  prior(normal(0, 0.75), class = "b", coef = "Ub_avrg:Censust4") +
+  prior(normal(0, 0.75), class = "b", coef = "Ub_avrg:Censust6") +
+  prior(student_t(3, 0, 1), class = 'sd', group = 'Site')  # Tighter prior on random effect
 
-```{r}
-davies_form_Ub_time <-    bf(SurvDev ~ Census + Ub_avrg +         (1|Site), family = bernoulli(link='logit'))
+priors_ub_refined_v3 <-
+  prior(normal(0, 1.7), class = "Intercept") +  # Narrow prior for intercept
+  prior(normal(-1, 0.5), class = "b", coef = "Ub_avrg") + # Stronger belief in a negative effect of Ub_avrg
+  prior(normal(0, 0.3), class = "b", coef = "Ub_avrg:Censust2") +  # Narrowed interaction effect priors
+  prior(normal(0, 0.3), class = "b", coef = "Ub_avrg:Censust3") +
+  prior(normal(0, 0.3), class = "b", coef = "Ub_avrg:Censust4") +
+  prior(normal(0, 0.3), class = "b", coef = "Ub_avrg:Censust6") +
+  prior(student_t(3, 0, 1.5), class = "sd", group = "Site")  # Default for random effects
 
-priors_time <- prior(normal(0, 1.7), class = "Intercept") +
-  prior(normal(0,5), class = "b") +
-   prior(student_t(3, 0, 1.5), class = 'sd')
 
-davies_brm3_time_Ub <- brm(davies_form_Ub_time,
-                 data=davies,
-                 prior = priors_time,
-                 sample_prior = 'yes',
-                 iter = 5000,
-                 warmup = 1000,
-                 chains = 3, cores = 3,
-                 thin = 5,
-                 refresh = 0,
-                 control = list(adapt_delta = 0.99),
-                 backend = "rstan")
-
-# Save the model
-#save(davies_brm3_time_Ub, file = "scripts/models/davies_brm3_time_Ub.RData")
-```
-
-##### brm4- time \* Current
-
-```{r}
-davies_form_current_time <-    bf(SurvDev ~ Census + median_speed  +         (1|Site), family = bernoulli(link='logit'))
-
-priors_time <- prior(normal(0, 1.7), class = "Intercept") +
-  prior(normal(0,5), class = "b") +
-   prior(student_t(3, 0, 1.5), class = 'sd')
-
-davies_brm4_time_current <- brm(davies_form_current_time,
-                 data=davies,
-                 prior = priors_time,
-                 sample_prior = 'yes',
-                 iter = 5000,
-                 warmup = 1000,
-                 chains = 3, cores = 3,
-                 thin = 5,
-                 refresh = 0,
-                 control = list(adapt_delta = 0.99),
-                 backend = "rstan")
-
-# Save the model
-#save(davies_brm4_time_current, file = "scripts/models/davies_brm4_time_current.RData")
-```
-
-##### brm5- time \* Turf
-
-```{r}
-
-davies_form_turf_time <-    bf(SurvDev ~ Census + sedturf_t5  + (1|Site), family = bernoulli(link='logit'))
-
-priors_time <- prior(normal(0, 1.7), class = "Intercept") +
-  prior(normal(0,5), class = "b") +
-   prior(student_t(3, 0, 1.5), class = 'sd')
-
-davies_brm5_time_turf <- brm(davies_form_turf_time,
-                 data=davies,
-                 prior = priors_time,
+davies_brm_ub_interaction <- brm(davies_form_ub_interaction,
+                 data=davies_subset,
+                 prior = priors_ub_refined_v3,
                  sample_prior = 'yes',
                  iter = 5000,
                  warmup = 1000,
@@ -440,21 +409,50 @@ davies_brm5_time_turf <- brm(davies_form_turf_time,
                  backend = "rstan")
 
 # Save the model
-#save(davies_brm5_time_turf, file = "scripts/models/davies_brm5_time_turf.RData")
+#save(davies_brm_ub_interaction, file = "scripts/models/davies/davies_brm_ub_interaction.RData")
 ```
 
-##### brm6- time \* Concrete
+##### Speed interaction
 
 ```{r}
-davies_form_concrete_time <-    bf(SurvDev ~ Census + sedconcrete_t5  +         (1|Site), family = bernoulli(link='logit'))
+davies_form_speed_interaction <-    bf(SurvDev ~ median_speed * Census + (1|Site), family = bernoulli(link='logit'))
 
-priors_time <- prior(normal(0, 1.7), class = "Intercept") +
-  prior(normal(0,5), class = "b") +
-   prior(student_t(3, 0, 1.5), class = 'sd')
+priors_speed <-c( 
+  set_prior("normal(0, 1.7)", class = "Intercept"),                          # Intercept prior
+  set_prior("normal(0.5, 1)", class = "b", coef = "median_speed"),           # Narrowed prior for median_speed
+  set_prior("normal(0, 0.5)", class = "b", coef = "median_speed:Censust2"),  # Narrowed priors for interaction terms
+  set_prior("normal(0, 0.5)", class = "b", coef = "median_speed:Censust3"),
+  set_prior("normal(0, 0.5)", class = "b", coef = "median_speed:Censust4"),
+  set_prior("normal(0, 0.5)", class = "b", coef = "median_speed:Censust6"),
+  set_prior("student_t(3, 0, 1.5)", class = "sd", group = "Site")  # Random effect prior
+)
 
-davies_brm6_time_concrete <- brm(davies_form_concrete_time,
-                 data=davies,
-                 prior = priors_time,
+priors_speed_refined <- c(
+  set_prior("normal(0, 1.5)", class = "Intercept"),  # Prior for Intercept
+  set_prior("normal(0, 0.5)", class = "b", coef = "median_speed"),  # Narrowed prior for median_speed
+  set_prior("normal(0, 0.5)", class = "b", coef = "median_speed:Censust2"),  # Narrowed prior for interaction terms
+  set_prior("normal(0, 0.5)", class = "b", coef = "median_speed:Censust3"),
+  set_prior("normal(0, 0.5)", class = "b", coef = "median_speed:Censust4"),
+  set_prior("normal(0, 0.5)", class = "b", coef = "median_speed:Censust6"),
+  set_prior("student_t(3, 0, 1.5)", class = "sd", group = "Site")  # Random effect prior
+)
+
+priors_speed_refined <- 
+  prior(normal(0.3, 0.5), class = "Intercept") + # Reflecting weak positive intercept
+  prior(normal(0, 0.5), class = "b", coef = "median_speed") + # Weakly informative on speed
+  prior(normal(-0.7, 0.5), class = "b", coef = "Censust2") + # Based on GLMM
+  prior(normal(-1.5, 0.5), class = "b", coef = "Censust3") +
+  prior(normal(-1.7, 0.5), class = "b", coef = "Censust4") +
+  prior(normal(-2.1, 0.5), class = "b", coef = "Censust6") +
+  prior(normal(0, 0.5), class = "b", coef = "median_speed:Censust2") + # Weak prior on interactions
+  prior(normal(0, 0.5), class = "b", coef = "median_speed:Censust3") +
+  prior(normal(0, 0.5), class = "b", coef = "median_speed:Censust4") +
+  prior(normal(0, 0.5), class = "b", coef = "median_speed:Censust6") +
+  prior(student_t(3, 0, 1.5), class = 'sd') # Random effect prior
+
+davies_brm_speed_interaction <- brm(davies_form_speed_interaction,
+                 data=davies_subset,
+                 prior = priors_speed_refined,
                  sample_prior = 'yes',
                  iter = 5000,
                  warmup = 1000,
@@ -464,22 +462,55 @@ davies_brm6_time_concrete <- brm(davies_form_concrete_time,
                  control = list(adapt_delta = 0.99),
                  backend = "rstan")
 
+#posterior_summary(davies_brm_speed_interaction)
+
 # Save the model
-#save(davies_brm6_time_concrete, file = "scripts/models/davies_brm6_time_concrete.RData")
+#save(davies_brm_speed_interaction, file = "scripts/models/davies/davies_brm_speed_interaction.RData")
 ```
 
-##### brm7- time \* habitat
+##### Turf interaction
 
 ```{r}
-davies_form_PCA_time <-    bf(SurvDev ~ Census + PC1  + PC2+         (1|Site), family = bernoulli(link='logit'))
+davies_form_turf_interaction <-    bf(SurvDev ~ turf  * Census + (1|Site), family = bernoulli(link='logit'))
 
-priors_time <- prior(normal(0, 1.7), class = "Intercept") +
-  prior(normal(0,5), class = "b") +
-   prior(student_t(3, 0, 1.5), class = 'sd')
+priors_turf <- 
+  prior(normal(0.5, 0.5), class = "b", coef = "turf") +  # Positive, moderate effect expected for turf
+  prior(normal(0, 0.5), class = "b", coef = "turf:Censust2") +  # Assume diminishing interaction effect over time
+  prior(normal(0, 0.5), class = "b", coef = "turf:Censust3") +  
+  prior(normal(0, 0.5), class = "b", coef = "turf:Censust4") +  
+  prior(normal(0, 0.5), class = "b", coef = "turf:Censust6") +  
+  prior(student_t(3, 0, 1), class = "sd")  # prior for random effects
 
-davies_brm7_time_PCA <- brm(davies_form_PCA_time,
-                 data=davies,
-                 prior = priors_time,
+priors_turf_refined <- 
+  prior(normal(0.5, 0.3), class = "b", coef = "turf") +  # Positive effect expected for turf
+  prior(normal(0, 0.3), class = "b", coef = "turf:Censust2") +  # Small interaction effects
+  prior(normal(0, 0.3), class = "b", coef = "turf:Censust3") +  
+  prior(normal(0, 0.3), class = "b", coef = "turf:Censust4") +  
+  prior(normal(0, 0.3), class = "b", coef = "turf:Censust6") +  
+  prior(student_t(3, 0, 1), class = 'sd')  # Regularizing prior for random intercept
+
+priors_turf_refined <- 
+  prior(normal(0.5, 0.3), class = "b", coef = "turf") +
+  prior(normal(0, 0.2), class = "b", coef = "turf:Censust2") +
+  prior(normal(0, 0.2), class = "b", coef = "turf:Censust3") +
+  prior(normal(0, 0.2), class = "b", coef = "turf:Censust4") +
+  prior(normal(0, 0.2), class = "b", coef = "turf:Censust6") +
+  prior(normal(0, 1), class = "Intercept") +
+  prior(student_t(3, 0, 1), class = "sd", group = "Site")
+
+priors_turf_refined_v2 <- 
+  prior(normal(0.5, 0.2), class = "b", coef = "turf") +
+  prior(normal(0, 0.1), class = "b", coef = "turf:Censust2") +
+  prior(normal(0, 0.1), class = "b", coef = "turf:Censust3") +
+  prior(normal(0, 0.1), class = "b", coef = "turf:Censust4") +
+  prior(normal(0, 0.1), class = "b", coef = "turf:Censust6") +
+  prior(normal(0, 1), class = "Intercept") +
+  prior(student_t(3, 0, 1), class = "sd", group = "Site")
+
+
+davies_brm_turf_interaction <- brm(davies_form_turf_interaction,
+                 data=davies_subset,
+                 prior = priors_turf_refined_v2,
                  sample_prior = 'yes',
                  iter = 5000,
                  warmup = 1000,
@@ -489,58 +520,217 @@ davies_brm7_time_PCA <- brm(davies_form_PCA_time,
                  control = list(adapt_delta = 0.99),
                  backend = "rstan")
 
+posterior_summary(davies_brm_turf_interaction)
+
 # Save the model
-#save(davies_brm7_time_PCA, file = "scripts/models/davies_brm7_time_PCA.RData")
+#save(davies_brm_turf_interaction, file = "scripts/models/davies/davies_brm_turf_interaction.RData")
+```
+
+##### Concrete interaction
+
+```{r}
+davies_form_concrete_interaction <- bf(SurvDev ~ concrete * Census + (1|Site), family = bernoulli(link='logit'))
+
+priors_concrete <- 
+  prior(normal(0.5, 0.5), class = "b", coef = "concrete") +  # Positive, moderate effect expected for turf
+  prior(normal(0, 0.5), class = "b", coef = "concrete:Censust2") +  # Assume diminishing interaction effect over time
+  prior(normal(0, 0.5), class = "b", coef = "concrete:Censust3") +  
+  prior(normal(0, 0.5), class = "b", coef = "concrete:Censust4") +  
+  prior(normal(0, 0.5), class = "b", coef = "concrete:Censust6") +  
+  prior(student_t(3, 0, 1), class = "sd")  # prior for random effects
+
+priors_concrete_updated <- 
+  prior(normal(0, 1.5), class = "Intercept") + 
+  prior(normal(0, 0.8), class = "b", coef = "concrete") + 
+  prior(normal(0, 0.5), class = "b", coef = "concrete:Censust2") + 
+  prior(normal(0, 0.5), class = "b", coef = "concrete:Censust3") + 
+  prior(normal(0, 0.5), class = "b", coef = "concrete:Censust4") + 
+  prior(normal(0, 0.5), class = "b", coef = "concrete:Censust6") + 
+  prior(student_t(3, 0, 1.5), class = "sd", group = "Site")
+
+priors_concrete_updated <- 
+  prior(normal(0, 1.5), class = "Intercept") + 
+  prior(normal(0, 0.5), class = "b", coef = "concrete") + 
+  prior(normal(0, 0.3), class = "b", coef = "concrete:Censust2") + 
+  prior(normal(0, 0.3), class = "b", coef = "concrete:Censust3") + 
+  prior(normal(0, 0.3), class = "b", coef = "concrete:Censust4") + 
+  prior(normal(0, 0.3), class = "b", coef = "concrete:Censust6") + 
+  prior(student_t(3, 0, 1.3), class = "sd", group = "Site")
+
+davies_brm_concrete_interaction <- brm(davies_form_concrete_interaction,
+                 data=davies_subset,
+                 prior = priors_concrete_updated,
+                 sample_prior = 'yes',
+                 iter = 5000,
+                 warmup = 1000,
+                 chains = 3, cores = 3,
+                 thin = 5,
+                 refresh = 0,
+                 control = list(adapt_delta = 0.99),
+                 backend = "rstan")
+
+posterior_summary(davies_brm_concrete_interaction)
+
+# Save the model
+#save(davies_brm_concrete_interaction, file = "scripts/models/davies/davies_brm_concrete_interaction.RData")
+```
+
+##### PCA interaction
+
+```{r}
+davies_form_PCA_interaction <-    bf(SurvDev ~ (Census* PC1) + (Census * PC2) + (1|Site), family = bernoulli(link='logit'))
+
+priors_PCA <- 
+  prior(normal(0, 1.5), class = "Intercept") + 
+  prior(normal(0, 0.8), class = "b", coef = "PC1") + 
+  prior(normal(0, 0.8), class = "b", coef = "PC2") + 
+  prior(normal(0, 0.5), class = "b", coef = "Censust2:PC1") + 
+  prior(normal(0, 0.5), class = "b", coef = "Censust3:PC1") + 
+  prior(normal(0, 0.5), class = "b", coef = "Censust4:PC1") + 
+  prior(normal(0, 0.5), class = "b", coef = "Censust6:PC1") + 
+  prior(normal(0, 0.5), class = "b", coef = "Censust2:PC2") + 
+  prior(normal(0, 0.5), class = "b", coef = "Censust3:PC2") + 
+  prior(normal(0, 0.5), class = "b", coef = "Censust4:PC2") + 
+  prior(normal(0, 0.5), class = "b", coef = "Censust6:PC2") + 
+  prior(student_t(3, 0, 1.5), class = "sd", group = "Site")
+
+priors_PCA_refined <- 
+  prior(normal(0, 1.5), class = "Intercept") + 
+  prior(normal(0, 0.8), class = "b", coef = "PC1") + 
+  prior(normal(0, 0.8), class = "b", coef = "PC2") + 
+  prior(normal(0, 0.3), class = "b", coef = "Censust2:PC1") + 
+  prior(normal(0, 0.3), class = "b", coef = "Censust3:PC1") + 
+  prior(normal(0, 0.3), class = "b", coef = "Censust4:PC1") + 
+  prior(normal(0, 0.3), class = "b", coef = "Censust6:PC1") + 
+  prior(normal(0, 0.3), class = "b", coef = "Censust2:PC2") + 
+  prior(normal(0, 0.3), class = "b", coef = "Censust3:PC2") + 
+  prior(normal(0, 0.3), class = "b", coef = "Censust4:PC2") + 
+  prior(normal(0, 0.3), class = "b", coef = "Censust6:PC2") + 
+  prior(student_t(3, 0, 1.5), class = "sd", group = "Site")
+
+priors_PCA_refined <- 
+  prior(normal(0, 1), class = "Intercept") +                    # Narrower prior on Intercept
+  prior(normal(0, 0.5), class = "b", coef = "PC1") +             # Tighter prior on PC1
+  prior(normal(0, 0.5), class = "b", coef = "PC2") +             # Tighter prior on PC2
+  prior(normal(0, 0.2), class = "b", coef = "Censust2:PC1") +    # Narrowed interaction term priors
+  prior(normal(0, 0.2), class = "b", coef = "Censust3:PC1") +    # Narrowed interaction term priors
+  prior(normal(0, 0.2), class = "b", coef = "Censust4:PC1") +
+  prior(normal(0, 0.2), class = "b", coef = "Censust6:PC1") +
+  prior(normal(0, 0.2), class = "b", coef = "Censust2:PC2") +
+  prior(normal(0, 0.2), class = "b", coef = "Censust3:PC2") +
+  prior(normal(0, 0.2), class = "b", coef = "Censust4:PC2") +
+  prior(normal(0, 0.2), class = "b", coef = "Censust6:PC2") +
+  prior(student_t(3, 0, 1), class = "sd", group = "Site")        # Moderate random effect prior
+
+priors_PCA_refined_v2 <- 
+  prior(normal(0, 1.5), class = "Intercept") +                    # Keep prior on Intercept 
+  prior(normal(0, 0.6), class = "b", coef = "PC1") +               # Slightly looser prior on PC1
+  prior(normal(0, 0.6), class = "b", coef = "PC2") +               # Slightly looser prior on PC2
+  prior(normal(0, 0.3), class = "b", coef = "Censust2:PC1") +      # Slightly looser interaction term priors
+  prior(normal(0, 0.3), class = "b", coef = "Censust3:PC1") +
+  prior(normal(0, 0.3), class = "b", coef = "Censust4:PC1") +
+  prior(normal(0, 0.3), class = "b", coef = "Censust6:PC1") +
+  prior(normal(0, 0.3), class = "b", coef = "Censust2:PC2") +
+  prior(normal(0, 0.3), class = "b", coef = "Censust3:PC2") +
+  prior(normal(0, 0.3), class = "b", coef = "Censust4:PC2") +
+  prior(normal(0, 0.3), class = "b", coef = "Censust6:PC2") +
+  prior(student_t(3, 0, 1.2), class = "sd", group = "Site")        # Adjust random effect prior slightly
+
+priors_PCA_interaction_refined_v3 <- 
+  prior(normal(0, 1.5), class = "Intercept") +                    # Keep prior on Intercept 
+  prior(normal(0, 0.5), class = "b", coef = "PC1") +               # Narrow prior on PC1
+  prior(normal(0, 0.5), class = "b", coef = "PC2") +               # Narrow prior on PC2
+  prior(normal(0, 0.4), class = "b", coef = "Censust2:PC1") +      # Keep priors on interaction terms
+  prior(normal(0, 0.4), class = "b", coef = "Censust3:PC1") +
+  prior(normal(0, 0.4), class = "b", coef = "Censust4:PC1") +
+  prior(normal(0, 0.4), class = "b", coef = "Censust6:PC1") +
+  prior(normal(0, 0.4), class = "b", coef = "Censust2:PC2") +
+  prior(normal(0, 0.4), class = "b", coef = "Censust3:PC2") +
+  prior(normal(0, 0.4), class = "b", coef = "Censust4:PC2") +
+  prior(normal(0, 0.4), class = "b", coef = "Censust6:PC2") +
+  prior(student_t(3, 0, 1.2), class = "sd", group = "Site")        # Adjust random effect prior slightly
+
+davies_brm_PCA_interaction <- brm(davies_form_PCA_interaction,
+                 data=davies_subset,
+                 prior = priors_PCA_refined,
+                 sample_prior = 'yes',
+                 iter = 5000,
+                 warmup = 1000,
+                 chains = 3, cores = 3,
+                 thin = 5,
+                 refresh = 0,
+                 control = list(adapt_delta = 0.99),
+                 backend = "rstan")
+
+posterior_summary(davies_brm_PCA_interaction)
+
+# Save the model
+#save(davies_brm_PCA_interaction, file = "scripts/models/davies/davies_brm_PCA_interaction.RData")
 ```
 
 ### Load models
 
 ```{r}
-load(file = "scripts/models/davies_brm_time.RData")
-load(file = "scripts/models/davies_brm2_time_wave.RData")
-load(file = "scripts/models/davies_brm3_time_Ub.RData")
-load(file = "scripts/models/davies_brm4_time_current.RData")
-load(file = "scripts/models/davies_brm5_time_turf.RData")
-load(file = "scripts/models/davies_brm6_time_concrete.RData")
-load(file = "scripts/models/davies_brm7_time_PCA.RData")
+load(file = "scripts/models/davies/davies_brm_census.RData")
+load(file = "scripts/models/davies/davies_brm_wave_interaction.RData")
+load(file = "scripts/models/davies/davies_brm_ub_interaction.RData")
+load(file = "scripts/models/davies/davies_brm_speed_interaction.RData")
+load(file = "scripts/models/davies/davies_brm_turf_interaction.RData")
+load(file = "scripts/models/davies/davies_brm_concrete_interaction.RData")
+load(file = "scripts/models/davies/davies_brm_PCA_interaction.RData")
 ```
 
 ### loo
 
 ```{r}
-l_brm <- davies_brm1_time |> loo()
-l_wave <- davies_brm2_time_wave|> loo()
-l_Ub <- davies_brm3_time_Ub |> loo()
-l_current <- davies_brm4_time_current |> loo()
-l_turf <- davies_brm5_time_turf|> loo()
-l_concrete <- davies_brm6_time_concrete|> loo()
-l_PC1 <- davies_brm7_time_PCA|> loo()
+l_census <- davies_brm_census |> loo()
+l_wave <- davies_brm_wave_interaction|> loo()
+l_ub <- davies_brm_ub_interaction |> loo()
+l_speed <- davies_brm_speed_interaction |> loo()
+l_turf <- davies_brm_turf_interaction|> loo()
+l_concrete <- davies_brm_concrete_interaction|> loo()
+l_PCA <- davies_brm_PCA_interaction|> loo()
 
-looic(davies_brm1_time)           #  LOOIC: 1467.88  [32.60]
-looic(davies_brm2_time_wave)     #  LOOIC: 1468.11  [32.66]
-looic(davies_brm3_time_Ub)      #  LOOIC: 1467.99  [32.65]
-looic(davies_brm4_time_current)  #  LOOIC: 1468.32  [32.62]
-looic(davies_brm5_time_turf)      #  LOOIC: 1467.75  [32.73]
-looic(davies_brm6_time_concrete)       #  LOOIC: 1468.30  [32.70]
-looic(davies_brm7_time_PCA)       #  LOOIC: 1464.33  [32.93]
+looic(davies_brm_census)                #  LOOIC: 1466.54 [27.75]
+looic(davies_brm_wave_interaction)      #  LOOIC: 1470.06 [28.12]
+looic(davies_brm_ub_interaction)        #  LOOIC: 1467.98 [27.75]
+looic(davies_brm_speed_interaction)     #  LOOIC: 1467.02 [28.43]
+looic(davies_brm_turf_interaction)      #  LOOIC: 1467.27 [27.70]
+looic(davies_brm_concrete_interaction)  #  LOOIC: 1469.88 [27.81]
+looic(davies_brm_PCA_interaction)       #  LOOIC: 1463.20 [27.90]
 
-loo_compare(l_brm, l_current, l_Ub, l_wave, l_turf, l_concrete, l_PC1)
+loo_compare(l_census, l_speed, l_ub, l_wave, l_turf, l_concrete, l_PCA)
 ```
 
-NOTES ON THIS: Prefer the model with the lower LOOIC, as it suggests better expected out-of-sample predictive performance. However, consider the uncertainty (SE) around these estimates. Significance of Differences: Look at the differences in LOOIC and their standard errors. A rule of thumb is that a difference greater than twice its standard error might be considered substantial, but this is not a strict threshold. If two models have similar LOOIC values, the simpler model (the one with fewer parameters) is typically preferred due to the principle of parsimony. This is not directly shown in the loo_compare() output but is an important consideration when interpreting results.
+NOTES ON THIS: The PCA interactoin model performs best overal, followed by the model with census only. The wave interaction model has the worst perfromance. Given that the elpd diff values are small and within the range of the standard errors, the difference between models are not strongly significant.
 
-# Brm Final Timepoint
-
-##### brm8- Random effects FINAL TIMEPOINT
+### Summary
 
 ```{r}
-davies_form_t6 <- bf(SurvDev ~ (1|Site), family = bernoulli(link='logit'))
+summary(davies_brm_census)
+summary(davies_brm_wave_interaction)
+summary(davies_brm_ub_interaction)
+summary(davies_brm_speed_interaction)
+summary(davies_brm_turf_interaction)
+summary(davies_brm_concrete_interaction)
+summary(davies_brm_PCA_interaction)
+```
 
-priors <- prior(normal(0, 1.7), class = "Intercept") +
-    prior(student_t(3, 0, 1.5), class = 'sd')
+# \-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\--
 
-davies_brm8_t6 <- brm(davies_form_t6,
-                 data=davies_t5,
+# Brm with Final timepoint
+
+##### Site
+
+```{r}
+davies_form_site <- bf(SurvDev ~ (1|Site), family = bernoulli(link='logit'))
+
+priors <- 
+  prior(normal(0, 1.7), class = "Intercept") +
+  prior(student_t(3, 0, 1.5), class = 'sd')
+
+davies_brm_site <- brm(davies_form_site,
+                 data=davies_t6,
                  prior = priors,
                  sample_prior = 'yes',
                  iter = 5000,
@@ -552,33 +742,33 @@ davies_brm8_t6 <- brm(davies_form_t6,
                 backend = "rstan")
 
 # To save the model use >> 
-#save(davies_brm8_t6, file = "scripts/models/davies_brm8_t6.RData")
+#save(davies_brm_site, file = "scripts/models/davies/davies_brm_site.RData")
 ```
 
 Model diagnostics
 
 ```{r}
-davies_brm8_t6 |> pp_check(type = 'dens_overlay', ndraws = 100)
-davies_brm8_t6  |> pp_check(group = 'Site', type = 'violin_grouped') 
+davies_brm_site |> pp_check(type = 'dens_overlay', ndraws = 100)
+davies_brm_site  |> pp_check(group = 'Site', type = 'violin_grouped') 
 
-davies.resids8 <- make_brms_dharma_res(davies_brm8_t6, integerResponse = FALSE)
+davies.resids8 <- make_brms_dharma_res(davies_brm_site, integerResponse = FALSE)
 testUniformity(davies.resids8) 
 plotResiduals(davies.resids8) 
 testDispersion(davies.resids8)
 ```
 
-##### brm9- t6- Wave
+##### wave
 
 ```{r}
-davies_form_t6_wave <-  bf(SurvDev ~ WaveEnergyLevel + (1|Site), family = bernoulli(link='logit'))
+davies_form_wave <-  bf(SurvDev ~ WaveEnergyLevel + (1|Site), family = bernoulli(link='logit'))
 
 priors_wave <- prior(normal(0, 1.7), class = "Intercept") +
   prior(normal(0,1), class = "b")  +
    prior(student_t(3, 0, 1.5), class = 'sd')
 
 
-davies_brm9_t6_wave <- brm(davies_form_t6_wave,
-                 data=davies_t5,
+davies_brm_wave <- brm(davies_form_wave,
+                 data=davies_t6,
                  prior = priors_wave,
                  sample_prior = 'yes',
                  iter = 5000,
@@ -590,32 +780,32 @@ davies_brm9_t6_wave <- brm(davies_form_t6_wave,
                 backend = "rstan")
 
 # To save the model use >> 
-#save(davies_brm9_t6_wave, file = "scripts/models/davies_brm9_t6_wave.RData")
+#save(davies_brm_wave, file = "scripts/models/davies/davies_brm_wave.RData")
 ```
 
 Model diagnostics
 
 ```{r}
-davies_brm9_t6_wave |> pp_check(type = 'dens_overlay', ndraws = 100)
-davies_brm9_t6_wave  |> pp_check(group = 'Site', type = 'violin_grouped') 
+davies_brm_wave |> pp_check(type = 'dens_overlay', ndraws = 100)
+davies_brm_wave  |> pp_check(group = 'Site', type = 'violin_grouped') 
 
-davies.resids9 <- make_brms_dharma_res(davies_brm9_t6_wave, integerResponse = FALSE)
+davies.resids9 <- make_brms_dharma_res(davies_brm_wave, integerResponse = FALSE)
 testUniformity(davies.resids9) 
 plotResiduals(davies.resids9) 
 testDispersion(davies.resids9)
 ```
 
-##### brm10- t6- Ub
+##### Ub
 
 ```{r}
-davies_form_t6_Ub <-    bf(SurvDev ~  Ub_avrg +         (1|Site), family = bernoulli(link='logit'))
+davies_form_Ub <-    bf(SurvDev ~  Ub_avrg + (1|Site), family = bernoulli(link='logit'))
 
 priors_Ub <- prior(normal(0, 1.7), class = "Intercept") +
   prior(normal(0,6), class = "b")  +
    prior(student_t(3, 0, 1.5), class = 'sd')
 
-davies_brm10_t6_Ub <- brm(davies_form_t6_Ub,
-                 data=davies_t5,
+davies_brm_Ub <- brm(davies_form_Ub,
+                 data=davies_t6,
                  prior = priors_Ub,
                  sample_prior = 'yes',
                  iter = 5000,
@@ -627,32 +817,32 @@ davies_brm10_t6_Ub <- brm(davies_form_t6_Ub,
                  backend = "rstan")
 
 # Save the model
-#save(davies_brm10_t6_Ub, file = "scripts/models/davies_brm10_t6_Ub.RData")
+#save(davies_brm_Ub, file = "scripts/models/davies/davies_brm_Ub.RData")
 ```
 
 Model diagnostics
 
 ```{r}
-davies_brm10_t6_Ub |> pp_check(type = 'dens_overlay', ndraws = 100)
-davies_brm10_t6_Ub  |> pp_check(group = 'Site', type = 'violin_grouped') 
+davies_brm_Ub |> pp_check(type = 'dens_overlay', ndraws = 100)
+davies_brm_Ub  |> pp_check(group = 'Site', type = 'violin_grouped') 
 
-davies.resids10 <- make_brms_dharma_res(davies_brm10_t6_Ub, integerResponse = FALSE)
+davies.resids10 <- make_brms_dharma_res(davies_brm_Ub, integerResponse = FALSE)
 testUniformity(davies.resids10) 
 plotResiduals(davies.resids10) 
 testDispersion(davies.resids10)
 ```
 
-##### brm11- t6- current
+##### median speed
 
 ```{r}
-davies_form_t6_current <-    bf(SurvDev ~  median_speed +         (1|Site), family = bernoulli(link='logit'))
+davies_form_speed <-    bf(SurvDev ~  median_speed + (1|Site), family = bernoulli(link='logit'))
 
 priors_speed <- prior(normal(0, 1.7), class = "Intercept") +
   prior(normal(0,40), class = "b")  +
    prior(student_t(3, 0, 1.5), class = 'sd')
 
-davies_brm11_t6_current <- brm(davies_form_t6_current,
-                 data=davies_t5,
+davies_brm_speed <- brm(davies_form_speed,
+                 data=davies_t6,
                  prior = priors_speed,
                  sample_prior = 'yes',
                  iter = 5000,
@@ -664,32 +854,32 @@ davies_brm11_t6_current <- brm(davies_form_t6_current,
                  backend = "rstan")
 
 # Save the model
-#save(davies_brm11_t6_current, file = "scripts/models/davies_brm11_t6_current.RData")
+#save(davies_brm_speed, file = "scripts/models/davies/davies_speed.RData")
 ```
 
 Model diagnostics
 
 ```{r}
-davies_brm11_t6_current |> pp_check(type = 'dens_overlay', ndraws = 100)
-davies_brm11_t6_current  |> pp_check(group = 'Site', type = 'violin_grouped') 
+davies_brm_speed |> pp_check(type = 'dens_overlay', ndraws = 100)
+davies_brm_speed  |> pp_check(group = 'Site', type = 'violin_grouped') 
 
-davies.resids11 <- make_brms_dharma_res(davies_brm11_t6_current, integerResponse = FALSE)
+davies.resids11 <- make_brms_dharma_res(davies_brm_speed, integerResponse = FALSE)
 testUniformity(davies.resids11) 
 plotResiduals(davies.resids11) 
 testDispersion(davies.resids11)
 ```
 
-##### brm12 - t6- turf
+##### turf
 
 ```{r}
-davies_form_t6_turf <-    bf(SurvDev ~  sedturf_t5 +         (1|Site), family = bernoulli(link='logit'))
+davies_form_turf <-  bf(SurvDev ~  turf + (1|Site), family = bernoulli(link='logit'))
 
 priors_turf <- prior(normal(0, 1.7), class = "Intercept") +
   prior(normal(0,5), class = "b")  +
    prior(student_t(3, 0, 1.5), class = 'sd')
 
-davies_brm12_t6_turf <- brm(davies_form_t6_turf,
-                 data=davies_t5,
+davies_brm_turf <- brm(davies_form_turf,
+                 data=davies_t6,
                  prior = priors_turf,
                  sample_prior = 'yes',
                  iter = 5000,
@@ -701,32 +891,32 @@ davies_brm12_t6_turf <- brm(davies_form_t6_turf,
                  backend = "rstan")
 
 # Save the model
-#save(davies_brm12_t6_turf, file = "scripts/models/davies_brm12_t6_turf.RData")
+#save(davies_brm_turf, file = "scripts/models/davies/davies_brm_turf.RData")
 ```
 
 Model diagnostics
 
 ```{r}
-davies_brm12_t6_turf |> pp_check(type = 'dens_overlay', ndraws = 100)
-davies_brm12_t6_turf  |> pp_check(group = 'Site', type = 'violin_grouped') 
+davies_brm_turf |> pp_check(type = 'dens_overlay', ndraws = 100)
+davies_brm_turf  |> pp_check(group = 'Site', type = 'violin_grouped') 
 
-davies.resids11 <- make_brms_dharma_res(davies_brm12_t6_turf, integerResponse = FALSE)
+davies.resids12 <- make_brms_dharma_res(davies_brm_turf, integerResponse = FALSE)
 testUniformity(davies.resids12) 
 plotResiduals(davies.resids12) 
 testDispersion(davies.resids12)
 ```
 
-##### brm13 - t6- concrete
+##### concrete
 
 ```{r}
-davies_form_t6_concrete <-    bf(SurvDev ~  sedconcrete_t5 +         (1|Site), family = bernoulli(link='logit'))
+davies_form_concrete <-    bf(SurvDev ~ concrete + (1|Site), family = bernoulli(link='logit'))
 
 priors_concrete <- prior(normal(0, 1.7), class = "Intercept") +
   prior(normal(0,5), class = "b")  +
    prior(student_t(3, 0, 1.5), class = 'sd')
 
-davies_brm13_t6_concrete  <- brm(davies_form_t6_concrete,
-                 data=davies_t5,
+davies_brm_concrete  <- brm(davies_form_concrete,
+                 data=davies_t6,
                  prior = priors_concrete,
                  sample_prior = 'yes',
                  iter = 5000,
@@ -738,32 +928,32 @@ davies_brm13_t6_concrete  <- brm(davies_form_t6_concrete,
                  backend = "rstan")
 
 # Save the model
-#save(davies_brm13_t6_concrete, file = "scripts/models/davies_brm13_t6_concrete.RData")
+#save(davies_brm_concrete, file = "scripts/models/davies/davies_brm_concrete.RData")
 ```
 
 Model diagnostics
 
 ```{r}
-davies_brm13_t6_concrete |> pp_check(type = 'dens_overlay', ndraws = 100)
-davies_brm13_t6_concrete  |> pp_check(group = 'Site', type = 'violin_grouped') 
+davies_brm_concrete |> pp_check(type = 'dens_overlay', ndraws = 100)
+davies_brm_concrete  |> pp_check(group = 'Site', type = 'violin_grouped') 
 
-davies.resids11 <- make_brms_dharma_res(davies_brm13_t6_concrete, integerResponse = FALSE)
+davies.resids13 <- make_brms_dharma_res(davies_brm_concrete, integerResponse = FALSE)
 testUniformity(davies.resids13) 
 plotResiduals(davies.resids13) 
 testDispersion(davies.resids13)
 ```
 
-##### brm14- t6 - habitat
+##### PCA
 
 ```{r}
-davies_form_t6_PCA <-    bf(SurvDev ~  PC1 + PC2 + (1|Site), family = bernoulli(link='logit'))
+davies_form_PCA <-    bf(SurvDev ~  PC1 + PC2 + (1|Site), family = bernoulli(link='logit'))
 
 priors_PCA <- prior(normal(0, 1.7), class = "Intercept") +
   prior(normal(0,8), class = "b")  +
    prior(student_t(3, 0, 1.5), class = 'sd')
 
-davies_brm14_t6_PCA  <- brm(davies_form_t6_PCA,
-                 data=davies_t5,
+davies_brm_PCA  <- brm(davies_form_PCA,
+                 data=davies_t6,
                  prior = priors_PCA,
                  sample_prior = 'yes',
                  iter = 5000,
@@ -775,16 +965,16 @@ davies_brm14_t6_PCA  <- brm(davies_form_t6_PCA,
                  backend = "rstan")
 
 # Save the model
-#save(davies_brm14_t6_PCA, file = "scripts/models/davies_brm14_t6_PCA.RData")
+#save(davies_brm_PCA, file = "scripts/models/davies/davies_brm_PCA.RData")
 ```
 
 Model diagnostics
 
 ```{r}
-davies_brm14_t6_PCA |> pp_check(type = 'dens_overlay', ndraws = 100)
-davies_brm14_t6_PCA  |> pp_check(group = 'Site', type = 'violin_grouped') 
+davies_brm_PCA |> pp_check(type = 'dens_overlay', ndraws = 100)
+davies_brm_PCA  |> pp_check(group = 'Site', type = 'violin_grouped') 
 
-davies.resids11 <- make_brms_dharma_res(davies_brm14_t6_PCA, integerResponse = FALSE)
+davies.resids14 <- make_brms_dharma_res(davies_brm_PCA, integerResponse = FALSE)
 testUniformity(davies.resids14) 
 plotResiduals(davies.resids14) 
 testDispersion(davies.resids14)
@@ -793,19 +983,20 @@ testDispersion(davies.resids14)
 ### Load models
 
 ```{r}
-load(file = "scripts/models/davies_brm8_t6.RData")
-load(file = "scripts/models/davies_brm9_t6_wave.RData")
-load(file = "scripts/models/davies_brm10_t6_Ub.RData")
-load(file = "scripts/models/davies_brm11_t6_current.RData")
-load(file = "scripts/models/davies_brm12_t6_turf.RData")
-load(file = "scripts/models/davies_brm13_t6_concrete.RData")
-load(file = "scripts/models/davies_brm14_t6_PCA.RData")
+setwd("C:/Users/sjurriaa/Australian Institute of Marine Science/Carly Randall - Randall Lab/CAD/CAD Year1/")
+load(file = "scripts/models/davies/davies_brm_site.RData")
+load(file = "scripts/models/davies/davies_brm_wave.RData")
+load(file = "scripts/models/davies/davies_brm_Ub.RData")
+load(file = "scripts/models/davies/davies_brm_speed.RData")
+load(file = "scripts/models/davies/davies_brm_turf.RData")
+load(file = "scripts/models/davies/davies_brm_concrete.RData")
+load(file = "scripts/models/davies/davies_brm_PCA.RData")
 ```
 
 ### Compare loo
 
 ```{r}
-l_brm_t6 <- davies_brm8_t6 |> loo()
+l_brm_t6 <- davies_brm_site |> loo()
 l_wave_t6 <- davies_brm9_t6_wave|> loo()
 l_Ub_t6 <- davies_brm10_t6_Ub |> loo()
 l_current_t6 <- davies_brm11_t6_current |> loo()
@@ -856,7 +1047,7 @@ davies_brm13_t6_concrete|> r2_loo()
 davies_brm14_t6_PCA|> r2_loo()
 ```
 
-### Ranef: site specific effects 
+### Ranef: site specific effects
 
 ```{r}
 #davies_form_t6 <- bf(SurvDev ~ (1|Site), family = bernoulli(link='logit'))
@@ -869,18 +1060,320 @@ davies_site_effects_brm11 <- ranef(davies_brm11_t6_current)$Site
 davies_site_effects_brm11
 ```
 
-# \-\-\-\-- Figures \-\-\-\--
+# \-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\--
+
+# Figures
 
 ### Conditional effects
 
 ```{r}
-#davies_brm |> conditional_effects() |> plot(points=TRUE)
-davies_brm9_t6_wave |> conditional_effects() |> plot(points=TRUE)
-davies_brm10_t6_Ub |> conditional_effects() |> plot(points=TRUE)
-davies_brm11_t6_current |> conditional_effects() |> plot(points=TRUE)
-davies_brm12_t6_turf |> conditional_effects() |> plot(points=TRUE)
-davies_brm13_t6_concrete |> conditional_effects() |> plot(points=TRUE)
-davies_brm14_t6_PCA |> conditional_effects() |> plot(points=TRUE)
+davies_brm_census |> conditional_effects() |> plot(points=TRUE)
+davies_brm_wave_interaction |> conditional_effects() |> plot(points=TRUE)
+davies_brm_ub_interaction|> conditional_effects() |> plot(points=TRUE)
+davies_brm_speed_interaction |> conditional_effects() |> plot(points=TRUE)
+davies_brm_turf_interaction|> conditional_effects() |> plot(points=TRUE)
+davies_brm_concrete_interaction |> conditional_effects() |> plot(points=TRUE)
+davies_brm_PCA_interaction|> conditional_effects() |> plot(points=TRUE)
+```
+
+# \-\-\-\-- Interaction --------
+
+```{r}
+davies_variables <- davies_subset |>
+  select(c(Census, SurvDev, Ub_avrg, WaveEnergyLevel, turf, concrete, median_speed))
+
+davies_variables_t3 <- davies_variables |> filter (Census != "t3")
+
+davies_variables_new <- data.frame(
+  Ub_avrg = NA,  # Use NA since there are no actual values
+  WaveEnergyLevel = NA,
+  turf = NA,
+  concrete = NA,
+  median_speed = NA,
+  SurvDev = NA, 
+  Census = "t3"
+)
+
+# Combine the new species data with the original davies data
+davies_combined <- rbind(davies_variables_t3, davies_variables_new)
+
+# Adjust the factor levels of the Census variable to reorder the legend
+davies_combined$Census <- factor(davies_combined$Census, levels = c("t1", "t4", "t6", "t3"))
+davies_combined <- davies_combined |>   filter(!is.na(Census))
+
+remove(davies_variables_new)
+```
+
+##### Census
+
+```{r}
+# Generate the conditional effects for both species together
+davies_conditional_effects_brmCensus <- conditional_effects(davies_brm_census, effects = "Census")
+
+# Extract the data for the census effect
+census_effects_data <- davies_conditional_effects_brmCensus$Census
+```
+
+```{r}
+# Plot the effects for each census time
+plot_davies_census <- ggplot(census_effects_data, aes(x = Census, y = estimate__,)) +
+  geom_point(position = position_dodge(width = 0.5), size = 3) +
+  geom_errorbar(aes(ymin = lower__, ymax = upper__), position = position_dodge(width = 0.5), width = 0.2) +
+  
+  # Add jittered raw data points for individual observations
+  geom_jitter(data = davies_variables, 
+              aes(x = Census, y = SurvDev), 
+              alpha = 0.5, width = 0.05, height = 0) +
+  
+  labs(y = "Survival probability", x = "Time") +
+      theme_minimal() +
+  theme(
+    panel.border = element_rect(color = "black", fill = NA, linewidth = 0.5),
+    axis.ticks = element_line(color = "black", linewidth = 0.5),
+    axis.ticks.length = unit(0.25, "cm"),
+    axis.title.x = element_text(size = 12),
+    axis.title.y = element_text(size = 12)
+  )
+
+# Display the plot
+print(plot_davies_census)
+```
+
+##### Bottom Stress
+
+Generate conditional effects for each timepoint
+
+```{r}
+davies_conditional_effects_brmUb_t1 <- conditional_effects(davies_brm_ub_interaction, conditions = data.frame(Census = "t1"))
+#davies_conditional_effects_brmUb_t2 <- conditional_effects(davies_brm_ub_interaction, conditions = data.frame(Census = "t2"))
+#davies_conditional_effects_brmUb_t3 <- conditional_effects(davies_brm_ub_interaction, conditions = data.frame(Census = "t3"))
+davies_conditional_effects_brmUb_t4 <- conditional_effects(davies_brm_ub_interaction, conditions = data.frame(Census = "t4"))
+davies_conditional_effects_brmUb_t6 <- conditional_effects(davies_brm_ub_interaction, conditions = data.frame(Census = "t6"))
+```
+
+```{r}
+# Plot the effects with separate lines and ribbons for each species
+plot_davies_ub <- ggplot() +
+  geom_line(data = davies_conditional_effects_brmUb_t1$Ub_avrg, aes(x = Ub_avrg, y = estimate__), color = "orange") +
+  geom_ribbon(data = davies_conditional_effects_brmUb_t1$Ub_avrg, aes(x = Ub_avrg, ymin = lower__, ymax = upper__), fill = "orange", alpha = 0.3) +
+  
+  geom_line(data = davies_conditional_effects_brmUb_t4$Ub_avrg, aes(x = Ub_avrg, y = estimate__), color = "#009E73") +
+  geom_ribbon(data = davies_conditional_effects_brmUb_t4$Ub_avrg, aes(x = Ub_avrg, ymin = lower__, ymax = upper__), fill = "#009E73", alpha = 0.3) +
+  
+  geom_line(data = davies_conditional_effects_brmUb_t6$Ub_avrg, aes(x = Ub_avrg, y = estimate__), color = "#0072B2") +
+  geom_ribbon(data = davies_conditional_effects_brmUb_t6$Ub_avrg, aes(x = Ub_avrg, ymin = lower__, ymax = upper__), fill = "#0072B2", alpha = 0.3) +
+  
+  geom_jitter(data = davies_combined, 
+              aes(x = Ub_avrg, y = SurvDev, color = Census), 
+              alpha = 0.5, width = 0.05, height = 0) +
+  scale_color_manual(
+    values = c("t1" = "orange", "t4" = "#009E73", "t6" = "#0072B2", "t3" = "#F0E442"),  
+    labels = c("t1" = "3 months", 
+               "t4" = "10-14 months", 
+               "t6" = "17 months",
+               "t3" = "28 months")
+  ) +
+  labs(x = "Bottom stress\n(m s-1)", y = NULL, color = "Census time") + 
+  theme_minimal() +
+  theme( axis.text.x = element_text(size = 12),  # Increase x-axis tick label size
+  axis.text.y = element_text(size = 12),  # Increase y-axis tick label size.
+  axis.title.x = element_text(size = 13),  # Increase x-axis title size
+    panel.border = element_rect(color = "black", fill = NA, linewidth = 0.5),
+    axis.ticks = element_line(color = "black", linewidth = 0.5),
+    axis.ticks.length = unit(0.25, "cm"),
+    axis.title.y = element_blank()
+  )
+
+print(plot_davies_ub)
+
+```
+
+##### Wave Energy
+
+Generate conditional effects for each timepoint
+
+```{r}
+davies_conditional_effects_brmwave_t1 <- conditional_effects(davies_brm_wave_interaction, conditions = data.frame(Census = "t1"))
+#davies_conditional_effects_brmwave_t2 <- conditional_effects(davies_brm_wave_interaction, conditions = data.frame(Census = "t2"))
+#davies_conditional_effects_brmwave_t3 <- conditional_effects(davies_brm_wave_interaction, conditions = data.frame(Census = "t3"))
+davies_conditional_effects_brmwave_t4 <- conditional_effects(davies_brm_wave_interaction, conditions = data.frame(Census = "t4"))
+davies_conditional_effects_brmwave_t6 <- conditional_effects(davies_brm_wave_interaction, conditions = data.frame(Census = "t6"))
+```
+
+```{r}
+# Plot the effects with separate lines and ribbons for each species
+plot_davies_wave <- ggplot() +
+  geom_line(data = davies_conditional_effects_brmwave_t1$WaveEnergyLevel, aes(x = WaveEnergyLevel, y = estimate__), color = "orange") +
+  geom_ribbon(data = davies_conditional_effects_brmwave_t1$WaveEnergyLevel, aes(x = WaveEnergyLevel, ymin = lower__, ymax = upper__), fill = "orange", alpha = 0.3) +
+  
+  geom_line(data = davies_conditional_effects_brmwave_t4$WaveEnergyLevel, aes(x = WaveEnergyLevel, y = estimate__), color = "#009E73") +
+  geom_ribbon(data = davies_conditional_effects_brmwave_t4$WaveEnergyLevel, aes(x = WaveEnergyLevel, ymin = lower__, ymax = upper__), fill = "#009E73", alpha = 0.3) +
+  
+  geom_line(data = davies_conditional_effects_brmwave_t6$WaveEnergyLevel, aes(x = WaveEnergyLevel, y = estimate__), color = "#0072B2") +
+  geom_ribbon(data = davies_conditional_effects_brmwave_t6$WaveEnergyLevel, aes(x = WaveEnergyLevel, ymin = lower__, ymax = upper__), fill = "#0072B2", alpha = 0.3) +
+  
+  geom_jitter(data = davies_combined, 
+              aes(x = WaveEnergyLevel, y = SurvDev, color = Census), 
+              alpha = 0.5, width = 0.05, height = 0) +
+ labs(x = "Nom. Wave Energy Level\n", y = NULL, color = "Census time") + # Add x-axis label here
+ scale_color_manual(
+    values = c("t1" = "orange", "t4" = "#009E73", "t6" = "#0072B2", "t3" = "#F0E442"),  
+    labels = c("t1" = "3 months", 
+               "t4" = "10-14 months", 
+               "t6" = "17 months",
+               "t3" = "28 months")
+  ) +
+  theme_minimal() +
+  theme( axis.text.x = element_text(size = 12),  # Increase x-axis tick label size
+  axis.text.y = element_text(size = 12),  # Increase y-axis tick label size.
+  axis.title.x = element_text(size = 13),  # Increase x-axis title size
+    panel.border = element_rect(color = "black", fill = NA, linewidth = 0.5),
+    axis.ticks = element_line(color = "black", linewidth = 0.5),
+    axis.ticks.length = unit(0.25, "cm"),
+    axis.title.y = element_blank()
+  )
+
+print(plot_davies_wave)
+
+```
+
+##### Flow Velocity
+
+Generate conditional effects for each timepoint
+
+```{r}
+davies_conditional_effects_brmspeed_t1 <- conditional_effects(davies_brm_speed_interaction, conditions = data.frame(Census = "t1"))
+#davies_conditional_effects_brmspeed_t2 <- conditional_effects(davies_brm_speed_interaction, conditions = data.frame(Census = "t2"))
+#davies_conditional_effects_brmspeed_t3 <- conditional_effects(davies_brm_speed_interaction, conditions = data.frame(Census = "t3"))
+davies_conditional_effects_brmspeed_t4 <- conditional_effects(davies_brm_speed_interaction, conditions = data.frame(Census = "t4"))
+davies_conditional_effects_brmspeed_t6 <- conditional_effects(davies_brm_speed_interaction, conditions = data.frame(Census = "t6"))
+```
+
+```{r}
+# Plot the effects with separate lines and ribbons for each species
+plot_davies_speed <- ggplot() +
+  geom_line(data = davies_conditional_effects_brmspeed_t1$median_speed, aes(x = median_speed, y = estimate__), color = "orange") +
+  geom_ribbon(data = davies_conditional_effects_brmspeed_t1$median_speed, aes(x = median_speed, ymin = lower__, ymax = upper__), fill = "orange", alpha = 0.3) +
+  
+  geom_line(data = davies_conditional_effects_brmspeed_t4$median_speed, aes(x = median_speed, y = estimate__), color = "#009E73") +
+  geom_ribbon(data = davies_conditional_effects_brmspeed_t4$median_speed, aes(x = median_speed, ymin = lower__, ymax = upper__), fill = "#009E73", alpha = 0.3) +
+  
+  geom_line(data = davies_conditional_effects_brmspeed_t6$median_speed, aes(x = median_speed, y = estimate__), color = "#0072B2") +
+  geom_ribbon(data = davies_conditional_effects_brmspeed_t6$median_speed, aes(x = median_speed, ymin = lower__, ymax = upper__), fill = "#0072B2", alpha = 0.3) +
+  
+  geom_jitter(data = davies_combined, 
+              aes(x = median_speed, y = SurvDev, color = Census), 
+              alpha = 0.5, width = 0.01, height = 0) +
+  labs(x = "Median flow velocity\n(m s-1)", y = NULL, color = "Census time") + 
+  scale_color_manual(
+    values = c("t1" = "orange", "t4" = "#009E73", "t6" = "#0072B2", "t3" = "#F0E442"),  
+    labels = c("t1" = "3 months", 
+               "t4" = "10-14 months", 
+               "t6" = "17 months",
+               "t3" = "28 months")
+  ) +
+  theme_minimal() +
+  theme( axis.text.x = element_text(size = 12),  # Increase x-axis tick label size
+  axis.text.y = element_text(size = 12),  # Increase y-axis tick label size.
+  axis.title.x = element_text(size = 13),  # Increase x-axis title size
+    panel.border = element_rect(color = "black", fill = NA, linewidth = 0.5),
+    axis.ticks = element_line(color = "black", linewidth = 0.5),
+    axis.ticks.length = unit(0.25, "cm"),
+    axis.title.y = element_blank()
+  )
+
+print(plot_davies_speed)
+
+```
+
+##### Turf
+
+```{r}
+davies_conditional_effects_brmturf_t1 <- conditional_effects(davies_brm_turf_interaction, conditions = data.frame(Census = "t1"))
+davies_conditional_effects_brmturf_t4 <- conditional_effects(davies_brm_turf_interaction, conditions = data.frame(Census = "t4"))
+davies_conditional_effects_brmturf_t6 <- conditional_effects(davies_brm_turf_interaction, conditions = data.frame(Census = "t6"))
+```
+
+```{r}
+# Plot the effects with separate lines and ribbons for each species
+plot_davies_turf <- ggplot() +
+  geom_line(data = davies_conditional_effects_brmturf_t1$turf, aes(x = turf, y = estimate__), color = "orange") +
+  geom_ribbon(data = davies_conditional_effects_brmturf_t1$turf, aes(x = turf, ymin = lower__, ymax = upper__), fill = "orange", alpha = 0.3) +
+  
+  geom_line(data = davies_conditional_effects_brmturf_t4$turf, aes(x = turf, y = estimate__), color = "#009E73") +
+  geom_ribbon(data = davies_conditional_effects_brmturf_t4$turf, aes(x = turf, ymin = lower__, ymax = upper__), fill = "#009E73", alpha = 0.3) +
+  
+  geom_line(data = davies_conditional_effects_brmturf_t6$turf, aes(x = turf, y = estimate__), color = "#0072B2") +
+  geom_ribbon(data = davies_conditional_effects_brmturf_t6$turf, aes(x = turf, ymin = lower__, ymax = upper__), fill = "#0072B2", alpha = 0.3) +
+  
+  geom_jitter(data = davies_combined, 
+              aes(x = turf, y = SurvDev, color = Census), 
+              alpha = 0.5, width = 0.05, height = 0) +
+   labs(x = "Sedimentation on turf\n(mg cm-2 day-1)", y = NULL, color = "Census time") + 
+ scale_color_manual(
+    values = c("t1" = "orange", "t4" = "#009E73", "t6" = "#0072B2", "t3" = "#F0E442"),  
+    labels = c("t1" = "3 months", 
+               "t4" = "10-14 months", 
+               "t6" = "17 months",
+               "t3" = "28 months")
+  ) +
+  theme_minimal() +
+  theme( axis.text.x = element_text(size = 12),  # Increase x-axis tick label size
+  axis.text.y = element_text(size = 12),  # Increase y-axis tick label size.
+  axis.title.x = element_text(size = 13),  # Increase x-axis title size
+    panel.border = element_rect(color = "black", fill = NA, linewidth = 0.5),
+    axis.ticks = element_line(color = "black", linewidth = 0.5),
+    axis.ticks.length = unit(0.25, "cm"),
+    axis.title.y = element_blank()
+  )
+
+print(plot_davies_turf)
+
+```
+
+##### Concrete
+
+```{r}
+davies_conditional_effects_brmconcrete_t1 <- conditional_effects(davies_brm_concrete_interaction, conditions = data.frame(Census = "t1"))
+davies_conditional_effects_brmconcrete_t4 <- conditional_effects(davies_brm_concrete_interaction, conditions = data.frame(Census = "t4"))
+davies_conditional_effects_brmconcrete_t6 <- conditional_effects(davies_brm_concrete_interaction, conditions = data.frame(Census = "t6"))
+```
+
+```{r}
+# Plot the effects with separate lines and ribbons for each species
+plot_davies_concrete <- ggplot() +
+  geom_line(data = davies_conditional_effects_brmconcrete_t1$concrete, aes(x = concrete, y = estimate__), color = "orange") +
+  geom_ribbon(data = davies_conditional_effects_brmconcrete_t1$concrete, aes(x = concrete, ymin = lower__, ymax = upper__), fill = "orange", alpha = 0.3) +
+  
+  geom_line(data = davies_conditional_effects_brmconcrete_t4$concrete, aes(x = concrete, y = estimate__), color = "#009E73") +
+  geom_ribbon(data = davies_conditional_effects_brmconcrete_t4$concrete, aes(x = concrete, ymin = lower__, ymax = upper__), fill = "#009E73", alpha = 0.3) +
+  
+  geom_line(data = davies_conditional_effects_brmconcrete_t6$concrete, aes(x = concrete, y = estimate__), color = "#0072B2") +
+  geom_ribbon(data = davies_conditional_effects_brmconcrete_t6$concrete, aes(x = concrete, ymin = lower__, ymax = upper__), fill = "#0072B2", alpha = 0.3) +
+  
+  geom_jitter(data = davies_combined, 
+              aes(x = concrete, y = SurvDev, color = Census), 
+              alpha = 0.5, width = 0.05, height = 0) +
+   labs(x = "Sedimentation on concrete\n(mg cm-2 day-1)", y = NULL, color = "Census time") + 
+  scale_color_manual(
+    values = c("t1" = "orange", "t4" = "#009E73", "t6" = "#0072B2", "t3" = "#F0E442"),  
+    labels = c("t1" = "3 months", 
+               "t4" = "10-14 months", 
+               "t6" = "17 months",
+               "t3" = "28 months")
+  ) +
+  theme_minimal() +
+ theme( axis.text.x = element_text(size = 12),  # Increase x-axis tick label size
+  axis.text.y = element_text(size = 12),  # Increase y-axis tick label size.
+  axis.title.x = element_text(size = 13),  # Increase x-axis title size
+    panel.border = element_rect(color = "black", fill = NA, linewidth = 0.5),
+    axis.ticks = element_line(color = "black", linewidth = 0.5),
+    axis.ticks.length = unit(0.25, "cm"),
+    axis.title.y = element_blank()
+  )
+
+print(plot_davies_concrete)
+
 ```
 
 ### Bayes figures
@@ -898,7 +1391,7 @@ davies_variables_new <- data.frame(
   sedconcrete_t5 = NA,
   median_speed = NA,
   SurvDev = NA, 
-  Spp = c("A. millepora", "A. tenuis")
+  Spp = c("A. millepora", "A. kenti")
 )
 
 # Combine the new species data with the original davies data
@@ -908,75 +1401,39 @@ remove(davies_variables)
 remove(davies_variables_new)
 ```
 
-Create a new data frame to add predictor variables and species information for *A. millepora* and *A. tenuis*, with placeholder values for environmental variables and fitted values.
-
-```{r}
-# Add a new species entry for predictor dataframe
-new_species_davies <- data.frame(
-  Ub_avrg = rep(NA, length(10)),
-  WaveEnergyLevel = rep(NA, length(10)),
-  sedturf_t5 = rep(NA, length(10)),
-  sedconcrete_t5 = rep(NA, length(10)),
-  median_speed = rep(NA, length(10)),
-  Spp = c("A_millepora", "A_tenuis"),
-  Fitted = NA,  
-  Lower = NA,   
-  Upper = NA    
-)
-
-davies_brm9 <- new_species_davies |>
-  select(c(WaveEnergyLevel, Spp, Fitted, Lower, Upper))
-davies_brm10 <- new_species_davies |>
-  select(c(Ub_avrg, Spp, Fitted, Lower, Upper))
-davies_brm11 <- new_species_davies |>
-  select(c(median_speed, Spp, Fitted, Lower, Upper))
-davies_brm12 <- new_species_davies |>
-  select(c(sedturf_t5, Spp, Fitted, Lower, Upper))
-davies_brm13 <- new_species_davies |>
-  select(c(sedconcrete_t5, Spp, Fitted, Lower, Upper))
-#davies_brm14 <- new_species_davies |>
-#  select(c(sedturf_t5, Spp, Fitted, Lower, Upper))
-```
-
 ##### Bottom Stress
 
 Extract fitted values and predictors and create empty entries for Aten and Amil for complete species representation in the figure legends:
 
 ```{r}
-# Extract fitted values and predictors 
-fitted_values_davies_brm10 <- fitted(davies_brm10_t6_Ub, summary = FALSE)
+davies_conditional_effects_brm10 <- conditional_effects(davies_brm10_t6_Ub)
 
-predicted_data_davies_brm10 <- data.frame(  
-  Ub_avrg = davies_t5$Ub_avrg,  
-  Spp = davies_t5$Spp,  
-  Fitted = apply(fitted_values_davies_brm10, 2, mean), 
-  Lower = apply(fitted_values_davies_brm10, 2, function(x) quantile(x, 0.025)), 
-  Upper = apply(fitted_values_davies_brm10, 2, function(x) quantile(x, 0.975)) )
-
-# Combine the new species data with the original predicted data
-predicted_data_davies_brm10 <- rbind(predicted_data_davies_brm10, davies_brm10)
+# Extract the relevant data frames from the conditional_effects object
+davies_conditional_effects_Ub <- davies_conditional_effects_brm10$Ub_avrg
 ```
 
 Create plot:
 
 ```{r}
 plot_davies_Ub <- ggplot() +
-  geom_jitter(data = davies_combined, aes(x = Ub_avrg, y = SurvDev, color = Spp), alpha = 0.5, width = 0.05, height = 0) +
-  geom_errorbar(data = predicted_data_davies_brm10, aes(x = Ub_avrg, ymin = Lower, ymax = Upper), color = "black", width = 0.025, alpha = 0.5) +
-  geom_point(data = predicted_data_davies_brm10, aes(x = Ub_avrg, y = Fitted), color = "black") +
-  labs(color = "Species", fill = "Species") +
-  scale_color_manual(values = c("A. hyacinthus" = "orange", "A. tenuis" = "purple", "A. millepora" = "green")) +
+  geom_line(data = davies_conditional_effects_Ub, aes(x = Ub_avrg, y = estimate__), color = "black") +
+  geom_ribbon(data = davies_conditional_effects_Ub, aes(x = Ub_avrg, ymin = lower__, ymax = upper__), 
+              fill = "grey", alpha = 0.3) +
+ geom_jitter(data = davies_combined, 
+              aes(x = Ub_avrg, y = SurvDev, color = Spp), 
+              alpha = 0.5, width = 0.05, height = 0) +
+  labs(color = "Species") +
+  scale_color_manual(values = c("A. hyacinthus" = "orange", "A. kenti" = "#009E73", "A. millepora" = "#0072B2")) +
   theme_minimal() +
   theme(
     panel.border = element_rect(color = "black", fill = NA, linewidth = 0.5),
     axis.ticks = element_line(color = "black", linewidth = 0.5),
     axis.ticks.length = unit(0.25, "cm"),
-    axis.title.x = element_blank(), # Remove x-axis title
+    axis.title.x = element_blank(),
     axis.title.y = element_blank()
   )
 
-# Plot the graph
-plot(plot_davies_Ub)
+print(plot_davies_Ub)
 ```
 
 ##### Wave Energy Level
@@ -984,40 +1441,34 @@ plot(plot_davies_Ub)
 Extract fitted values and predictors:
 
 ```{r}
-# Extract fitted values and predictors 
-fitted_values_davies_brm9 <- fitted(davies_brm9_t6_wave, summary = FALSE)
+davies_conditional_effects_brm9<- conditional_effects(davies_brm9_t6_wave)
 
-predicted_data_davies_brm9 <- data.frame(  
-  WaveEnergyLevel = davies_t5$WaveEnergyLevel,  
-  Spp = davies_t5$Spp,  
-  Fitted = apply(fitted_values_davies_brm9, 2, mean), 
-  Lower = apply(fitted_values_davies_brm9, 2, function(x) quantile(x, 0.025)), 
-  Upper = apply(fitted_values_davies_brm9, 2, function(x) quantile(x, 0.975)) )
-
-# Combine the new species data with the original predicted data
-predicted_data_davies_brm9 <- rbind(predicted_data_davies_brm9, davies_brm9)
+# Extract the relevant data frames from the conditional_effects object
+davies_conditional_effects_wave <- davies_conditional_effects_brm9$WaveEnergyLevel
 ```
 
 Create plot:
 
 ```{r}
 plot_davies_wave <- ggplot() +
-  geom_jitter(data = davies_combined, aes(x = WaveEnergyLevel, y = SurvDev, color = Spp), alpha = 0.5, width = 0.1, height = 0) +
-  geom_errorbar(data = predicted_data_davies_brm9, aes(x = WaveEnergyLevel, ymin = Lower, ymax = Upper), color = "black", width = 0.1, alpha = 0.5) +
-  geom_point(data = predicted_data_davies_brm9, aes(x = WaveEnergyLevel, y = Fitted), color = "black") +
-  labs(color = "Species", fill = "Species") +
-  scale_color_manual(values = c("A. hyacinthus" = "orange", "A. tenuis" = "purple", "A. millepora" = "green")) +
+  geom_line(data = davies_conditional_effects_wave, aes(x = WaveEnergyLevel, y = estimate__), color = "black") +
+  geom_ribbon(data = davies_conditional_effects_wave, aes(x = WaveEnergyLevel, ymin = lower__, ymax = upper__), 
+              fill = "grey", alpha = 0.3) +
+   geom_jitter(data = davies_combined, 
+              aes(x = WaveEnergyLevel, y = SurvDev, color = Spp), 
+              alpha = 0.2, width = 0.2, height = 0) +
+  labs(color = "Species") +
+  scale_color_manual(values = c("A. hyacinthus" = "orange", "A. kenti" = "#009E73", "A. millepora" = "#0072B2")) +
   theme_minimal() +
   theme(
     panel.border = element_rect(color = "black", fill = NA, linewidth = 0.5),
     axis.ticks = element_line(color = "black", linewidth = 0.5),
     axis.ticks.length = unit(0.25, "cm"),
-    axis.title.x = element_blank(), # Remove x-axis title
+    axis.title.x = element_blank(),
     axis.title.y = element_blank()
   )
 
-# Plot the graph
-plot(plot_davies_wave)
+print(plot_davies_wave)
 ```
 
 ##### Flow velocity
@@ -1025,35 +1476,30 @@ plot(plot_davies_wave)
 Extract fitted values and predictors:
 
 ```{r}
-# Extract fitted values and predictors 
-fitted_values_davies_brm11 <- fitted(davies_brm11_t6_current, summary = FALSE)
+davies_conditional_effects_brm11 <- conditional_effects(davies_brm11_t6_current)
 
-predicted_data_davies_brm11 <- data.frame(  
-  median_speed = davies_t5$median_speed,  
-  Spp = davies_t5$Spp,  
-  Fitted = apply(fitted_values_davies_brm11, 2, mean), 
-  Lower = apply(fitted_values_davies_brm11, 2, function(x) quantile(x, 0.025)), 
-  Upper = apply(fitted_values_davies_brm11, 2, function(x) quantile(x, 0.975)) )
-
-# Combine the new species data with the original predicted data
-predicted_data_davies_brm11 <- rbind(predicted_data_davies_brm11, davies_brm11)
+# Extract the relevant data frames from the conditional_effects object
+davies_conditional_effects_speed <- davies_conditional_effects_brm11$median_speed
 ```
 
 Create plot:
 
 ```{r}
 plot_davies_speed <- ggplot() +
-  geom_jitter(data = davies_combined, aes(x = median_speed, y = SurvDev, color = Spp), alpha = 0.5, width = 0.0025, height = 0) +
-  geom_errorbar(data = predicted_data_davies_brm11, aes(x = median_speed, ymin = Lower, ymax = Upper), color = "black", width = 0.0025, alpha = 0.5) +
-  geom_point(data = predicted_data_davies_brm11, aes(x = median_speed, y = Fitted), color = "black") +
-  labs(color = "Species", fill = "Species") +
-  scale_color_manual(values = c("A. hyacinthus" = "orange", "A. tenuis" = "purple", "A. millepora" = "green")) +
+  geom_line(data = davies_conditional_effects_speed, aes(x = median_speed, y = estimate__), color = "black") +
+  geom_ribbon(data = davies_conditional_effects_speed, aes(x = median_speed, ymin = lower__, ymax = upper__), 
+              fill = "grey", alpha = 0.3) +
+   geom_jitter(data = davies_combined, 
+              aes(x = median_speed, y = SurvDev, color = Spp), 
+              alpha = 0.5, width = 0.008, height = 0) +
+  labs(color = "Species") +
+  scale_color_manual(values = c("A. hyacinthus" = "orange", "A. kenti" = "#009E73", "A. millepora" = "#0072B2")) +
   theme_minimal() +
   theme(
     panel.border = element_rect(color = "black", fill = NA, linewidth = 0.5),
     axis.ticks = element_line(color = "black", linewidth = 0.5),
     axis.ticks.length = unit(0.25, "cm"),
-    axis.title.x = element_blank(), # Remove x-axis title
+    axis.title.x = element_blank(),
     axis.title.y = element_blank()
   )
 
@@ -1066,36 +1512,30 @@ plot(plot_davies_speed)
 Extract fitted values and predictors:
 
 ```{r}
-# Extract fitted values and predictors 
-fitted_values_davies_brm12 <- fitted(davies_brm12_t6_turf, summary = FALSE)
+davies_conditional_effects_brm12 <- conditional_effects(davies_brm12_t6_turf)
 
-predicted_data_davies_brm12 <- data.frame(  
-  sedturf_t5 = davies_t5$sedturf_t5,  
-  Spp = davies_t5$Spp,  
-  Fitted = apply(fitted_values_davies_brm12, 2, mean), 
-  Lower = apply(fitted_values_davies_brm12, 2, function(x) quantile(x, 0.025)), 
-  Upper = apply(fitted_values_davies_brm12, 2, function(x) quantile(x, 0.975)) )
-
-# Combine the new species data with the original predicted data
-predicted_data_davies_brm12 <- rbind(predicted_data_davies_brm12, davies_brm12)
-
+# Extract the relevant data frames from the conditional_effects object
+davies_conditional_effects_turf <- davies_conditional_effects_brm12$sedturf_t5
 ```
 
 Create plot:
 
 ```{r}
 plot_davies_turf <- ggplot() +
-  geom_jitter(data = davies_combined, aes(x = sedturf_t5, y = SurvDev, color = Spp), alpha = 0.5, width = 0.08, height = 0) +
-  geom_errorbar(data = predicted_data_davies_brm12, aes(x = sedturf_t5, ymin = Lower, ymax = Upper), color = "black", width = 0.025, alpha = 0.5) +
-  geom_point(data = predicted_data_davies_brm12, aes(x = sedturf_t5, y = Fitted), color = "black") +
-  labs(color = "Species", fill = "Species") +
-  scale_color_manual(values = c("A. hyacinthus" = "orange", "A. tenuis" = "purple", "A. millepora" = "green")) +
+  geom_line(data = davies_conditional_effects_turf, aes(x = sedturf_t5, y = estimate__), color = "black") +
+  geom_ribbon(data = davies_conditional_effects_turf, aes(x = sedturf_t5, ymin = lower__, ymax = upper__), 
+              fill = "grey", alpha = 0.3) +
+   geom_jitter(data = davies_combined, 
+              aes(x = sedturf_t5, y = SurvDev, color = Spp), 
+              alpha = 0.5, width = 0.1, height = 0) +
+  labs(color = "Species") +
+  scale_color_manual(values = c("A. hyacinthus" = "orange", "A. kenti" = "#009E73", "A. millepora" = "#0072B2")) +
   theme_minimal() +
   theme(
     panel.border = element_rect(color = "black", fill = NA, linewidth = 0.5),
     axis.ticks = element_line(color = "black", linewidth = 0.5),
     axis.ticks.length = unit(0.25, "cm"),
-    axis.title.x = element_blank(), # Remove x-axis title
+    axis.title.x = element_blank(),
     axis.title.y = element_blank()
   )
 
@@ -1108,35 +1548,30 @@ plot(plot_davies_turf)
 Extract fitted values and predictors:
 
 ```{r}
-# Extract fitted values and predictors 
-fitted_values_davies_brm13 <- fitted(davies_brm13_t6_concrete, summary = FALSE)
+davies_conditional_effects_brm13 <- conditional_effects(davies_brm13_t6_concrete)
 
-predicted_data_davies_brm13 <- data.frame(  
-  sedconcrete_t5 = davies_t5$sedconcrete_t5,  
-  Spp = davies_t5$Spp,  
-  Fitted = apply(fitted_values_davies_brm13, 2, mean), 
-  Lower = apply(fitted_values_davies_brm13, 2, function(x) quantile(x, 0.025)), 
-  Upper = apply(fitted_values_davies_brm13, 2, function(x) quantile(x, 0.975)) )
-
-# Combine the new species data with the original predicted data
-predicted_data_davies_brm13 <- rbind(predicted_data_davies_brm13, davies_brm13)
+# Extract the relevant data frames from the conditional_effects object
+davies_conditional_effects_concrete <- davies_conditional_effects_brm13$sedconcrete_t5
 ```
 
 Create plot:
 
 ```{r}
 plot_davies_concrete <- ggplot() +
-  geom_jitter(data = davies_combined, aes(x = sedconcrete_t5, y = SurvDev, color = Spp), alpha = 0.5, width = 0.02, height = 0) +
-  geom_errorbar(data = predicted_data_davies_brm13, aes(x = sedconcrete_t5, ymin = Lower, ymax = Upper), color = "black", width = 0.05, alpha = 0.5) +
-  geom_point(data = predicted_data_davies_brm13, aes(x = sedconcrete_t5, y = Fitted), color = "black") +
-  labs(color = "Species", fill = "Species") +
-  scale_color_manual(values = c("A. hyacinthus" = "orange", "A. tenuis" = "purple", "A. millepora" = "green")) +
+  geom_line(data = davies_conditional_effects_concrete, aes(x = sedconcrete_t5, y = estimate__), color = "black") +
+  geom_ribbon(data = davies_conditional_effects_concrete, aes(x = sedconcrete_t5, ymin = lower__, ymax = upper__), 
+              fill = "grey", alpha = 0.3) +
+   geom_jitter(data = davies_combined, 
+              aes(x = sedconcrete_t5, y = SurvDev, color = Spp), 
+              alpha = 0.5, width = 0.05, height = 0) +
+  labs(color = "Species") +
+  scale_color_manual(values = c("A. hyacinthus" = "orange", "A. kenti" = "#009E73", "A. millepora" = "#0072B2")) +
   theme_minimal() +
   theme(
     panel.border = element_rect(color = "black", fill = NA, linewidth = 0.5),
     axis.ticks = element_line(color = "black", linewidth = 0.5),
     axis.ticks.length = unit(0.25, "cm"),
-    axis.title.x = element_blank(), # Remove x-axis title
+    axis.title.x = element_blank(),
     axis.title.y = element_blank()
   )
 
@@ -1149,9 +1584,11 @@ plot(plot_davies_concrete)
 ### Save figures:
 
 ```{r}
-ggsave("output/figures survival/Davies Survival Probability Ub.jpeg", plot_davies_Ub, width = 10, height = 6)
-ggsave("output/figures survival/Davies Survival Probability WaveEnergyLevel.jpeg", plot_davies_wave, width = 10, height = 6)
-ggsave("output/figures survival/Davies Survival Probability Median Speed.jpeg", plot_davies_speed, width = 10, height = 6)
-ggsave("output/figures survival/Davies Survival Probability Turf.jpeg", plot_davies_turf, width = 10, height = 6)
-ggsave("output/figures survival/Davies Survival Probability Concrete.jpeg", plot_davies_concrete, width = 10, height = 6)
+setwd("C:/Users/sjurriaa/Australian Institute of Marine Science/Carly Randall - Randall Lab/CAD/CAD Year1/")
+ggsave("output/figures survival/Davies Survival censustime.jpeg", plot_davies_census, width = 10, height = 6)
+ggsave("output/figures survival/Davies Survival Ub interaction.jpeg", plot_davies_Ub, width = 10, height = 6)
+ggsave("output/figures survival/Davies Survival WaveEnergyLevel interaction.jpeg", plot_davies_wave, width = 10, height = 6)
+ggsave("output/figures survival/Davies Survival Median Speed interaction.jpeg", plot_davies_speed, width = 10, height = 6)
+ggsave("output/figures survival/Davies Survival Turf interaction.jpeg", plot_davies_turf, width = 10, height = 6)
+ggsave("output/figures survival/Davies Survival Concrete interaction.jpeg", plot_davies_concrete, width = 10, height = 6)
 ```

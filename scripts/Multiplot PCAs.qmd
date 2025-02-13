@@ -1,0 +1,816 @@
+---
+title: "Multiplot PCAs"
+author: "SJ"
+format: html
+editor: visual
+---
+
+# Libraries
+
+```{r, echo=FALSE, message=FALSE, warning=FALSE}
+library (tidyverse)
+library(ggplot2)
+library(readxl)
+library(dplyr)
+library(readxl)
+library(vegan)
+library(GGally)
+library(corrplot)
+library(car)
+library(mvabund)
+library(scales)
+library(ggrepel)
+library(readxl)
+library(FactoMineR)
+library(factoextra)
+library(Hmisc)
+library(corrplot)
+library(stats)
+#install.packages("corrr")
+library(corrr)
+library(ggcorrplot)
+library(dplyr)
+library(tidyr)
+library(RColorBrewer)
+library(readxl)
+library(ggfortify)
+```
+
+# Load the data
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_knit$set(root.dir = "C:/Users/sjurriaa/Australian Institute of Marine Science/Carly Randall - Randall Lab/CAD/CAD Year1")
+```
+
+```{r, message=FALSE, warning=FALSE}
+#| label: import data
+survival <- read_excel("data/YEAR1_Survival.xlsx", 
+    col_types = c("numeric", "skip", "text", 
+        "skip", "skip", "numeric", "skip", 
+        "text", "text", "numeric", "skip", 
+        "text", "numeric", "text", "numeric", 
+        "numeric", "numeric", "numeric", 
+        "numeric"), na = "na")
+
+Y1Benthic <- read_excel("data/YEAR1_Benthic_data.xlsx", na = "na")
+```
+
+```{r}
+#select final census timepoint which is t3 for Heron and t6 for Davies and Moore 
+survival_master_H <- survival |> 
+  filter(Reef == "Heron", 
+         Census == "t3", 
+         Tab_ID == 1) 
+
+survival_master_MD <- survival |> 
+  filter(Census == "t6", 
+         !Reef == "Heron", 
+         Tab_ID ==1)
+
+#combine t2 Heron and t6 Moore&Davies 
+survival_t6<-rbind(survival_master_MD,survival_master_H) 
+
+#select only columns ReefDev and SurvDev which is renamed Survival 
+Y1Survival <- survival_t6 |> 
+  select(Reef, Site, ReefDev, SurvDev) |> 
+  rename(Survival = SurvDev)
+
+#free up space 
+remove(survival, survival_master_H, survival_master_MD, survival_t6)
+```
+
+```{r}
+#Mutate data to indicate if factor or numeric 
+Y1Survival <- Y1Survival |>
+  mutate(ReefDev=factor(ReefDev), 
+         Reef=factor(Reef), 
+         Site=factor(Site), 
+         Survival=as.numeric(Survival))
+
+Y1Benthic <- Y1Benthic |>
+  mutate(ReefDev=factor(ReefDev), 
+         Reef=factor(Reef), 
+         Site=factor(Site),
+         CCACyano = CCA + Cyano) |> 
+  select(-c(CCA, Cyano))
+
+Y1Benthic_pooled <- Y1Benthic |>
+  mutate(Acro = (Acro_br + Acro_dig + Acro_cor + Acro_tab + Acro_bot), 
+         HC = (HC_en + HC_fol + HC_mas + HC_sm + HC_free + HC_br)) |> 
+  select(-c(Acro_br, Acro_dig, Acro_cor, Acro_tab, Acro_bot, HC_en, HC_fol,HC_mas,HC_sm,HC_free,HC_br))
+
+#merge datasets 
+Y1BenticSurv <- left_join(Y1Benthic, Y1Survival, by = c("Reef", "Site", "ReefDev"))
+
+#merge datasets with pooled benthic groups
+Y1BenticSurv_pooled <- left_join(Y1Benthic_pooled, Y1Survival, by = c("Reef", "Site", "ReefDev")) 
+
+Y1BenticSurv <- Y1BenticSurv |>
+  filter(!is.na(Survival)) 
+
+Y1BenticSurv_pooled <- Y1BenticSurv_pooled |>
+  filter(!is.na(Survival))
+
+#free up space 
+remove(Y1Benthic_pooled)
+```
+
+# PCA sites
+
+### Moore
+
+Prep data
+
+```{r}
+Moore <- Y1BenticSurv_pooled |> filter(Reef == "Moore")
+
+#Filter rows to keep only those present in Y1 Survival
+Moore <- Moore |>
+  filter(!is.na(Survival), 
+         !is.na(Sand_Sed))
+
+#Remove variables you won't use in PCA 
+Moore_short <- subset(Moore, select = -c(Reef, ReefDev, Survival))
+
+#PCA benthic cover data 
+Moore.pca <- PCA(Moore_short[,-c(1)])
+
+Moore_factor <- Moore_short|> 
+  mutate(Site=factor(Site))
+```
+
+```{r}
+pca_biplot_Moore<- fviz_pca_biplot(Moore.pca,
+                                    label = "var", 
+                                    habillage=Moore_factor$Site, 
+                                    addEllipses=TRUE, 
+                                    ellipse.level=0.95, 
+                                    ggtheme = theme_minimal())+
+  labs(color = "Site", shape = "Site") +
+  guides(fill = "none", color = guide_legend("Site"), shape = guide_legend("Site")) +
+  ggtitle(NULL) +
+  theme(legend.position = "none") 
+
+
+pca_biplot_Moore
+```
+
+### **Davies**
+
+Prep data
+
+```{r}
+Davies <- Y1BenticSurv_pooled |> filter(Reef == "Davies")
+
+#Filter rows to keep only those present in Y1 Survival
+Davies <- Davies |>
+  filter(!is.na(Survival), 
+         !is.na(Sand_Sed))
+
+#Remove variables you won't use in PCA 
+Davies_short <- subset(Davies, select = -c(Reef, ReefDev, Survival))
+
+#PCA benthic cover data 
+davies.pca <- PCA(Davies_short[,-c(1)])
+
+Davies_factor <- Davies_short|> 
+  mutate(Site=factor(Site))
+```
+
+```{r}
+pca_biplot_Davies<- fviz_pca_biplot(davies.pca,
+                                    label = "var", 
+                                    habillage=Davies_factor$Site, 
+                                    addEllipses=TRUE, 
+                                    ellipse.level=0.95, 
+                                    ggtheme = theme_minimal())+
+  labs(color = "Site", shape = "Site") +
+  guides(fill = "none", color = guide_legend("Site"), shape = guide_legend("Site")) +
+  ggtitle(NULL) +
+  theme(legend.position = "none") 
+ 
+pca_biplot_Davies
+```
+
+### Heron
+
+Prep data
+
+```{r}
+Heron <- Y1BenticSurv_pooled |> filter(Reef == "Heron")
+
+#Filter rows to keep only those present in Y1 Survival
+Heron <- Heron |>
+  filter(!is.na(Survival), 
+         !is.na(Sand_Sed))
+
+#Remove variables you won't use in PCA 
+Heron_short <- subset(Heron, select = -c(Reef, ReefDev, Survival))
+
+#PCA benthic cover data 
+heron.pca <- PCA(Heron_short[,-c(1)])
+
+Heron_factor <- Heron_short|> 
+  mutate(Site=factor(Site))
+```
+
+```{r}
+pca_biplot_Heron<- fviz_pca_biplot(heron.pca,
+                                    label = "var", 
+                                    habillage=Heron_factor$Site, 
+                                    addEllipses=TRUE, 
+                                    ellipse.level=0.95, 
+                                    ggtheme = theme_minimal()) +
+  labs(color = "Site", shape = "Site") +
+  guides(fill = "none", color = guide_legend("Site"), shape = guide_legend("Site")) +
+  ggtitle(NULL)  +
+  theme(legend.position = "none") 
+
+pca_biplot_Heron
+```
+
+# PCA Survival
+
+### Moore
+
+Prep data
+
+```{r}
+#new dataset for PCA 
+Moore_short2 <- subset(Moore, select = -c(Site, ReefDev, Reef))
+
+#PCA with new dataset to show survival vs no survival 
+Mooresurv.pca <- PCA(Moore_short2[,-12])
+
+#Convert Survival to factor
+Moore_short2_factor <- Moore_short2 |> 
+  mutate(Survival=factor(Survival))
+```
+
+```{r}
+#Visualize PCA Biplot – FIGURE 2 
+plot_Moore_Survival <- fviz_pca_biplot(Mooresurv.pca, 
+                                        label = "var", 
+                                        habillage=Moore_short2_factor$Survival, 
+                                        addEllipses=TRUE, 
+                                        ellipse.level=0.95,
+                                        ggtheme = theme_minimal()) +
+                       ggtitle(NULL) +
+                       labs(color = "Survival", shape = "Survival") +
+                       guides(fill = "none", color = guide_legend("Survival"), shape = guide_legend("Survival")) +
+  theme(legend.position = "none") 
+
+plot_Moore_Survival
+```
+
+### Davies
+
+Prep data
+
+```{r}
+#new dataset for PCA 
+Davies_short2 <- subset(Davies, select = -c(Site, ReefDev, Reef))
+
+#Convert Survival to factor
+Davies_short2 <- Davies_short2 |> 
+  mutate(Survival=factor(Survival))
+
+#PCA with new dataset to show survival vs no survival 
+daviessurv.pca <- PCA(Davies_short2[,-12])
+```
+
+```{r}
+#Visualize PCA Biplot – FIGURE 2 
+plot_Davies_Survival <- fviz_pca_biplot(daviessurv.pca, 
+                                        label = "var", 
+                                        habillage=Davies_short2$Survival, 
+                                        addEllipses=TRUE, 
+                                        ellipse.level=0.95,
+                                        ggtheme = theme_minimal()) +
+                        ggtitle(NULL) +
+                       labs(color = "Survival", shape = "Survival") +
+                       guides(fill = "none", color = guide_legend("Survival"), shape = guide_legend("Survival"))+
+  theme(legend.position = "none") 
+
+
+plot_Davies_Survival
+```
+
+### Heron
+
+Prep data
+
+```{r}
+#new dataset for PCA 
+Heron_short2 <- subset(Heron, select = -c(Site, ReefDev, Reef))
+
+#Convert Survival to factor
+Heron_short2 <- Heron_short2 |> 
+  mutate(Survival=factor(Survival))
+
+#PCA with new dataset to show survival vs no survival 
+heronsurv.pca <- PCA(Heron_short2[,-12])
+```
+
+```{r}
+#Visualize PCA Biplot – FIGURE 2 
+plot_Heron_Survival <- fviz_pca_biplot(heronsurv.pca, 
+                                        label = "var", 
+                                        habillage=Heron_short2$Survival, 
+                                        addEllipses=TRUE, 
+                                        ellipse.level=0.95,
+                                        ggtheme = theme_minimal()) +
+                       ggtitle(NULL) +
+                       labs(color = "Survival", shape = "Survival") +
+                       guides(fill = "none", color = guide_legend("Survival"), shape = guide_legend("Survival"))+
+  theme(legend.position = "none") 
+
+plot_Heron_Survival
+```
+
+# RDA Environmental Drivers
+
+```{r, message=FALSE, warning=FALSE}
+#benthic dataset
+Y1Benthic <- read_excel("C:/Users/sjurriaa/Australian Institute of Marine Science/Carly Randall - Randall Lab/CAD/CAD Field Data/2022_Deployment_Saskia_YEAR1/Benthic/Quadrats_t0/Data/Benthic data xlsx.xlsx", 
+           na = "na")
+
+#survival dataset
+survival_master <- read_excel("C:/Users/sjurriaa/Australian Institute of Marine Science/Carly Randall - Randall Lab/CAD/CAD Field Data/2022_Deployment_Saskia_YEAR1/Survival data/2022_Deployment_Saskia_MasterData.xlsx", 
+                              sheet = "Survival", na = "NA")
+
+#environmental dataset
+Y1Environment <- read_excel("C:/Users/sjurriaa/Australian Institute of Marine Science/Carly Randall - Randall Lab/CAD/CAD Year1/data/YEAR1 Benthic Environment ReefDev.xlsx", 
+    na = "NA")
+```
+
+```{r}
+#select final census timepoint which is t3 for Heron and t6 for Davies and Moore
+survival_master_H <- survival_master |>
+  filter(Reef == "Heron",
+         Census == "t3",
+         Tab_ID == 1)
+survival_master_MD <- survival_master |>
+  filter(Census == "t6",
+         !Reef == "Heron",
+         Tab_ID ==1)
+
+#combine t3 Heron and t6 Moore&Davies in one dataframe that is named Y1Survival and select only columns ReefDev and SurvDev which is renamed Survival 
+survival_t6<-rbind(survival_master_MD,survival_master_H)
+Y1Survival <- survival_t6 |>
+  select(Reef, Site, ReefDev, SurvDev) |>
+  rename(Survival = SurvDev)
+
+#free up space
+remove(survival_master, survival_master_H, survival_master_MD, survival_t6)
+  
+
+#Mutate data to indicate if factor or numeric
+Y1Survival <- Y1Survival %>%
+  mutate(ReefDev=factor(ReefDev),
+         Reef=factor(Reef),
+         Site=factor(Site),
+         Survival=as.numeric(Survival))
+
+Y1Benthic <- Y1Benthic %>%
+  mutate(ReefDev=factor(ReefDev),
+         Reef=factor(Reef),
+         Site=factor(Site))
+
+Y1Benthic.grouped <- Y1Benthic |>
+     mutate(Acro = Acro_br+Acro_dig+Acro_cor+Acro_tab+Acro_bot,
+            HC = HC_en  +HC_br +HC_fol +HC_mas  +HC_sm +HC_free) |>
+  select(-c(Acro_br,Acro_dig,Acro_cor,Acro_tab,Acro_bot,HC_en,HC_br,HC_fol,HC_mas,HC_sm,HC_free))
+```
+
+### Moore
+
+**Prep data**
+
+```{r}
+moore.benthic <- Y1Benthic.grouped |>      
+  filter((Reef == "Moore"))    
+
+moore.benthic.clean <- Y1Benthic.grouped |>      
+  filter((Reef == "Moore")) |>      
+  select(-c(Reef, ReefDev))
+
+moore.benthic.CCA <- moore.benthic.clean |>          
+  select(-c(Cyano))  
+
+remove(moore.benthic.clean)
+
+moore.std <- (moore.benthic.CCA[,-1]^0.25) |>       
+  wisconsin()  
+
+moore.rda <- rda(moore.std, scale=FALSE)    
+#rda and the name of your standardized data  
+# scale is TRUE - to run on correlation   
+
+# Extract site scores from the RDA object  
+moore_sites <- scores(moore.rda, display = "sites")    
+
+# Extract species scores from the RDA object  
+moore_species <- scores(moore.rda, display = "species")    
+
+# Create a dataframe for site scores  
+moore_site_df <- data.frame(PC1 = moore_sites[, 1],
+                            PC2 = moore_sites[, 2],
+                            label = rownames(moore_sites))   
+# Device ID are rows )                                
+
+# Create a dataframe for species scores  
+moore_species_df <- data.frame(PC1 = moore_species[, 1],
+                               PC2 = moore_species[, 2],
+                               label = rownames(moore_species))   
+# Benthic groups are rownames   
+
+remove(moore_sites,moore_species)
+```
+
+```{r}
+#| warning: false
+#| error: false
+
+moore.env <- Y1Environment |>      
+  filter(Reef == "Moore") |>      
+  select(-c(Reef, Site, range, percentile_90, percentile_10, sedturf_t2, sedconcrete_t2, ReefDev, Reef1, Device_ID, PC1, PC2)) |>
+  rename(Ub = Ub_avrg,
+         FlowVel = median_speed,
+         Turf = sedturf_t5,
+         Concrete = sedconcrete_t5,
+         Temp = mean_temp)
+
+moore.envfit <- envfit(moore.rda, env = moore.env) 
+
+
+# Extract vectors from moore.envfit  
+arrows <- moore.envfit$vectors$arrows  
+r_values <- moore.envfit$vectors$r  
+p_values <- moore.envfit$vectors$pvals    
+
+# Create a dataframe  
+envfit_df <- data.frame(Variable = rownames(arrows),
+                        PC1 = arrows[, 1],
+                        PC2 = arrows[, 2],
+                        R_Value = r_values,
+                        P_Value = p_values,
+                        stringsAsFactors = FALSE )    
+
+# Optionally, you can set rownames as a separate column  
+envfit_df$Variable <- rownames(arrows) 
+
+moore.benthic <- Y1Benthic.grouped |>      
+  filter((Reef == "Moore")) |>      
+  select(-c(Reef, ReefDev, Cyano))
+
+moore.std <- (moore.benthic[,-1]^0.25) |>       
+  wisconsin()  
+
+moore.rda <- rda(moore.std, scale=FALSE) 
+eig_moore <- eigenvals(moore.rda)
+
+moore_plot <- ggplot() +
+  geom_hline(yintercept = 0, linetype = 'dotted') +
+  geom_vline(xintercept = 0, linetype = 'dotted') +
+  geom_point(data = moore_site_df, aes(x = PC1, y = PC2)) +
+  geom_segment(data = moore_species_df, aes(x = 0, y = 0, xend = PC1, yend = PC2),
+               arrow = arrow(length = unit(0.3, 'lines')), color = 'red') +
+   geom_text(
+     data = moore_species_df, 
+     aes(x = PC1 * 1.1, y = PC2 * 1.1, 
+         label = label), 
+            color = 'red', 
+            size = 4,            # Increase the size as needed
+            fontface = "plain") +
+  theme_minimal()
+
+moore_plot <- moore_plot + scale_y_continuous(paste(names(eig_moore[2]), sprintf('(%0.1f%% explained var.)',     100 * eig_moore[2]/sum(eig_moore))))+   scale_x_continuous(paste(names(eig_moore[1]), sprintf('(%0.1f%% explained var.)',     100 * eig_moore[1]/sum(eig_moore))))   
+
+moore_env_plot <- moore_plot + 
+  geom_segment(data = envfit_df,
+               aes(y = 0, x = 0, yend = PC2, xend = PC1),
+               arrow = arrow(length = unit(0.3, 'lines')), color = 'blue') +
+  geom_text(data = envfit_df,
+            aes(y = PC2 * 1.1, x = PC1 * 1.1, label = Variable), 
+            color = 'blue', 
+            family = "Arial",    # Change to your desired font
+            size = 4) + 
+  theme_minimal() +
+  ggtitle(NULL) +
+   theme(
+    text = element_text(family = "Arial", size = 12, face = "bold"),  # Change to your desired font for the rest of the text
+    axis.text = element_text(family = "Arial", size = 12),
+    axis.title = element_text(family = "Arial", size = 12, face = "plain"),
+    legend.text = element_text(family = "Arial", size = 12)
+  )
+
+moore_env_plot 
+
+```
+
+### Davies
+
+**Prep data**
+
+```{r}
+davies.benthic <- Y1Benthic.grouped |>
+  filter((Reef == "Davies")) 
+
+davies.benthic.clean <- Y1Benthic.grouped |>
+  filter((Reef == "Davies")) |>
+  select(-c(Reef, ReefDev))
+
+davies.benthic.CCACyano <- davies.benthic.clean |>
+     mutate(CCACyano = CCA + Cyano) |>
+  select(-c(Cyano,CCA))
+
+davies.benthic.CCA <- davies.benthic.clean |>
+      select(-c(Cyano))
+
+#free up space
+remove(davies.benthic.CCACyano)
+remove(davies.benthic.clean)
+
+davies.std <- (davies.benthic.CCA[,-1]^0.25) |>  
+  wisconsin()
+
+davies.rda <- rda(davies.std, scale=FALSE)   #rda and the name of your standardized data
+# scale is TRUE - to run on correlation
+
+# Extract site scores from the RDA object
+davies_sites <- scores(davies.rda, display = "sites")
+
+# Extract species scores from the RDA object
+davies_species <- scores(davies.rda, display = "species")
+
+# Create a dataframe for site scores
+davies_site_df <- data.frame(
+  PC1 = davies_sites[, 1],
+  PC2 = davies_sites[, 2],
+  label = rownames(davies_sites)  # Device ID are rows
+)
+
+# Create a dataframe for species scores
+davies_species_df <- data.frame(
+  PC1 = davies_species[, 1],
+  PC2 = davies_species[, 2],
+  label = rownames(davies_species)  # Benthic groups are rownames
+)
+
+remove(davies_sites,davies_species)
+
+# load the data and filter on Davies Reef
+davies.env <- Y1Environment |>
+  filter(Reef == "Davies") |>
+  select(-c(Reef))|>
+  group_by(Site) |>
+  mutate(Turf = ((sedturf_t2+sedturf_t5)/2),
+         Concrete = ((sedconcrete_t2 + sedconcrete_t5)/2)) |>
+   ungroup() |>
+  select(-c(Site, sedturf_t2, sedturf_t5, sedconcrete_t2, sedconcrete_t5, percentile_10, range, percentile_90, PC1, PC2)) |>
+  rename(Ub = Ub_avrg,
+         FlowVel = median_speed,
+         Temp = mean_temp)
+```
+
+```{r}
+#| warning: false
+#| error: false
+
+eig_davies <- eigenvals(davies.rda)
+
+davies_plot <- ggplot() +
+  geom_hline(yintercept = 0, linetype = 'dotted') +
+  geom_vline(xintercept = 0, linetype = 'dotted') +
+  geom_point(data = davies_site_df, aes(x = PC1, y = PC2)) +
+  geom_segment(data = davies_species_df, aes(x = 0, y = 0, xend = PC1, yend = PC2),
+               arrow = arrow(length = unit(0.3, 'lines')), color = 'red') +
+   geom_text(
+     data = davies_species_df, 
+     aes(x = PC1 * 1.1, y = PC2 * 1.1, 
+         label = label), 
+            color = 'red', 
+            size = 4,            # Increase the size as needed
+            fontface = "plain") +
+  theme_minimal()
+
+davies_plot  <- davies_plot  +
+  scale_y_continuous(paste(names(eig_davies[2]), sprintf('(%0.1f%% explained var.)',
+    100 * eig_davies[2]/sum(eig_davies))))+
+  scale_x_continuous(paste(names(eig_davies[1]), sprintf('(%0.1f%% explained var.)',
+    100 * eig_davies[1]/sum(eig_davies))))
+
+davies.envfit <- envfit(davies.rda, env = davies.env)
+
+# Extract vectors from davies.envfit
+arrows <- davies.envfit$vectors$arrows
+r_values <- davies.envfit$vectors$r
+p_values <- davies.envfit$vectors$pvals
+
+# Create a dataframe
+envfit_df <- data.frame(
+  Variable = rownames(arrows),
+  PC1 = arrows[, 1],
+  PC2 = arrows[, 2],
+  R_Value = r_values,
+  P_Value = p_values,
+  stringsAsFactors = FALSE
+)
+
+# Optionally, you can set rownames as a separate column
+envfit_df$Variable <- rownames(arrows)
+
+
+# Your existing plot code with font customization for vector labels
+davies_env_plot <- davies_plot + 
+  geom_segment(data = envfit_df,
+               aes(y = 0, x = 0, yend = PC2, xend = PC1),
+               arrow = arrow(length = unit(0.3, 'lines')), color = 'blue') +
+  geom_text(data = envfit_df,
+            aes(y = PC2 * 1.1, x = PC1 * 1.1, label = Variable), 
+            color = 'blue', 
+            family = "Arial",    # Change to your desired font
+            size = 4) + 
+  theme_minimal() +
+    ggtitle(NULL) +
+     theme(
+    text = element_text(family = "Arial", size = 12, face = "bold"),  # Change to your desired font for the rest of the text
+    axis.text = element_text(family = "Arial", size = 12),
+    axis.title = element_text(family = "Arial", size = 12, face = "plain"),
+    legend.text = element_text(family = "Arial", size = 12)
+  )
+
+# Print the plot
+print(davies_env_plot)
+```
+
+### Heron
+
+**prep data**
+
+```{r}
+heron.benthic <- Y1Benthic.grouped |>   
+  filter((Reef == "Heron"))  
+
+heron.benthic.clean <- Y1Benthic.grouped |>   
+  filter((Reef == "Heron")) |>   
+  select(-c(Reef, ReefDev))
+
+heron.benthic.CCA <- heron.benthic.clean |>       
+  select(-c(Cyano))
+remove(heron.benthic.clean)
+
+heron.std <- (heron.benthic.CCA[,-1]^0.25) |>    
+  wisconsin()
+
+
+heron.rda <- rda(heron.std, scale=FALSE)   
+#rda and the name of your standardized data 
+# scale is TRUE - to run on correlation 
+
+# Extract site scores from the RDA object 
+heron_sites <- scores(heron.rda, display = "sites")  
+
+# Extract species scores from the RDA object 
+heron_species <- scores(heron.rda, display = "species")  
+
+# Create a dataframe for site scores 
+heron_site_df <- data.frame(PC1 = heron_sites[, 1],   
+                            PC2 = heron_sites[, 2],   
+                            label = rownames(heron_sites))  
+# Device ID are rows )  
+                            
+ # Create a dataframe for species scores 
+heron_species_df <- data.frame(PC1 = heron_species[, 1],   
+                               PC2 = heron_species[, 2],   
+                               label = rownames(heron_species))  
+# Benthic groups are rownames 
+
+remove(heron_sites,heron_species)
+
+
+# load the data and filter on Heron Reef 
+heron.env <- Y1Environment |>   
+  filter(Reef == "Heron") |>   
+  select(-c(Reef, Site, sedturf_t5,sedconcrete_t5, ReefDev, Reef1, Device_ID, percentile_10, range, percentile_90, PC1, PC2)) |>
+  rename(Ub = Ub_avrg,
+         FlowVel = median_speed,
+         Turf = sedturf_t2,
+         Concrete = sedconcrete_t2,
+         Temp = mean_temp)
+```
+
+```{r}
+#| warning: false
+#| error: false
+
+eig_heron <- eigenvals(heron.rda)
+
+heron_plot <- ggplot() +
+  geom_hline(yintercept = 0, linetype = 'dotted') +
+  geom_vline(xintercept = 0, linetype = 'dotted') +
+  geom_point(data = heron_site_df, aes(x = PC1, y = PC2)) +
+  geom_segment(data = heron_species_df, aes(x = 0, y = 0, xend = PC1, yend = PC2),
+               arrow = arrow(length = unit(0.3, 'lines')), color = 'red') +
+   geom_text(
+     data = heron_species_df, 
+     aes(x = PC1 * 1.1, y = PC2 * 1.1, 
+         label = label), 
+            color = 'red', 
+            size = 4,            # Increase the size as needed
+            fontface = "plain") +
+  theme_minimal()
+
+heron_plot <- heron_plot + scale_y_continuous(paste(names(eig_heron[2]), sprintf('(%0.1f%% explained var.)',     100 * eig_heron[2]/sum(eig_heron))))+   scale_x_continuous(paste(names(eig_heron[1]), sprintf('(%0.1f%% explained var.)',     100 * eig_heron[1]/sum(eig_heron)))) 
+
+
+heron.envfit <- envfit(heron.rda, env = heron.env)  
+
+arrows <- heron.envfit$vectors$arrows 
+r_values <- heron.envfit$vectors$r 
+p_values <- heron.envfit$vectors$pvals  
+
+# Create a dataframe 
+envfit_df <- data.frame(Variable = rownames(arrows),   
+                        PC1 = arrows[, 1],   
+                        PC2 = arrows[, 2],   
+                        R_Value = r_values,   
+                        P_Value = p_values,   
+                        stringsAsFactors = FALSE )  
+
+# Optionally, you can set rownames as a separate column 
+envfit_df$Variable <- rownames(arrows)  
+heron_env_plot <- heron_plot + 
+  geom_segment(data = envfit_df,
+               aes(y = 0, x = 0, yend = PC2, xend = PC1),
+               arrow = arrow(length = unit(0.3, 'lines')), color = 'blue') +
+  geom_text(data = envfit_df,
+            aes(y = PC2 * 1.1, x = PC1 * 1.1, label = Variable), 
+            color = 'blue', 
+            family = "Arial",    # Change to your desired font
+            size = 4) + 
+  theme_minimal() +
+    ggtitle(NULL) +
+  theme(
+   text = element_text(family = "Arial", size = 12, face = "bold"),  # Change to your desired font for the rest of the text
+    axis.text = element_text(family = "Arial", size = 12),
+    axis.title = element_text(family = "Arial", size = 12, face = "plain"),
+    legend.text = element_text(family = "Arial", size = 12)
+  )
+
+heron_env_plot 
+```
+
+# Multiplot
+
+```{r}
+#| echo: false
+#| warning: false
+library(gridExtra)
+library(gtable)
+library(grid)
+library(egg)
+```
+
+```{r}
+#| warning: false
+#| error: false
+# Create text labels
+#label_A <- textGrob("(a) Moore: Site *", x = unit(0.1, "npc"), y = unit(0.3, "npc"), just = c("left", "top"), gp = gpar(fontsize = 15, fontface = "plain"))
+#label_B <- textGrob("(a) Davies: Site *", x = unit(0.1, "npc"), y = unit(0.3, "npc"), just = c("left", "top"), gp = gpar(fontsize = 15, fontface = "plain"))
+#label_C <- textGrob("(c) Heron: Site *", x = unit(0.1, "npc"), y = unit(0.3, "npc"), just = c("left", "top"), gp = gpar(fontsize = 15, fontface = "plain"))
+#label_D <- textGrob("(d) Moore: Survival *", x = unit(0.1, "npc"), y = unit(0.7, "npc"), just = c("left", "top"), gp = gpar(fontsize = 15, fontface = "plain"))
+#label_E <- textGrob("(e) Davies: Survival", x = unit(0.1, "npc"), y = unit(0.7, "npc"), just = c("left", "top"), gp = gpar(fontsize = 15, fontface = "plain"))
+#label_F <- textGrob("(f) Heron: Survival *", x = unit(0.1, "npc"), y = unit(0.7, "npc"), just = c("left", "top"), gp = gpar(fontsize = 15, fontface = "plain"))
+#label_G <- textGrob("(g) Moore: Environmental Drivers", x = unit(0.1, "npc"), y = unit(0.7, "npc"), just = c("left", "top"), gp = gpar(fontsize = 15, fontface = "plain"))
+#label_H <- textGrob("(h) Davies: Environmental Drivers", x = unit(0.1, "npc"), y = unit(0.7, "npc"), just = c("left", "top"), gp = gpar(fontsize = 15, fontface = "plain"))
+#label_I <- textGrob("(i) Heron: Environmental Drivers", x = unit(0.1, "npc"), y = unit(0.7, "npc"), just = c("left", "top"), gp = gpar(fontsize = 15, fontface = "plain"))
+
+# Combine each plot with its label
+#plot_A <- arrangeGrob(pca_biplot_Moore, top = label_A)
+#plot_B <- arrangeGrob(pca_biplot_Davies, top = label_B)
+#plot_C <- arrangeGrob(pca_biplot_Heron, top = label_C)
+#plot_D <- arrangeGrob(plot_Moore_Survival, top = label_D)
+#plot_E <- arrangeGrob(plot_Davies_Survival, top = label_E)
+#plot_F <- arrangeGrob(plot_Heron_Survival, top = label_F)
+#plot_G <- arrangeGrob(moore_env_plot, top = label_G)
+#plot_H <- arrangeGrob(davies_env_plot, top = label_H)
+#plot_I <- arrangeGrob(heron_env_plot, top = label_I)
+
+# Arrange all labeled plots in a grid
+capture_plot <- grid.arrange(plot_Moore_Survival, plot_Davies_Survival, plot_Heron_Survival, pca_biplot_Moore, pca_biplot_Davies, pca_biplot_Heron,
+                             
+                             moore_env_plot, davies_env_plot, heron_env_plot, 
+                             nrow = 3)
+
+# Display the arranged plots
+capture_plot
+
+```
+
+```{r}
+# Save the plot using ggsave
+ggsave("Figure Multiplot PCA.jpeg", plot = capture_plot, width = 16, height = 10)
+```

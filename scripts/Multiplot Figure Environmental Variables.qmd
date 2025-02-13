@@ -1,0 +1,907 @@
+---
+title: "Multiplot Environmental Variables"
+author: "Sas"
+format: html
+editor: visual
+---
+
+# Set-up workdrive
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_knit$set(root.dir = "C:/Users/sjurriaa/Australian Institute of Marine Science/Carly Randall - Randall Lab/CAD/CAD Year1")
+```
+
+# Load libraries
+
+```{r}
+#| echo: false
+#| warning: false
+library(gridExtra)
+library(gtable)
+library(grid)
+library(egg)
+library(readxl)
+library(writexl)
+library(dplyr)
+library(openxlsx)
+library(readr)
+library(ggplot2)
+library(patchwork)
+library(cowplot)
+library(lubridate)
+library(tidyr)
+```
+
+# \-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\--
+
+# Figures Flow Velocity
+
+### Moore
+
+```{r}
+# Set working directory
+setwd("C:/Users/sjurriaa/Australian Institute of Marine Science/Carly Randall - Randall Lab/CAD/CAD Field Data/2022_Deployment_Saskia_YEAR1/Instruments data/Marotte_HS_all_reefs")
+
+sheet_names <- excel_sheets("Moore_Marotte2022_MASTERFILE.xlsx")
+
+# Read in the data from each sheet and add a new column with the site name
+all_data <- lapply(sheet_names, function(sheet) {
+  read_excel("Moore_Marotte2022_MASTERFILE.xlsx", sheet = sheet) %>%
+    mutate(Site = sheet)
+})
+
+# Combine all data into one data frame
+df <- bind_rows(all_data)
+```
+
+Remove dates due to deployment and retrieval artifacts
+
+```{r}
+# remove obscure data due to deployment and retrieval artifacts 
+#   - remove all rows prior to 8/02/2022 [Deployment] 
+#   - remove all rows ranging from 04/05/2022-09/05/2022 [Census 1] 
+#   - remove all rows ranging from 04/07/2022-12/07/2022 [Census 2] 
+#   - remove all rows ranging from 07/10/2022-15/10/2022 [Census 3] 
+#   - remove all rows ranging from 07/01/2023-12/01/2023 [Census 4] 
+#   - remove all rows after xx/04/2023??                 [Census 5] 
+
+df <- df[df$datetime > as.POSIXct("2022-02-08"), ] 
+df <- df[!(as.Date(df$datetime) %in% as.Date(c("2022-05-04", "2022-05-05", "2022-05-06", "2022-05-07", "2022-05-08","2022-05-09"))), ] 
+df <- df[!(as.Date(df$datetime) %in% as.Date(c("2022-07-04", "2022-07-05", "2022-07-06","2022-07-07","2022-07-08","2022-07-09","2022-07-10","2022-07-11","2022-07-12"))), ] 
+df <- df[!(as.Date(df$datetime) %in% as.Date(c("2022-10-07", "2022-10-08", "2022-10-09","2022-10-10","2022-10-11","2022-10-12","2022-10-13","2022-10-14","2022-10-15"))), ] 
+df <- df[!(as.Date(df$datetime) %in% as.Date(c("2023-01-07", "2023-01-08", "2023-01-09","2023-01-10","2023-01-11","2023-01-12"))), ]
+
+# Extract the month and year from the datetime column 
+df$Month <- format(df$datetime, "%B") 
+df$Year <- format(df$datetime, "%Y") 
+
+# Add a unique identifier column 
+df <- cbind(UID = 1:nrow(df), df)  
+
+# Round datetime column up to the nearest minute and create new column labelled "datetime_rounded" 
+df$datetime_rounded <- ceiling_date(df$datetime, unit = "minute")  
+
+# Rename variable df$`speed (m/s)` to Speed 
+df$Speed <- df$`speed (m/s)`
+
+# Remove the batt (volts), datetime, Month and Year and Speed (m/s) column 
+df<-df[,-c(4,5,11,13,14)]  
+rm(all_data) 
+rm(sheet_names) 
+```
+
+Create subset dataframes for 2022 (excluding M1a and M1b) and 2023 (excluding M5a and M5b)
+
+```{r}
+df_2022 <- subset(df, !(Site %in% c("M1a", "M1b")) & year(datetime_rounded) != 2023) 
+df_2023 <- subset(df, !(Site %in% c("M5a", "M5b")) & year(datetime_rounded) != 2022)
+```
+
+##### 2022
+
+```{r}
+# create df subset of just datetime, site, speed 
+df2_2022<-df_2022[,c(2,10,11)]  
+
+#create wide dataframe from this #RUN IN CONSOLE - in case R gets stuck in this chunk 
+df2_2022_wide<-spread(df2_2022, Site, Speed)   
+
+#create a wide df with only the complete cases 
+df2_2022_Wide_comp<-df2_2022_wide[complete.cases(df2_2022_wide),] 
+df2_2022_Wide_comp$comp<-"YES"  
+
+# Merge the wide complete data back with the original dataframe
+df_comp_2022 <- merge(df, df2_2022_Wide_comp, by = "datetime_rounded")
+
+# Remove columns 12 to 20 from the merged dataframe
+df_comp_2022 <- df_comp_2022[, -c(12:20)]
+
+# Rename columns for clarity
+names(df_comp_2022)[1] <- "datetime"    # Rename first column to 'datetime'
+names(df_comp_2022)[5] <- "Heading"     # Rename fifth column to 'Heading'
+names(df_comp_2022)[6] <- "Speed_up"    # Rename sixth column to 'Speed_up'
+names(df_comp_2022)[7] <- "Speed_low"   # Rename seventh column to 'Speed_low'
+names(df_comp_2022)[8] <- "Tilt"        # Rename eighth column to 'Tilt'
+names(df_comp_2022)[9] <- "Direction"   # Rename ninth column to 'Direction'
+names(df_comp_2022)[10] <- "Temp"       # Rename tenth column to 'Temp'
+```
+
+##### 2023
+
+```{r}
+# Create a subset dataframe with only datetime, site, and speed columns
+df2_2023 <- df_2023[, c(2, 10, 11)]
+
+# Create a wide dataframe by spreading the 'Site' column values across columns
+# It's recommended to run this in the console to avoid R getting stuck in this chunk
+df2_2023_wide <- spread(df2_2023, Site, Speed)
+
+# Create a wide dataframe with only complete cases (rows without any missing values)
+df2_2023_Wide_comp <- df2_2023_wide[complete.cases(df2_2023_wide), ]
+
+# Add a new column to indicate these rows are complete cases
+df2_2023_Wide_comp$comp <- "YES"
+
+# Merge the wide complete data back with the original dataframe
+df_comp_2023 <- merge(df, df2_2023_Wide_comp, by = "datetime_rounded")
+
+# Remove columns 12 to 20 from the merged dataframe
+df_comp_2023 <- df_comp_2023[, -c(12:20)]
+
+# Rename columns for clarity
+names(df_comp_2023)[1] <- "datetime"    # Rename first column to 'datetime'
+names(df_comp_2023)[5] <- "Heading"     # Rename fifth column to 'Heading'
+names(df_comp_2023)[6] <- "Speed_up"    # Rename sixth column to 'Speed_up'
+names(df_comp_2023)[7] <- "Speed_low"   # Rename seventh column to 'Speed_low'
+names(df_comp_2023)[8] <- "Tilt"        # Rename eighth column to 'Tilt'
+names(df_comp_2023)[9] <- "Direction"   # Rename ninth column to 'Direction'
+names(df_comp_2023)[10] <- "Temp"       # Rename tenth column to 'Temp'
+```
+
+```{r}
+Moore_2022 <- df_comp_2022
+Moore_2023 <- df_comp_2023  
+
+#in case you want to save this as an csv file 
+#write.csv(Moore_2022, "Moore_marotte_2022.csv")    
+#write.csv(Moore_2023, "Moore_marotte_2023.csv")   
+
+# free up space 
+rm(df) 
+rm(df2_2022) 
+rm(df2_2023) 
+rm(df2_2022_wide) 
+rm(df2_2023_wide) 
+rm(df2_2022_Wide_comp) 
+rm(df2_2023_Wide_comp) 
+rm(df_comp_2022)
+rm(df_comp_2023) 
+rm(df_2022) 
+rm(df_2023)
+```
+
+```{r}
+Moore_M1a<- Moore_2023 |> filter (Site == "M1a")
+Moore_M1b<- Moore_2023 |> filter (Site == "M1b")
+
+Moore_M5a <- Moore_2022 |> filter (Site == "M5a")
+Moore_M5b <- Moore_2022 |> filter (Site == "M5b")
+
+Moore_M2a_2022 <- Moore_2022 |> filter (Site == "M2a")
+Moore_M2a_2023 <- Moore_2023 |> filter (Site == "M2a")
+Moore_M2a <- rbind(Moore_M2a_2022, Moore_M2a_2023)
+remove(Moore_M2a_2022, Moore_M2a_2023)
+
+Moore_M2b_2022 <- Moore_2022 |> filter (Site == "M2b")
+Moore_M2b_2023 <- Moore_2023 |> filter (Site == "M2b")
+Moore_M2b <- rbind(Moore_M2b_2022, Moore_M2b_2023)
+remove(Moore_M2b_2022, Moore_M2b_2023)
+
+Moore_M3a_2022 <- Moore_2022 |> filter (Site == "M3a")
+Moore_M3a_2023 <- Moore_2023 |> filter (Site == "M3a")
+Moore_M3b_2022 <- Moore_2022 |> filter (Site == "M3b")
+Moore_M3b_2023 <- Moore_2023 |> filter (Site == "M3b")
+Moore_M3a <- rbind(Moore_M3a_2022, Moore_M3a_2023)
+remove(Moore_M3a_2022, Moore_M3a_2023)
+Moore_M3b <- rbind(Moore_M3b_2022, Moore_M3b_2023)
+remove(Moore_M3b_2022, Moore_M3b_2023)
+
+Moore_M4a_2022 <- Moore_2022 |> filter (Site == "M4a")
+Moore_M4a_2023 <- Moore_2023 |> filter (Site == "M4a")
+Moore_M4b_2022 <- Moore_2022 |> filter (Site == "M4b")
+Moore_M4b_2023 <- Moore_2023 |> filter (Site == "M4b")
+Moore_M4a <- rbind(Moore_M4a_2022, Moore_M4a_2023)
+remove(Moore_M4a_2022, Moore_M4a_2023)
+Moore_M4b <- rbind(Moore_M4b_2022, Moore_M4b_2023)
+remove(Moore_M4b_2022, Moore_M4b_2023)
+
+Moore_flow <- rbind(Moore_M1a,Moore_M1b, Moore_M2a, Moore_M2b, Moore_M3a, Moore_M3b, Moore_M4a, Moore_M4b, Moore_M5a, Moore_M5b)
+
+rm(Moore_M1a)
+rm(Moore_M1b)
+rm(Moore_M2a)
+rm(Moore_M2b)
+rm(Moore_M3a)
+rm(Moore_M3b)
+rm(Moore_M4a)
+rm(Moore_M4b)
+rm(Moore_M5a)
+rm(Moore_M5b)
+```
+
+```{r}
+boxplot_M_flow <- ggplot(Moore_flow, aes(x = Site, y = Speed)) + 
+  geom_boxplot() + 
+  labs(y = "Flow velocity\n(m s-1)", x = NULL) +
+  theme_bw() +
+  ylim(0, 1.2) +
+  theme(axis.text.x = element_text(size = 12),
+        axis.text.y = element_text(size = 12),
+        axis.title.y = element_text(size = 14))  # Adjust the size as needed
+
+print(boxplot_M_flow)
+```
+
+### Davies
+
+```{r}
+# Set working directory
+setwd("C:/Users/sjurriaa/Australian Institute of Marine Science/Carly Randall - Randall Lab/CAD/CAD Field Data/2022_Deployment_Saskia_YEAR1/Instruments data/Marotte_HS_all_reefs")
+
+# Get the names of all sheets in the Excel file
+sheet_names <- excel_sheets("Davies_Marotte2022_MASTERFILE.xlsx")
+sheet_names <- sheet_names[-1]
+
+# Read in the data from each sheet and add a new column with the site name
+all_data <- lapply(sheet_names, function(sheet) {
+  read_excel("Davies_Marotte2022_MASTERFILE.xlsx", sheet = sheet) %>%
+    mutate(Site = sheet)
+})
+
+# Combine all data into one data frame
+df <- bind_rows(all_data)
+```
+
+```{r}
+# remove obscure data due to deployment and retrieval artifacts
+#   - remove all rows prior to 11/02/2022 [Deployment]
+#   - remove all rows ranging from 20/05/2022-24/05/2022 [Census 1]
+#   - remove all rows ranging from 23/07/2022-26/07/2022 [Census 2]
+#   - remove all rows ranging from 21/10/2022-24/10/2022 [Census 3]
+#   - remove all rows ranging from 29/12/2022-02/01/2023 [Census 4]
+#   - remove all rows after xx/04/2023??                 [Census 5]
+df <- df[df$datetime > as.POSIXct("2022-02-11"), ]
+df <- df[!(as.Date(df$datetime) %in% as.Date(c("2022-05-20", "2022-05-21", "2022-05-22", "2022-05-23", "2022-05-24"))), ]
+df <- df[!(as.Date(df$datetime) %in% as.Date(c("2022-07-23", "2022-07-24", "2022-07-25","2022-07-26"))), ]
+df <- df[!(as.Date(df$datetime) %in% as.Date(c("2022-10-21", "2022-10-22", "2022-10-23","2022-10-24"))), ]
+df <- df[!(as.Date(df$datetime) %in% as.Date(c("2022-12-29", "2022-12-30", "2022-12-31","2023-01-01","2023-01-02"))), ]
+
+# Add a unique identifier column
+df <- cbind(UID = 1:nrow(df), df)
+
+# Remove the batt (volts) column
+df <- df[, -11]
+rm(all_data)
+rm(sheet_names)
+
+# Round datetime column up to the nearest minute and create new column labelled "datetime_rounded"
+df$datetime_rounded <- ceiling_date(df$datetime, unit = "minute")
+
+# Reorder the columns to have date and time next to the datetime column
+df <- df[, c(1, 4, 12, 2, 3, 5, 6, 7, 8,9,10,11)] 
+
+#remove old date time to reduce size of df
+df<-df[,-2]
+
+# create df subset of datetime, site, speed AND Deployment
+df2<-df[,c(2,3,4,5)]
+
+# Rename variable df$`speed (m/s)` to Speed
+df2$Speed <- df2$`speed (m/s)`
+df2<-df2[,-4]
+
+# create wide dataframe from this
+df2_wide<-spread(df2, Site, Speed) #RUN IN CONSOLE - in case R gets stuck in this chunk
+
+#create a wide df with only the complete cases
+df_Wide_comp<-df2_wide[complete.cases(df2_wide),]
+df_Wide_comp$comp<-"YES"
+
+#merge the wide complete data back with the original df
+df_comp_D<-merge(df, df_Wide_comp, by="datetime_rounded")
+df_comp_D<-df_comp_D[,-c(12:23)]
+
+names(df_comp_D)[1] <- "datetime"
+names(df_comp_D)[5] <- "Speed"
+names(df_comp_D)[6] <- "Heading"
+names(df_comp_D)[7] <- "Speed_up"
+names(df_comp_D)[8] <- "Speed_low"
+names(df_comp_D)[9] <- "Tilt"
+names(df_comp_D)[10] <- "Direction"
+names(df_comp_D)[11] <- "Temp"
+
+#remove the other dataframes to free up space
+rm(df)
+rm(df2)
+
+rm(df2_wide)
+rm(df_Wide_comp)
+
+#write.csv(df_comp_D, "Davies_marotte_comp.csv")   #in case you want to save this as an csv file
+
+Davies_flow <- df_comp_D
+rm(df_comp_D)
+```
+
+```{r}
+boxplot_D_flow <- ggplot(Davies_flow, aes(x = Site, y = Speed)) + 
+  geom_boxplot() + 
+  labs(y = NULL, x = NULL) +
+  theme_bw() +
+  ylim(0,1.2) + 
+  theme(axis.text.x = element_text(size = 12),
+        axis.text.y = element_text(size = 12))
+
+print(boxplot_D_flow)
+
+```
+
+### Heron
+
+```{r}
+#| echo: false
+#| warning: false
+# Set working directory
+setwd("C:/Users/sjurriaa/Australian Institute of Marine Science/Carly Randall - Randall Lab/CAD/CAD Field Data/2022_Deployment_Saskia_YEAR1/Instruments data/Marotte_HS_all_reefs")
+
+# Get the names of all sheets in the Excel file
+sheet_names <- excel_sheets("Heron_Marotte2022_MASTERFILE.xlsx")
+sheet_names <- sheet_names[-1]
+
+# Read in the data from each sheet and add a new column with the site name
+all_data <- lapply(sheet_names, function(sheet) {
+  read_excel("Heron_Marotte2022_MASTERFILE.xlsx", sheet = sheet) %>%
+    mutate(Site = sheet)
+})
+
+# Combine all data into one data frame
+df <- bind_rows(all_data)
+```
+
+```{r}
+# remove obscure data due to deployment and retrieval artifacts
+#   - remove all rows prior to 8/01/2022 [Deployment]
+#   - remove all rows ranging from 17/03/2022-25/03/2022 [Census 1]
+#   - remove all rows ranging from 26/02/2023-03/03/2023 [Census 2]
+#   - remove all rows after xx/04/2024??                 [Census 3]
+df <- df[df$datetime > as.POSIXct("2022-01-08"), ]
+df <- df[!(as.Date(df$datetime) %in% as.Date(c("2022-03-17", "2022-03-18","2022-03-19","2022-03-20","2022-03-21","2022-03-22","2022-03-23","2022-03-24","2022-03-25"))), ]
+df <- df[!(as.Date(df$datetime) %in% as.Date(c("2023-02-26", "2023-02-27", "2023-02-28", "2023-03-01", "2023-03-02","2023-03-03"))), ]
+
+df <- cbind(UID = 1:nrow(df), df)
+
+# Remove the batt (volts) column
+df <- df[, -11]
+rm(all_data)
+rm(sheet_names)
+
+# Round datetime column up to the nearest minute and create new column labelled "datetime_rounded"
+df$datetime_rounded <- ceiling_date(df$datetime, unit = "minute")
+
+# Reorder the columns to have date and time next to the datetime column
+df <- df[, c(1, 4, 12, 2, 3, 5, 6, 7, 8,9,10,11)] 
+
+#remove old date time to reduce size of df
+df<-df[,-2]
+
+# create df subset of datetime, site, speed AND Deployment
+df2<-df[,c(2,3,4,5)]
+
+# Rename variable df$`speed (m/s)` to Speed
+df2$Speed <- df2$`speed (m/s)`
+df2<-df2[,-4]
+
+# create wide dataframe from this
+df2_wide<-spread(df2, Site, Speed) #RUN IN CONSOLE - in case R gets stuck in this chunk
+
+#create a wide df with only the complete cases
+df_Wide_comp<-df2_wide[complete.cases(df2_wide),]
+df_Wide_comp$comp<-"YES"
+
+#merge the wide complete data back with the original df
+df_comp<-merge(df, df_Wide_comp, by="datetime_rounded")
+df_comp<-df_comp[,-c(12:23)]
+
+names(df_comp)[1] <- "datetime"
+names(df_comp)[5] <- "Speed"
+names(df_comp)[6] <- "Heading"
+names(df_comp)[7] <- "Speed_up"
+names(df_comp)[8] <- "Speed_low"
+names(df_comp)[9] <- "Tilt"
+names(df_comp)[10] <- "Direction"
+names(df_comp)[11] <- "Temp"
+
+#remove the other dataframes to free up space
+rm(df)
+rm(df2)
+
+rm(df2_wide)
+rm(df_Wide_comp)
+
+#write.csv(df_comp, "Heron_marotte_comp.csv")   #in case you want to save this as an csv file
+
+Heron_flow <- df_comp
+rm(df_comp)
+```
+
+```{r}
+boxplot_H_flow <- ggplot(Heron_flow, aes(x = Site, y = Speed)) + 
+  geom_boxplot() + 
+  labs(y = NULL, x = NULL) +
+  theme_bw() +
+  ylim(0,1.2) + 
+  theme(axis.text.x = element_text(size = 12),
+        axis.text.y = element_text(size = 12))
+
+
+print(boxplot_H_flow)
+```
+
+# \-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\--
+
+# Figure Bottom stress
+
+```{r}
+#| warning: FALSE
+#| echo: FALSE
+setwd("C:/Users/sjurriaa/Australian Institute of Marine Science/Carly Randall - Randall Lab/CAD/CAD YEAR1/")
+environment <- read_excel ("data/FinalMetrics_Summary.xlsx", na="")
+
+Metrics_Heron <- environment |>
+  filter(Reef == "Heron") |>
+   mutate(Site = case_match(Site,
+                           "H1A" ~ "H1a", "H1B" ~ "H1b", 
+                           "H2A" ~ "H2a", "H2B" ~ "H2b", 
+                           "H3A" ~ "H3a", "H3B" ~ "H3b",
+                           "H4A" ~ "H4a", "H4B" ~ "H4b",
+                           "H5A" ~ "H5a", "H5B" ~ "H5b",
+                           .default = Site))  # If no match, keep original value
+
+Metrics_Davies <- environment |>
+  filter(Reef == "Davies") |>
+  mutate(Site = str_replace(Site, "([D,M]\\d)A$", "\\1a"),
+         Site = str_replace(Site, "([D,M]\\d)B$", "\\1b"))
+
+Metrics_Moore <- environment |>
+  filter(Reef == "Moore") |>
+  mutate(Site = str_replace(Site, "([D,M]\\d)A$", "\\1a"),
+         Site = str_replace(Site, "([D,M]\\d)B$", "\\1b"))
+```
+
+### Moore
+
+```{r}
+barplot_Ub_M <- ggplot(Metrics_Moore, aes(x = Site, y = Ub_avrg)) + 
+  geom_col() + 
+  labs(y = "Bottom stress\n(m s-1)", x = NULL) +
+  theme_bw()+
+  ylim(0,0.8) + 
+  theme(axis.text.x = element_text(size = 12),
+        axis.text.y = element_text(size = 12),
+        axis.title.y = element_text(size = 14))
+barplot_Ub_M
+
+```
+
+### Davies
+
+```{r}
+barplot_Ub_D <- ggplot(Metrics_Davies, aes(x = Site, y = Ub_avrg)) + 
+  geom_col() + 
+  labs(y = NULL, x = NULL) +
+  theme_bw()+
+  ylim(0,0.8) +
+  theme(axis.text.x = element_text(size = 12),
+        axis.text.y = element_text(size = 12))
+barplot_Ub_D
+```
+
+### Heron
+
+```{r}
+barplot_Ub_H <- ggplot(Metrics_Heron, aes(x = Site, y = Ub_avrg)) + 
+  geom_col() + 
+  labs(y = NULL, x = NULL) +
+  theme_bw() +
+  ylim(0,0.8) +
+  theme(axis.text.x = element_text(size = 12),
+        axis.text.y = element_text(size = 12))
+
+barplot_Ub_H
+```
+
+# \-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\--
+
+# Figure Temperature
+
+### Moore
+
+```{r}
+Temp_Moore <- read_excel("C:/Users/sjurriaa/Australian Institute of Marine Science/Carly Randall - Randall Lab/CAD/CAD Field Data/2022_Deployment_Saskia_YEAR1/Instruments data/Hobo_all_reefs/2022_Deployment_Saskia_HOBO_AllReefs.xlsx", 
+                         sheet = "MooreData", 
+                         col_types = c("numeric","date", "numeric", "numeric", "numeric", "numeric", "numeric", "numeric", "numeric", "numeric", "numeric", "numeric"))
+
+# Convert the DateTime column to a POSIXct format
+Temp_Moore$DateTime <- as.POSIXct(Temp_Moore$DateTime, format="%Y-%m-%d %H:%M:%S")
+
+# Create a new column for date
+Temp_Moore$Date <- as.Date(Temp_Moore$DateTime)
+
+# Create a new column for time
+Temp_Moore$Time <- format(Temp_Moore$DateTime, format="%H:%M:%S")
+
+# Remove the original datetime column
+#Temp_Moore <- Temp_Moore[, !names(Temp_Moore) %in% "DateTime"]
+
+# Create a new column for year-month
+Temp_Moore$YearMonth <- format(Temp_Moore$Date, format="%Y-%m")
+
+df_long_M <- Temp_Moore |>
+  pivot_longer(cols = starts_with("Moore_"),
+               names_to = "Site",
+               values_to = "Temp",
+               values_drop_na = FALSE) |>
+  mutate(Site = str_replace(Site, "Moore_", ""),
+         Site = str_replace(Site, "([M]\\d)A$", "\\1a"),
+         Site = str_replace(Site, "([M]\\d)B$", "\\1b"))
+
+```
+
+```{r}
+boxplot_Temp_M <- ggplot(df_long_M, aes(x = Site, y = Temp)) + 
+  geom_boxplot() + 
+  labs(y = "Temperature\n(degrees Celsius)", x = NULL) +
+  theme_bw()+
+  scale_y_continuous(breaks = seq(16, 32, by = 4), limits = c(16, 32)) + 
+  theme(axis.text.x = element_text(size = 12),
+        axis.text.y = element_text(size = 12),
+        axis.title.y = element_text(size = 14))
+boxplot_Temp_M
+```
+
+### Davies
+
+```{r}
+Temp_Davies <- read_excel("C:/Users/sjurriaa/Australian Institute of Marine Science/Carly Randall - Randall Lab/CAD/CAD Field Data/2022_Deployment_Saskia_YEAR1/Instruments data/Hobo_all_reefs/2022_Deployment_Saskia_HOBO_AllReefs.xlsx", 
+    sheet = "DaviesData", col_types = c("numeric", 
+        "date", "skip", "skip", "numeric", 
+        "numeric", "numeric", "numeric", 
+        "numeric", "numeric", "numeric", 
+        "numeric", "numeric", "numeric"))
+
+
+# Convert the DateTime column to a POSIXct format
+Temp_Davies$DateTime <- as.POSIXct(Temp_Davies$DateTime, format="%Y-%m-%d %H:%M:%S")
+
+# Create a new column for date
+Temp_Davies$Date <- as.Date(Temp_Davies$DateTime)
+
+# Create a new column for time
+Temp_Davies$Time <- format(Temp_Davies$DateTime, format="%H:%M:%S")
+
+# Remove the original datetime column
+#Temp_Davies <- Temp_Davies[, !names(Temp_Davies) %in% "DateTime"]
+
+# Create a new column for year-month
+Temp_Davies$YearMonth <- format(Temp_Davies$Date, format="%Y-%m")
+
+# convert Date column to month format
+Temp_Davies <- Temp_Davies |>
+  mutate(month = format(floor_date(Date, unit = "month"), "%m"))
+
+df_long_D <- Temp_Davies |>
+  pivot_longer(cols = starts_with("Davies_"),
+               names_to = "Site",
+               values_to = "Temp",
+               values_drop_na = FALSE) |>
+  mutate(Site = str_replace(Site, "Davies_", ""),
+         Site = str_replace(Site, "([D]\\d)A$", "\\1a"),
+         Site = str_replace(Site, "([D]\\d)B$", "\\1b"))
+
+```
+
+```{r}
+# TEMP DAVIES
+boxplot_Temp_D <- ggplot(df_long_D, aes(x = Site, y = Temp)) + 
+  geom_boxplot() + 
+  labs(y = NULL, x = NULL) +
+  theme_bw()+
+  scale_y_continuous(breaks = seq(16, 32, by = 4), limits = c(16, 32)) +
+   theme(axis.text.x = element_text(size = 12),
+        axis.text.y = element_text(size = 12))
+boxplot_Temp_D
+```
+
+### Heron
+
+```{r}
+Temp_Heron <- read_excel("C:/Users/sjurriaa/Australian Institute of Marine Science/Carly Randall - Randall Lab/CAD/CAD Field Data/2022_Deployment_Saskia_YEAR1/Instruments data/Hobo_all_reefs/2022_Deployment_Saskia_HOBO_AllReefs.xlsx", 
+    sheet = "HeronData", col_types = c("numeric", 
+        "date", "skip", "skip", "numeric", 
+        "numeric", "numeric", "numeric", 
+        "numeric", "numeric", "numeric", 
+        "numeric", "numeric", "numeric"))
+
+
+# Convert the DateTime column to a POSIXct format
+Temp_Heron$DateTime <- as.POSIXct(Temp_Heron$DateTime, format="%Y-%m-%d %H:%M:%S")
+
+# Create a new column for date
+Temp_Heron$Date <- as.Date(Temp_Heron$DateTime)
+
+# Create a new column for time
+Temp_Heron$Time <- format(Temp_Heron$DateTime, format="%H:%M:%S")
+
+# Remove the original datetime column
+#Temp_Heron <- Temp_Heron[, !names(Temp_Heron) %in% "DateTime"]
+
+# Create a new column for year-month
+Temp_Heron$YearMonth <- format(Temp_Heron$Date, format="%Y-%m")
+
+# convert Date column to month format
+Temp_Heron <- Temp_Heron |>
+  mutate(month = format(floor_date(Date, unit = "month"), "%m"))
+
+df_long_H <- Temp_Heron |>
+  pivot_longer(cols = starts_with("H"),
+               names_to = "Site",
+               values_to = "Temp",
+               values_drop_na = FALSE) |>
+ mutate(Site = str_replace(Site, "Heron_", ""),
+         Site = str_replace(Site, "([H]\\d)A$", "\\1a"),
+         Site = str_replace(Site, "([H]\\d)B$", "\\1b"))
+```
+
+```{r}
+boxplot_Temp_H <- ggplot(df_long_H, aes(x = Site, y = Temp)) + 
+  geom_boxplot() + 
+  labs(y = NULL, x = NULL) +
+  theme_bw()+
+  scale_y_continuous(breaks = seq(16, 32, by = 4), limits = c(16, 32))+
+   theme(axis.text.x = element_text(size = 12),
+        axis.text.y = element_text(size = 12))
+boxplot_Temp_H
+```
+
+# \-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\--
+
+# Figure Sedimentation
+
+```{r}
+Sed_Heron <- Metrics_Heron |>
+  select(Site, sedturf_t2, sedconcrete_t2) |>
+  rename(turf = sedturf_t2, concrete = sedconcrete_t2)
+
+# Reshape the data to long format
+Metrics_Heron_long <- Sed_Heron %>%
+  pivot_longer(cols = c(turf, concrete), 
+               names_to = "type", 
+               values_to = "Sedimentation") |>
+ mutate(Site = str_replace(Site, "Heron_", ""),
+         Site = str_replace(Site, "([H]\\d)A$", "\\1a"),
+         Site = str_replace(Site, "([H]\\d)B$", "\\1b"))
+
+Sed_Moore <- Metrics_Moore |>
+  select(Site, sedturf_t5, sedconcrete_t5) |>
+  rename(turf = sedturf_t5, concrete = sedconcrete_t5)
+
+
+Metrics_Moore_long <- Sed_Moore %>%
+  pivot_longer(cols = c(turf, concrete), 
+               names_to = "type", 
+               values_to = "Sedimentation")|>
+ mutate(Site = str_replace(Site, "Moore_", ""),
+         Site = str_replace(Site, "([M]\\d)A$", "\\1a"),
+         Site = str_replace(Site, "([M]\\d)B$", "\\1b"))
+
+Sed_Davies <- Metrics_Davies |>
+  select(Site, sedturf_t2, sedconcrete_t2, sedturf_t5, sedconcrete_t5) |>
+  mutate(turf = ((sedturf_t2+sedturf_t5)/2),
+         concrete = ((sedconcrete_t2 + sedconcrete_t5)/2)
+         )
+
+Metrics_Davies_long <- Sed_Davies %>%
+  pivot_longer(cols = c(turf, concrete), 
+               names_to = "type", 
+               values_to = "Sedimentation") |>
+ mutate(Site = str_replace(Site, "Davies_", ""),
+         Site = str_replace(Site, "([D]\\d)A$", "\\1a"),
+         Site = str_replace(Site, "([D]\\d)B$", "\\1b"))
+
+```
+
+### Moore
+
+```{r}
+barplot_sed_M <- ggplot(Metrics_Moore_long, 
+                        aes(x = Site, y = Sedimentation, fill = type)) + 
+  geom_col(position = "dodge") +  # position = "dodge" for side-by-side bars
+  labs(y = "Sedimentation\n(mg cm-2 day-1)", fill = "Type") +
+  theme_bw() +
+  ylim(0, 20) +
+  theme(legend.position.inside = c(0.8, 0.75),  # Corrected legend position
+        legend.text = element_text(size = 12),  # Increase legend text size
+        legend.title = element_text(size = 14), # Increase legend title size
+        axis.text.x = element_text(size = 12),
+        axis.text.y = element_text(size = 12),
+        axis.title.x = element_text(size = 14),
+        axis.title.y = element_text(size = 14))  
+
+barplot_sed_M
+
+```
+
+### Davies
+
+```{r}
+barplot_sed_D <- ggplot(Metrics_Davies_long, 
+                        aes(x = Site, y = Sedimentation, fill = type)) + 
+  geom_col(position = "dodge") +  # position = "dodge" for side-by-side bars
+  labs(y = NULL, fill = "type") +
+  theme_bw() +
+  ylim(0,20) +
+    theme(legend.position.inside = c(0.8, 0.75),  # Corrected legend position
+        legend.text = element_text(size = 12),  # Increase legend text size
+        legend.title = element_text(size = 14), # Increase legend title size
+        axis.text.x = element_text(size = 12),
+        axis.text.y = element_text(size = 12),
+        axis.title.x = element_text(size = 14))  
+
+
+barplot_sed_D
+
+```
+
+### Heron
+
+```{r}
+barplot_sed_H <- ggplot(Metrics_Heron_long, 
+                        aes(x = Site, y = Sedimentation, fill = type)) + 
+  geom_col(position = "dodge") +  # position = "dodge" for side-by-side bars
+  labs(y = NULL, fill = "type") +
+  theme_bw() +
+  ylim(0,20) +
+  theme(legend.position.inside = c(0.8, 0.75),  # Corrected legend position
+        legend.text = element_text(size = 12),  # Increase legend text size
+        legend.title = element_text(size = 14), # Increase legend title size
+        axis.text.x = element_text(size = 12),
+        axis.text.y = element_text(size = 12),
+        axis.title.x = element_text(size = 14))  
+barplot_sed_H
+
+```
+
+# \-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\--
+
+# Multiplot
+
+### Legend in corner of sedimentation plot
+
+```{r}
+#| warning: false
+#| error: false
+# Create text labels 
+#label_A <- textGrob("(a)                        Moore", x = unit(0.1, "npc"), y = unit(0.6, "npc"), just = c("left", "top"), gp = gpar(fontsize = 15, fontface = "plain"))
+#label_B <- textGrob("(B)                        Davies", x = unit(0.08, "npc"), y = unit(0.6, "npc"), just = c("left", "top"), gp = gpar(fontsize = 15, fontface = "plain"))
+#label_C <- textGrob("(C)                        Heron", x = unit(0.08, "npc"), y = unit(0.6, "npc"), just = c("left", "top"), gp = gpar(fontsize = 15, fontface = "plain"))
+#label_D <- textGrob("(D)", x = unit(0.1, "npc"), y = unit(0.7, "npc"), just = c("left", "top"), gp = gpar(fontsize = 15, fontface = "plain"))
+#label_E <- textGrob("(E)", x = unit(0.06, "npc"), y = unit(0.7, "npc"), just = c("left", "top"), gp = gpar(fontsize = 15, fontface = "plain"))
+#label_F <- textGrob("(F)", x = unit(0.06, "npc"), y = unit(0.7, "npc"), just = c("left", "top"), gp = gpar(fontsize = 15, fontface = "plain"))
+#label_G <- textGrob("(G)", x = unit(0.1, "npc"), y = unit(0.7, "npc"), just = c("left", "top"), gp = gpar(fontsize = 15, fontface = "plain"))
+#label_H <- textGrob("(H)", x = unit(0.06, "npc"), y = unit(0.7, "npc"), just = c("left", "top"), gp = gpar(fontsize = 15, fontface = "plain"))
+#label_I <- textGrob("(I)", x = unit(0.06, "npc"), y = unit(0.7, "npc"), just = c("left", "top"), gp = gpar(fontsize = 15, fontface = "plain"))
+#label_J <- textGrob("(J)", x = unit(0.1, "npc"), y = unit(0.7, "npc"), just = c("left", "top"), gp = gpar(fontsize = 15, fontface = "plain"))
+#label_K <- textGrob("(K)", x = unit(0.06, "npc"), y = unit(0.7, "npc"), just = c("left", "top"), gp = gpar(fontsize = 15, fontface = "plain"))
+#label_L <- textGrob("(L)", x = unit(0.06, "npc"), y = unit(0.7, "npc"), just = c("left", "top"), gp = gpar(fontsize = 15, fontface = "plain"))
+
+# Combine each plot with its label
+#plot_A <- arrangeGrob(boxplot_M_flow, top = label_A)
+#plot_B <- arrangeGrob(boxplot_D_flow, top = label_B)
+#plot_C <- arrangeGrob(boxplot_H_flow, top = label_C)
+#plot_D <- arrangeGrob(barplot_Ub_M, top = label_D)
+#plot_E <- arrangeGrob(barplot_Ub_D, top = label_E)
+#plot_F <- arrangeGrob(barplot_Ub_H, top = label_F)
+#plot_G <- arrangeGrob(boxplot_Temp_M, top = label_G)
+#plot_H <- arrangeGrob(boxplot_Temp_D, top = label_H)
+#plot_I <- arrangeGrob(boxplot_Temp_H, top = label_I)
+#plot_J <- arrangeGrob(barplot_sed_M, top = label_J)
+#plot_K <- arrangeGrob(barplot_sed_D, top = label_K)
+#plot_L <- arrangeGrob(barplot_sed_H, top = label_L)
+
+# Arrange all labeled plots in a grid
+capture_plot <- grid.arrange(boxplot_M_flow, boxplot_D_flow, boxplot_H_flow,
+                             barplot_Ub_M, barplot_Ub_D, barplot_Ub_H, 
+                             boxplot_Temp_M, boxplot_Temp_D, boxplot_Temp_H,
+                             barplot_sed_M, barplot_sed_D, barplot_sed_H,
+                             nrow = 4)
+
+# Display the arranged plots
+capture_plot
+
+# Save the plot using ggsave
+ggsave("Figure Multiplot Environmental Variables.jpeg", plot = capture_plot, width = 16, height = 10)
+```
+
+### Shared legend on the bottom
+
+```{r}
+barplot_sed_M <- ggplot(Metrics_Moore_long, 
+                        aes(x = Site, y = Sedimentation, fill = type)) + 
+  geom_col(position = "dodge") +  # position = "dodge" for side-by-side bars
+  labs(y = "Sedimentation \n(mg cm-2 day-1)", fill = "type") +
+  theme_bw() +
+  ylim(0,20) +
+  theme(legend.position = "none",  # Corrected legend position
+        legend.text = element_text(size = 12),  # Increase legend text size
+        legend.title = element_text(size = 14), # Increase legend title size
+        axis.text.x = element_text(size = 12),
+        axis.text.y = element_text(size = 12),
+        axis.title.x = element_text(size = 14),
+        axis.title.y = element_text(size = 14))  
+
+barplot_sed_D <- ggplot(Metrics_Davies_long, 
+                        aes(x = Site, y = Sedimentation, fill = type)) + 
+  geom_col(position = "dodge") +  # position = "dodge" for side-by-side bars
+  labs(y = NULL, fill = "type") +
+  theme_bw() +
+  ylim(0,20) +
+   theme(legend.position = "none",  # Corrected legend position
+        legend.text = element_text(size = 12),  # Increase legend text size
+        legend.title = element_text(size = 14), # Increase legend title size
+        axis.text.x = element_text(size = 12),
+        axis.text.y = element_text(size = 12),
+        axis.title.x = element_text(size = 14)) 
+  
+barplot_sed_H <- ggplot(Metrics_Heron_long, 
+                        aes(x = Site, y = Sedimentation, fill = type)) + 
+  geom_col(position = "dodge") +  # position = "dodge" for side-by-side bars
+  labs(y = NULL, fill = "type") +
+  theme_bw() +
+  ylim(0,20) +
+   theme(legend.position = "none",  # Corrected legend position
+        legend.text = element_text(size = 12),  # Increase legend text size
+        legend.title = element_text(size = 14), # Increase legend title size
+        axis.text.x = element_text(size = 12),
+        axis.text.y = element_text(size = 12),
+        axis.title.x = element_text(size = 14)) 
+```
+
+```{r}
+
+# Function to extract the legend from a ggplot
+get_legend <- function(my_plot) {
+   tmp <- ggplot_gtable(ggplot_build(my_plot))
+   leg <- which(sapply(tmp$grobs, function(x) x$name) == "guide-box")
+   legend <- tmp$grobs[[leg]]
+   return(legend)
+}
+ 
+# Extract the legend
+shared_legend <- get_legend(barplot_sed_M + theme(legend.position = "bottom"))
+ 
+# Arrange the plots with the legend at the bottom
+final_plot <- grid.arrange(
+ grid.arrange(boxplot_M_flow, boxplot_D_flow, boxplot_H_flow,
+                             barplot_Ub_M, barplot_Ub_D, barplot_Ub_H, 
+                             boxplot_Temp_M, boxplot_Temp_D, boxplot_Temp_H,
+                             barplot_sed_M, barplot_sed_D, barplot_sed_H,
+                             nrow = 4),
+ shared_legend,
+ nrow = 2,
+ heights = c(10, 1)
+)
+
+# Save the plot using ggsave
+ggsave("Figure Multiplot Environmental Variables_legend bottom.jpeg", plot = final_plot, width = 14, height = 10)
+```

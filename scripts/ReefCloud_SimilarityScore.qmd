@@ -1,0 +1,617 @@
+---
+title: "ReefCloud error estimates"
+author: "Sas"
+format: html
+editor: visual
+---
+
+```{r}
+knitr::opts_chunk$set(echo = TRUE)
+#knitr::opts_knit$set(root.dir = "C:/Users/sjurriaa/Australian Institute of Marine Science/Carly Randall - Randall Lab/CAD/CAD Year1")
+```
+
+# Preparations
+
+Load the necessary libraries
+
+```{r}
+#| warning: FALSE
+library(readxl) 
+library(writexl) 
+library(dplyr) 
+library(openxlsx) 
+library(readr) 
+library(ggplot2) 
+```
+
+# Read in the data
+
+```{r}
+#| label: libraries
+#| output: false
+#| eval: true
+#| warning: false
+#| message: false
+#| cache: false
+
+#F1 <- read.csv("data/YEAR1_ReefCloud_F1.csv", na ="")
+#ReefCloud <- read.csv ("data/YEAR1_ReefCloud_output.csv", na="")
+```
+
+# Explore data
+
+```{r}
+#View(ReefCloud)
+colnames(ReefCloud)
+str(ReefCloud)
+```
+
+### Dissimilar dataset
+
+Filter ReefCloud dataset to include only rows where human_classification and model_classification are dissimilar
+
+```{r}
+ReefCloud_filtered <- ReefCloud[ReefCloud$human_classification != ReefCloud$model_classification, ]
+```
+
+### Reclassify similarities
+
+Create new column for similarities between human_classifiaction_description and model_classification_description - based on specific keywords
+
+```{r}
+# Define a function to check for similarity based on keywords, including specific cases
+similarity_score <- function(human_desc, model_desc) {
+  # Convert descriptions to lowercase for case-insensitive matching
+  human_desc <- tolower(human_desc)
+  model_desc <- tolower(model_desc)
+  
+  # Define keywords to check for general similarity
+  keywords <- c("eam", "corallines", "unknown")
+  
+  # Check for general keyword similarity
+  for (keyword in keywords) {
+    if (grepl(keyword, human_desc) & grepl(keyword, model_desc)) {
+      return(1)  # Similar based on keywords
+    }
+  }
+  
+  # Check for specific cases of Soft coral spp.
+  soft_coral_keywords <- c("soft coral", "encrusting", "capitate", "lobate", "arborescent", "massive", "digitate")
+  for (keyword in soft_coral_keywords) {
+    if (grepl(keyword, human_desc) & grepl(keyword, model_desc)) {
+      return(1)  # Similar for soft coral descriptions
+    }
+  }
+  
+  # Check for specific cases of Acropora spp. where any morphology is similar
+  if (grepl("acropora spp.", human_desc) & grepl("acropora spp.", model_desc)) {
+    return(1)  # Similar for Acropora spp. with any morphology
+  }
+
+  # Check for the specific case of Unknown and coral seeding device
+  if (grepl("unknown, cannot be put into any other category", human_desc) & grepl("coral seeding device post t0", model_desc)) {
+    return(1)  # Similar for this specific case
+  }
+
+  # Check for the specific case of Other organisms and Unknown
+  if (grepl("other organisms, unidentifiable", human_desc) & grepl("unknown, cannot be put into any other category", model_desc)) {
+    return(1)  # Similar for this specific case
+  }
+  
+  # Check for the specific case of Pocillopora spp.
+  if (grepl("pocillopora", human_desc) & grepl("pocillopora", model_desc)) {
+    return(1)  # Similar for any Pocillopora species
+  }
+
+  # Check for any non-Acropora cases
+  if (grepl("non-acropora", human_desc) & grepl("non-acropora", model_desc)) {
+    return(1)  # Similar for any non-Acropora cases
+  }
+  
+  # Check for the specific case of Other organisms and foreign tools
+  if (grepl("other organisms, unidentifiable", human_desc) & 
+      grepl("transect tape|quadrat bar|star picket|foreign tools", model_desc)) {
+    return(1)  # Similar for Other organisms and foreign tools
+  }
+
+  # Check for specific cases related to other organisms, ascidians, corallimorpharia, etc.
+  other_organisms_keywords <- c("other organisms", "ascidians", "corallimorpharia", "hydrozoans", "zoanthids")
+  for (keyword in other_organisms_keywords) {
+    if (grepl(keyword, human_desc) & grepl(keyword, model_desc)) {
+      return(1)  # Similar for other organisms and related descriptions
+    }
+  }
+
+  # Check for any hard coral growth forms
+  if (grepl("hard coral", human_desc) & grepl("hard coral", model_desc)) {
+    return(1)  # Similar for any hard coral growth forms
+  }
+  
+  # If no conditions are met, return 0 (not similar)
+  return(0)
+}
+
+# Apply the function to the filtered dataframe and create a new column 'similarity_score'
+ReefCloud_filtered$similarity_score <- mapply(similarity_score, ReefCloud_filtered$human_classification_description, ReefCloud_filtered$model_classification_description)
+
+# Check how the similar ones have been selected
+ReefCloud_similar <- ReefCloud_filtered |>
+  filter(similarity_score == 1)
+
+View(ReefCloud_similar)
+```
+
+View non-similar cases to check for missing ones
+
+```{r}
+ReefCloud_nonsimilar <- ReefCloud_filtered |>
+  filter(similarity_score == 0)
+
+View(ReefCloud_nonsimilar)
+```
+
+# New accuracy score Overall
+
+```{r}
+# Calculate the total number of observations in the original ReefCloud dataset
+total_observations <- nrow(ReefCloud)
+
+# Calculate the total number of observations in the ReefCloud_filtered dataset
+filtered_observations <- nrow(ReefCloud_filtered)
+
+# Calculate the number of similar observations (those that were filtered out as already similar)
+similar_observations <- total_observations - filtered_observations
+
+# Calculate the sum of the similarity scores in the ReefCloud_filtered dataset
+total_similarity_score <- sum(ReefCloud_filtered$similarity_score)
+
+# Calculate the new accuracy score
+accuracy_score <- (similar_observations + total_similarity_score) / total_observations
+
+# Print the accuracy score
+accuracy_score
+
+```
+
+# EAM
+
+### True positives EAM
+
+```{r}
+# Filter the dataset to include only observations where both human and model classifications mention "EAM"
+EAM <- ReefCloud |>
+  filter(grepl("eam", tolower(human_classification_description)) & 
+         grepl("eam", tolower(model_classification_description)))
+
+# Count the total number of correct observations for EAM
+true_positives_EAM <- nrow(EAM)
+
+# Print the number of correctly identified EAM observations (which are the true positives)
+true_positives_EAM
+```
+
+### False positives EAM
+
+```{r}
+# Filter the dataset for rows where the model classification is EAM but the human classification is not
+eam_misclassified_observations <- ReefCloud %>%
+  filter(grepl("eam", tolower(model_classification_description)) & 
+         !grepl("eam", tolower(human_classification_description)))
+
+# Count the total number of misclassified EAM observations
+false_positives_EAM <- nrow(eam_misclassified_observations)
+
+# Print the number of misclassified EAM observations
+false_positives_EAM
+```
+
+```{r}
+#New accuracy score for EAM
+(true_positives_EAM - false_positives_EAM)/true_positives_EAM
+```
+
+### False negatives EAM
+
+```{r}
+# Calculate False Negatives (FN) for EAM
+eam_false_negatives <- ReefCloud |>
+  filter(grepl("eam", tolower(human_classification_description)) & 
+         !grepl("eam", tolower(model_classification_description)))
+
+# Count the number of False Negatives for EAM
+false_negatives_EAM <- nrow(eam_false_negatives)
+
+# Print the number of False Negatives (FN) for EAM
+false_negatives_EAM
+```
+
+### F1 score for EAM
+
+**Precision**: the ratio of True Positives to the sum of True Positives and False Positives
+
+**Recall**: the ratio of True Positives to the sum of True Positives and False Negatives
+
+```{r}
+# Calculate Precision
+precision_EAM <- true_positives_EAM / (true_positives_EAM + false_positives_EAM)
+
+# Calculate Recall
+recall_EAM <- true_positives_EAM / (true_positives_EAM + false_negatives_EAM)
+
+# Calculate F1 Score
+f1_score_EAM <- 2 * (precision_EAM * recall_EAM) / (precision_EAM + recall_EAM)
+
+f1_score_EAM
+```
+
+# Hard Corals
+
+### True positives HC
+
+```{r}
+# Filter the dataset to include only observations where both human and model classifications mention "non-acropora" or "hard coral"
+HC <- ReefCloud |>
+  filter((grepl("non-acropora|hard coral", tolower(human_classification_description))) & 
+         (grepl("non-acropora|hard coral", tolower(model_classification_description))))
+
+
+# Count the total number of correct observations for HC
+true_positives_HC <- nrow(HC)
+
+# Print the number of correctly identified HC observations (which are the true positives)
+true_positives_HC
+```
+
+### False positives HC
+
+False Positives (FP) are the cases where the **model** labeled the observation as **hard coral (non-Acropora or hard coral)** but the human did not.
+
+```{r}
+# Filter the dataset for rows where the model classification is HC but the human classification is not
+HC_misclassified_observations <- ReefCloud %>%
+  filter((grepl("non-acropora|hard coral", tolower(model_classification_description))) & 
+         !(grepl("non-acropora|hard coral", tolower(human_classification_description))))
+
+
+# Count the total number of misclassified HC observations
+false_positives_HC <- nrow(HC_misclassified_observations)
+
+# Print the number of misclassified HC observations
+false_positives_HC
+```
+
+```{r}
+#New accuracy score for HC
+(true_positives_HC - false_positives_HC)/true_positives_HC
+```
+
+### False negatives HC
+
+False Negatives (FN) are the cases where the **human** labeled the observation as **hard coral (non-acropora or hard coral)** but the model did not.
+
+```{r}
+# Calculate False Negatives (FN) for Hard Coral
+HC_false_negatives <- ReefCloud |>
+  filter((grepl("non-acropora|hard coral", tolower(human_classification_description))) & 
+         !(grepl("non-acropora|hard coral", tolower(model_classification_description))))
+
+# Count the number of False Negatives for HC
+false_negatives_HC <- nrow(HC_false_negatives)
+
+# Print the number of False Negatives (FN) for HC
+false_negatives_HC
+```
+
+### F1 score for HC
+
+```{r}
+# Calculate Precision
+precision_HC <- true_positives_HC / (true_positives_HC + false_positives_HC)
+
+# Calculate Recall
+recall_HC <- true_positives_HC / (true_positives_HC + false_negatives_HC)
+
+# Calculate F1 Score
+f1_score_HC <- 2 * (precision_HC * recall_HC) / (precision_HC + recall_HC)
+
+f1_score_HC
+```
+
+# Acropora
+
+### True positives Acro
+
+```{r}
+# Filter the dataset to include only observations where both human and model classifications mention "acropora"
+AC <- ReefCloud |>   
+  filter((grepl("acropora", tolower(human_classification_description))) &
+           (grepl("acropora", tolower(model_classification_description))))  
+
+# Count the total number of correct observations for Acro
+true_positives_AC <- nrow(AC)  # Print the number of correctly identified Acro observations (which are the true positives) 
+true_positives_AC
+```
+
+### False positives Acro
+
+False Positives (FP) are the cases where the **model** labeled the observation as **Acropora** but the human did not.
+
+```{r}
+# Filter the dataset for rows where the model classification is AC but the human classification is not
+AC_misclassified_observations <- ReefCloud |>
+  filter((grepl("acropora", tolower(model_classification_description))) & 
+           !(grepl("acropora", tolower(human_classification_description))))  
+
+# Count the total number of misclassified AC observations 
+false_positives_AC <- nrow(AC_misclassified_observations)  
+
+# Print the number of misclassified AC observations 
+false_positives_AC
+```
+
+```{r}
+#New accuracy score for AC 
+(true_positives_AC - false_positives_AC)/true_positives_AC
+```
+
+### False negatives Acro
+
+False Negatives (FN) are the cases where the **human** labeled the observation as **acropora** but the model did not.
+
+```{r}
+# Calculate False Negatives (FN) for Acro
+AC_false_negatives <- ReefCloud |>   
+  filter((grepl("acropora", tolower(human_classification_description))) & 
+           !(grepl("acropora", tolower(model_classification_description)))) 
+
+# Count the number of False Negatives for Acro
+false_negatives_AC <- nrow(AC_false_negatives)  
+
+# Print the number of False Negatives (FN) for Acro 
+false_negatives_AC
+```
+
+### F1 score for Acro
+
+```{r}
+# Calculate Precision 
+precision_AC <- true_positives_AC / (true_positives_AC + false_positives_AC) 
+
+# Calculate Recall 
+recall_AC <- true_positives_AC / (true_positives_AC + false_negatives_AC)  
+
+# Calculate F1 Score 
+f1_score_AC <- 2 * (precision_AC * recall_AC) / (precision_AC + recall_AC)  
+ 
+f1_score_AC
+```
+
+# Sand
+
+### True positives Sand
+
+```{r}
+# Filter the dataset to include only observations where both human and model classifications mention "sand"
+SD <- ReefCloud |>   
+  filter((grepl("sand", tolower(human_classification_description))) &
+           (grepl("sand", tolower(model_classification_description))))  
+
+# Count the total number of correct observations for Sand
+true_positives_SD <- nrow(SD)  # Print the number of correctly identified Sand observations (which are the true positives) 
+true_positives_SD
+```
+
+### False positives Sand
+
+False Positives (FP) are the cases where the **model** labeled the observation as **Sand** but the human did not.
+
+```{r}
+# Filter the dataset for rows where the model classification is sand but the human classification is not
+SD_misclassified_observations <- ReefCloud |>
+  filter((grepl("sand", tolower(model_classification_description))) & 
+           !(grepl("sand", tolower(human_classification_description))))  
+
+# Count the total number of misclassified SD observations 
+false_positives_SD <- nrow(SD_misclassified_observations)  
+
+# Print the number of misclassified SD observations 
+false_positives_SD
+```
+
+```{r}
+#New Accuracy score for S 
+(true_positives_SD - false_positives_SD)/true_positives_SD
+```
+
+### False negatives Sand
+
+False Negatives (FN) are the cases where the **human** labeled the observation as **Sand** but the model did not.
+
+```{r}
+# Calculate False Negatives (FN) for Sand
+SD_false_negatives <- ReefCloud |>   
+  filter((grepl("sand", tolower(human_classification_description))) & 
+           !(grepl("sand", tolower(model_classification_description)))) 
+
+# Count the number of False Negatives for Sand
+false_negatives_SD <- nrow(SD_false_negatives)  
+
+# Print the number of False Negatives (FN) for Sand 
+false_negatives_SD
+```
+
+### F1 score for Sand
+
+```{r}
+# Calculate Precision 
+precision_SD <- true_positives_SD / (true_positives_SD + false_positives_SD) 
+
+# Calculate Recall 
+recall_SD <- true_positives_SD / (true_positives_SD + false_negatives_SD)  
+
+# Calculate F1 Score 
+f1_score_SD <- 2 * (precision_SD * recall_SD) / (precision_SD + recall_SD)  
+ 
+f1_score_SD
+#did not change from what was already calculated as F1
+```
+
+# Soft Coral
+
+### True positives Soft Coral
+
+```{r}
+# Filter the dataset to include only observations where both human and model classifications mention "soft coral"
+SC <- ReefCloud |>   
+  filter((grepl("soft coral", tolower(human_classification_description))) &
+           (grepl("soft coral", tolower(model_classification_description))))  
+
+# Count the total number of correct observations for soft coral
+true_positives_SC <- nrow(SC)  # Print the number of correctly identified soft coral observations (which are the true positives) 
+true_positives_SC
+```
+
+### False positives soft coral
+
+False Positives (FP) are the cases where the **model** labeled the observation as **soft coral** but the human did not.
+
+```{r}
+# Filter the dataset for rows where the model classification is soft coral but the human classification is not
+SC_misclassified_observations <- ReefCloud |>
+  filter((grepl("soft coral", tolower(model_classification_description))) & 
+           !(grepl("soft coral", tolower(human_classification_description))))  
+
+# Count the total number of misclassified SC observations 
+false_positives_SC <- nrow(SC_misclassified_observations)  
+
+# Print the number of misclassified SC observations 
+false_positives_SC
+```
+
+```{r}
+#New Accuracy score for S 
+(true_positives_SC - false_positives_SC)/true_positives_SC
+```
+
+### False negatives soft coral
+
+False Negatives (FN) are the cases where the **human** labeled the observation as **soft coral** but the model did not.
+
+```{r}
+# Calculate False Negatives (FN) for soft coral
+SC_false_negatives <- ReefCloud |>   
+  filter((grepl("soft coral", tolower(human_classification_description))) & 
+           !(grepl("soft coral", tolower(model_classification_description)))) 
+
+# Count the number of False Negatives for soft coral
+false_negatives_SC <- nrow(SC_false_negatives)  
+
+# Print the number of False Negatives (FN) for soft coral 
+false_negatives_SC
+```
+
+### F1 score for soft coral
+
+```{r}
+# Calculate Precision 
+precision_SC <- true_positives_SC / (true_positives_SC + false_positives_SC) 
+
+# Calculate Recall 
+recall_SC <- true_positives_SC / (true_positives_SC + false_negatives_SC)  
+
+# Calculate F1 Score 
+f1_score_SC <- 2 * (precision_SC * recall_SC) / (precision_SC + recall_SC)  
+ 
+f1_score_SC
+#did not change from what was already calculated as F1
+```
+
+# CCA
+
+### True positives CCA
+
+```{r}
+# Filter the dataset to include only observations where both human and model classifications mention "CCA"
+CCA <- ReefCloud |>   
+  filter((grepl("coralline", tolower(human_classification_description))) &
+           (grepl("coralline", tolower(model_classification_description))))  
+
+# Count the total number of correct observations for CCA
+true_positives_CCA <- nrow(CCA)  # Print the number of correctly identified CCA observations (which are the true positives) 
+true_positives_CCA
+```
+
+### False positives CCA
+
+False Positives (FP) are the cases where the **model** labeled the observation as **CCA** but the human did not.
+
+```{r}
+# Filter the dataset for rows where the model classification is CCA but the human classification is not
+CCA_misclassified_observations <- ReefCloud |>
+  filter((grepl("coralline", tolower(model_classification_description))) & 
+           !(grepl("coralline", tolower(human_classification_description))))  
+
+# Count the total number of misclassified CCA observations 
+false_positives_CCA <- nrow(CCA_misclassified_observations)  
+
+# Print the number of misclassified CCA observations 
+false_positives_CCA
+```
+
+```{r}
+#New Accuracy score for S 
+(true_positives_CCA - false_positives_CCA)/true_positives_CCA
+```
+
+### False negatives CCA
+
+False Negatives (FN) are the cases where the **human** labeled the observation as **CCA** but the model did not.
+
+```{r}
+# Calculate False Negatives (FN) for CCA
+CCA_false_negatives <- ReefCloud |>   
+  filter((grepl("coralline", tolower(human_classification_description))) & 
+           !(grepl("coralline", tolower(model_classification_description)))) 
+
+# Count the number of False Negatives for CCA
+false_negatives_CCA <- nrow(CCA_false_negatives)  
+
+# Print the number of False Negatives (FN) for CCA 
+false_negatives_CCA
+```
+
+### F1 score for CCA
+
+```{r}
+# Calculate Precision 
+precision_CCA <- true_positives_CCA / (true_positives_CCA + false_positives_CCA) 
+
+# Calculate Recall 
+recall_CCA <- true_positives_CCA / (true_positives_CCA + false_negatives_CCA)  
+
+# Calculate F1 Score 
+f1_score_CCA <- 2 * (precision_CCA * recall_CCA) / (precision_CCA + recall_CCA)  
+ 
+f1_score_CCA
+#did not change from what was already calculated as F1
+```
+
+# Save F1 scores
+
+```{r}
+f1_scores_df <- data.frame(
+  Category = c("CCA", "Sof Coral", "Hard Coral", "Acropora", "Sand", "EAM"),  
+  F1_Score = c(f1_score_CCA, f1_score_SC, f1_score_HC, f1_score_AC, f1_score_SD, f1_score_EAM) )
+  
+f1_scores_df <- f1_scores_df[order(-f1_scores_df$F1_Score), ]
+
+
+# Print the table of F1 scores
+print(f1_scores_df)
+
+#save as excel file
+write.xlsx(f1_scores_df, file = "F1 scores recalculated Aug2024.xlsx")
+#stored in: CAD YEAR1 > scripts
+#saved 30/08/2024
+
+```

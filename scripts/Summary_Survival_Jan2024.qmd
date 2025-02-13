@@ -47,13 +47,13 @@ data_survival <- read_excel("2022_Deployment_Saskia_MasterData.xlsx",
 ### First HERON: summary using species at device level
 
 ```{r}
-data_survival <- survival |>
-  select(-c(Observer, CensusT, DeploymentDate, CensusDate, Device_ID, NoRecruits))
+#data_survival <- survival |>
+#  select(-c(Observer, CensusT, DeploymentDate, CensusDate, Device_ID, NoRecruits))
 heron_surv <- data_survival |> filter (Reef == "Heron")
 
 # first for A tenuis: filter dataset for  A_tenuis, and then add survival and total count at group level
 heron_Aten <- heron_surv |> 
-  filter(Spp == "A_tenuis") |>
+  filter(Spp == "A. kenti") |>
   group_by(Census, ReefDev) |>
   mutate(SurvDev_Spp = ifelse(any(SurvTab == 1), 1, 0),
          Total_Spp = n()) |>
@@ -73,7 +73,7 @@ heron_Aten2 <- heron_Aten |>
 
 # now do same for Ahyacinthus
 heron_Ahya <- heron_surv |> 
-  filter(Spp == "A_hyacinthus") |>
+  filter(Spp == "A. hyacinthus") |>
   group_by(Census, ReefDev) |>
   mutate(SurvDev_Spp = ifelse(any(SurvTab == 1), 1, 0),
          Total_Spp = n()) |>
@@ -113,15 +113,47 @@ summary_heron <- heron_Spp |>
 ### Create dataset for final timepoint Heron Spp
 
 ```{r}
-heron_Spp_t3 <- heron_Spp |>
-  filter(Census == "t3")
+heron_Spp_t3 <- summary_heron |> filter(Census =="t3")
+kenti_t3 <- heron_Spp_t3 |> filter(Spp =="A. kenti")
+hya_t3 <- heron_Spp_t3 |> filter(Spp =="A. hyacinthus")
 
-summary_heron <- heron_Spp_t3 |>
-  filter(!is.na(SurvDev_Spp)) |>
-  group_by(Reef, Site, WaveEnergyLevel, Spp, Census, ExpDay) |>
-  summarise(SurvivalNDevices = sum(SurvDev_Spp, na.rm=T),
-            DevTot =25,
-            Perc_SurvDev = sum(SurvDev_Spp, na.rm =T)/25)
+mean(kenti_t3$Perc_SurvDev)
+sd(kenti_t3$Perc_SurvDev)
+mean(hya_t3$Perc_SurvDev)
+sd(hya_t3$Perc_SurvDev)
+```
+
+Calculate how many devices had two surviving species on one device
+
+```{r}
+# Step 1: filter to last timepoint
+heron_final_timepoint <- heron_Spp |>
+    filter(Census == "t3")
+
+# Step 2: Count the number of unique species per device
+devices_with_both_species <- heron_final_timepoint |>
+  group_by(ReefDev) |>
+  summarise(sum_survival = sum(SurvDev_Spp)) |>
+  filter(sum_survival == 2)  # Keep only devices where both species survived
+
+# Step 3: Count the number of such devices
+num_devices_with_both_species <- nrow(devices_with_both_species)
+
+# Print the result
+cat("Number of devices where both species survived at the final timepoint:", num_devices_with_both_species, "\n")
+```
+
+### Create dataset for timepoint 1 Heron Spp
+
+```{r}
+heron_Spp_t1 <- summary_heron |> filter(Census =="t1")
+kenti_t1 <- heron_Spp_t1 |> filter(Spp =="A. kenti")
+hya_t1 <- heron_Spp_t1 |> filter(Spp =="A. hyacinthus")
+
+mean(kenti_t1$Perc_SurvDev)
+sd(kenti_t1$Perc_SurvDev)
+mean(hya_t1$Perc_SurvDev)
+sd(hya_t1$Perc_SurvDev)
 ```
 
 ### Summary % survival - dataframes LONG
@@ -134,7 +166,46 @@ summary_survival_Dev <- data_survival |>
   group_by(Reef, Site, WaveEnergyLevel, Census, ExpDay, Spp) |>
   summarise(SurvivalNDevices = sum(SurvDev, na.rm=T),
             DevTot =25,
-            Perc_SurvDev = sum(SurvDev, na.rm =T)/25)
+            Perc_SurvDev = sum(SurvivalNDevices, na.rm =T)/25)
+
+
+summary_survival_Tab <- data_survival |>
+  group_by(Reef, Site, WaveEnergyLevel, Census, ExpDay, Spp) |>
+  summarise(SurvivalNTab = sum(SurvTab, na.rm=T),
+            TabTot =75,
+            Perc_SurvTab = (SurvivalNTab/75))
+```
+
+```{r}
+moore_final_dev <- summary_survival_Dev |> filter(Reef == "Moore", Census =="t6")
+mean(moore_final_dev$Perc_SurvDev)
+sd(moore_final_dev$Perc_SurvDev)
+min(moore_final_dev$Perc_SurvDev)
+max(moore_final_dev$Perc_SurvDev)
+```
+
+```{r}
+moore_final_tab <- summary_survival_Tab |> filter(Reef == "Moore", Census =="t6")
+mean(moore_final_tab$Perc_SurvTab)
+sd(moore_final_tab$Perc_SurvTab)
+min(moore_final_tab$Perc_SurvTab)
+max(moore_final_tab$Perc_SurvTab)
+```
+
+```{r}
+davies_final_dev <- summary_survival_Dev |> filter(Reef == "Davies", Census =="t6")
+mean(davies_final_dev$Perc_SurvDev)
+sd(davies_final_dev$Perc_SurvDev)
+min(davies_final_dev$Perc_SurvDev)
+max(davies_final_dev$Perc_SurvDev)
+```
+
+```{r}
+davies_final_tab <- summary_survival_Tab |> filter(Reef == "Davies", Census =="t6")
+mean(davies_final_tab$Perc_SurvTab)
+sd(davies_final_tab$Perc_SurvTab)
+min(davies_final_tab$Perc_SurvTab)
+max(davies_final_tab$Perc_SurvTab)
 ```
 
 ### Combine Heron (yield calculated by Spp) with Moore and Davies (Spp)
@@ -148,8 +219,6 @@ summary_daviesmoore <- summary_survival_Dev |>
 
 #bind dataframes together
 summary_survival <- rbind(summary_heron, summary_daviesmoore)
-
-
 ```
 
 Create summary dataframe that includes species.
@@ -337,11 +406,11 @@ ggsave("Fig2b - Mean survival final census Reef-yield.jpeg", plot=plot2b, width 
 ```{r}
 library(cowplot)
 
-final_moore <- summary_final |>
+final_moore <- summary_survival_finalcensus |>
   filter(Reef == "Moore")
-final_davies <- summary_final |>
+final_davies <- summary_survival_finalcensus |>
   filter(Reef == "Davies")
-final_heron <- summary_final |>
+final_heron <- summary_survival_finalcensus |>
   filter(Reef == "Heron")
 
 
@@ -516,21 +585,21 @@ summary_survival_stats$Reef <- factor(summary_survival_stats$Reef, levels = c("M
 # Plot the average survival over time for each species with standard error bars
 plot7a <- ggplot(summary_survival_stats, aes(x = ExpDay, y = Avg_Survival, color = Spp)) +
    geom_point(size=3) +
-  scale_color_manual(values = c("A_millepora" = "green", "A_hyacinthus" = "orange", "A_tenuis" = "purple")) +
+  scale_color_manual(values = c("A. millepora" = "green", "A. hyacinthus" = "orange", "A. kenti" = "purple")) +
   geom_errorbar(aes(ymin = Avg_Survival - SE, ymax = Avg_Survival + SE), width = 0.2) +
   facet_wrap(~Reef, scales = "free") +
-  labs(title = "Mean Survival Over Time by Species and Reef",
-       x = "Experiment Day",
+  labs(x = "Experiment Day",
        y = "% Survival (yield)",
        color = "Species") +
   theme_bw() +
   ylim(0,1) +
   xlim(0,900) +
-  theme(panel.border = element_rect(color = "black", fill = NA),
+   theme(panel.border = element_rect(color = "black", fill = NA),
         axis.line = element_line(color = "black"),
         axis.text = element_text(size = 12),
-        axis.title = element_text(size = 14), 
-        legend.text = element_text(size = 12))
+        axis.title = element_text(size = 13), 
+        legend.text = element_text(size = 12),
+        strip.text = element_blank())
 
 plot7a
 ggsave("Fig7a - Mean survival Spp over time - tab.png", plot=plot7a, width = 14, height = 6, dpi = 300)
