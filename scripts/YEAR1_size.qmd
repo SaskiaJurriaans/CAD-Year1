@@ -28,7 +28,7 @@ library(tidyverse)  #for data wrangling etc
 library(rstanarm)   #for fitting models in STAN
 #library(cmdstanr)   #for cmdstan --> does not work on AIMS computers
 library(brms)       #for fitting models in STAN
-library(standist)   #for exploring distributions
+#library(standist)   #for exploring distributions
 library(coda)       #for diagnostics
 library(bayesplot)  #for diagnostics
 library(ggmcmc)     #for MCMC diagnostics

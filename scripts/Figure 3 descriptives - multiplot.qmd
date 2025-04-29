@@ -494,7 +494,7 @@ plot_size_site <- ggplot(size_allreef, aes(x= Site, y = Size, color = Spp)) +
   scale_color_manual(values = c("A. millepora" = "green", "A. hyacinthus" = "orange", "A. kenti" = "purple")) +
   facet_wrap(~Reef, scales = "free") +
   labs(x = "Site",
-       y = "Coral Size (mm3)",
+       y = "Coral Size (cm3)",
        color = "Species") +
   theme_bw() +
   ylim(0,150) +
