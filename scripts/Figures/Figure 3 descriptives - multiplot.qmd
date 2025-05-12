@@ -10,203 +10,7 @@ knitr::opts_chunk$set(echo = TRUE)
 knitr::opts_knit$set(root.dir = "C:/Users/sjurriaa/Australian Institute of Marine Science/Carly Randall - Randall Lab/CAD/CAD Year1")
 ```
 
-# Read in the data
-
-```{r}
-#| label: import data
-#| warning: false
-#| message: false
-survival <- read_excel("data/YEAR1_Survival.xlsx", 
-    col_types = c("numeric", "skip", "text", 
-        "skip", "skip", "numeric", "skip", 
-        "text", "text", "numeric", "skip", 
-        "text", "numeric", "text", "numeric", 
-        "numeric", "numeric", "numeric", 
-        "numeric"), na = "na")
-
-environment <- read_excel ("data/YEAR1 Benthic Environment ReefDev.xlsx", na="na")
-```
-
-# Data tidying
-
-**Create new column for size and remove empty rows with no size data**
-
-```{r}
-#| label: mutate survival
-survival_size <- survival |>
-  mutate(Size = (LinLength_mm * PerpLenght_mm * Height_mm)/1000,
-         Size_log = log(Size + 1)) # Adding 1 to avoid log(0) 
-```
-
-**Separate by Reef**
-
-Moore:
-
-```{r}
-#| label: filter moore
-moore_surv <- survival_size |> filter (Reef == "Moore",
-                                  Census =="t6")  
-moore_env <- environment |> 
-  filter (Reef == "Moore") |>
-  select(-c(Reef1, Device_ID))
-```
-
-Davies:
-
-```{r}
-#| label: filter davies
-davies_surv <- survival_size |> filter (Reef == "Davies",
-                                   Census == "t6") 
-
-davies_env <- environment |> 
-  filter (Reef == "Davies") |>
-  select(-c(Reef1, Device_ID))
-```
-
-Heron:
-
-```{r}
-heron_surv <- survival_size |> filter (Reef == "Heron",
-                                  Census == "t3") 
-
-heron_env <- environment |> 
-  filter (Reef == "Heron") |>
-  select(-c(Reef1, Device_ID))
-```
-
-**Merge survival and environment**
-
-```{r}
-moore <- merge(moore_env, moore_surv, by = c("Reef", "Site", "ReefDev"), all = TRUE)
-davies <- merge(davies_env, davies_surv, by = c("Reef", "Site", "ReefDev"), all = TRUE)
-heron <- merge(heron_env, heron_surv, by = c("Reef", "Site", "ReefDev"), all = TRUE)
-```
-
-**Free up space**
-
-```{r}
-#free up space
-remove(moore_surv, moore_env)
-remove(davies_surv, davies_env)
-remove(heron_surv, heron_env)
-remove(survival_size)
-```
-
-**Remove rows with missing values**
-
-Moore:
-
-```{r}
-moore$SurvDev <- as.numeric(moore$SurvDev)
-moore <- moore[complete.cases(moore$Size),  ]
-```
-
-Davies:
-
-```{r}
-davies$SurvDev <- as.numeric(davies$SurvDev)
-davies <- davies[complete.cases(davies$Size),  ]
-```
-
-Heron:
-
-```{r}
-heron$SurvDev <- as.numeric(heron$SurvDev)
-heron <- heron[complete.cases(heron$Size),  ]
-```
-
-Fill in missing values for the environmental variables (since they are the same for each device within a site). However, not PC1 and PC2 values, these are device specific (because community composition was identified around each specific device), thus missing values of PC1 and PC2 cannot be filled in and need to be removed from analyses when running regressions for habitat.
-
-Moore:
-
-```{r}
-moore <- moore |>
-  group_by(Site) |>
-  mutate(
-    Ub_avrg = ifelse(is.na(Ub_avrg), max(Ub_avrg, na.rm=TRUE), Ub_avrg),
-    median_speed = ifelse(is.na(median_speed), max(median_speed, na.rm = TRUE), median_speed),
-    percentile_10 =  ifelse(is.na(percentile_10), max(percentile_10, na.rm = TRUE), percentile_10),
-    percentile_90 =  ifelse(is.na(percentile_90), max(percentile_90, na.rm = TRUE), percentile_90),
-    range  =  ifelse(is.na(range), max(range, na.rm = TRUE), range),
-    mean_temp = ifelse(is.na(mean_temp), max(mean_temp, na.rm = TRUE), mean_temp),
-    sedturf_t5 = ifelse(is.na(sedturf_t5), max(sedturf_t5, na.rm = TRUE), sedturf_t5),
-    sedconcrete_t5 = ifelse(is.na(sedconcrete_t5), max(sedconcrete_t5, na.rm = TRUE), sedconcrete_t5)
-      ) |>
-  ungroup()
-```
-
-Davies:
-
-```{r}
-davies <- davies |>
-  group_by(Site) |>
-  mutate(
-    Ub_avrg = ifelse(is.na(Ub_avrg), max(Ub_avrg, na.rm=TRUE), Ub_avrg),
-    median_speed = ifelse(is.na(median_speed), max(median_speed, na.rm = TRUE), median_speed),
-    percentile_10 =  ifelse(is.na(percentile_10), max(percentile_10, na.rm = TRUE), percentile_10),
-    percentile_90 =  ifelse(is.na(percentile_90), max(percentile_90, na.rm = TRUE), percentile_90),
-    range  =  ifelse(is.na(range), max(range, na.rm = TRUE), range),
-    mean_temp = ifelse(is.na(mean_temp), max(mean_temp, na.rm = TRUE), mean_temp),
-    sedturf_t2 = ifelse(is.na(sedturf_t2), max(sedturf_t2, na.rm = TRUE), sedturf_t2),
-    sedconcrete_t2 = ifelse(is.na(sedconcrete_t2), max(sedconcrete_t2, na.rm = TRUE), sedconcrete_t2),
-    sedturf_t5 = ifelse(is.na(sedturf_t5), max(sedturf_t5, na.rm = TRUE), sedturf_t5),
-    sedconcrete_t5 = ifelse(is.na(sedconcrete_t5), max(sedconcrete_t5, na.rm = TRUE), sedconcrete_t5)
-    ) |>
-  ungroup()
-
-davies <- davies |> 
-  group_by(Site) |>
-  mutate(sedturf = ((sedturf_t2+sedturf_t5)/2),
-         sedconcrete = ((sedconcrete_t2+sedconcrete_t5)/2)
-         ) |>
-  select(-c(sedturf_t2, sedturf_t5, sedconcrete_t2, sedconcrete_t5))
-
-
-  
-```
-
-Heron:
-
-```{r}
-heron <- heron |>
-  group_by(Site) |>
-  mutate(
-    Ub_avrg = ifelse(is.na(Ub_avrg), max(Ub_avrg, na.rm=TRUE), Ub_avrg),
-    median_speed = ifelse(is.na(median_speed), max(median_speed, na.rm = TRUE), median_speed),
-    percentile_10 =  ifelse(is.na(percentile_10), max(percentile_10, na.rm = TRUE), percentile_10),
-    percentile_90 =  ifelse(is.na(percentile_90), max(percentile_90, na.rm = TRUE), percentile_90),
-    sedturf_t2 = ifelse(is.na(sedturf_t2), max(sedturf_t2, na.rm = TRUE), sedturf_t2),
-    sedconcrete_t2 = ifelse(is.na(sedconcrete_t2), max(sedconcrete_t2, na.rm = TRUE), sedconcrete_t2),
-    range  =  ifelse(is.na(range), max(range, na.rm = TRUE), range),
-    mean_temp = ifelse(is.na(mean_temp), max(mean_temp, na.rm = TRUE), mean_temp)
-    ) |>
-  ungroup()
-```
-
-# Descriptives
-
-Descriptive figure of mean size per reef.
-
-First re-create dataframe with three reefs and only rows with size values
-
-```{r}
-moore <- moore |> select(-c(sedturf_t2,sedconcrete_t2)) |>
-  rename(sedturf = sedturf_t5,
-         sedconcrete = sedconcrete_t5)
-heron <- heron |> select(-c(sedturf_t5, sedconcrete_t5)) |>
-    rename(sedturf = sedturf_t2,
-         sedconcrete = sedconcrete_t2)
- 
-#heron <- heron |>
-#  select(-median_speed_cat)
-
-size_allreef <- bind_rows(heron, moore, davies)
-str(size_allreef)
-```
-
-# Data preparation
-
-### Load the required packages
+# Load libraries
 
 ```{r}
 library(readxl) 
@@ -222,9 +26,22 @@ library(tidyr)
 library(stringr)
 ```
 
-### Set the workdrive and load data
+# Read in the data
 
 ```{r}
+#| label: import data
+#| warning: false
+#| message: false
+df_size <- read_excel("data/YEAR1_Survival.xlsx", 
+    col_types = c("numeric", "skip", "text", 
+        "skip", "skip", "numeric", "skip", 
+        "text", "text", "numeric", "skip", 
+        "text", "numeric", "text", "numeric", 
+        "numeric", "numeric", "numeric", 
+        "numeric"), na = "na")
+colnames(df_size)
+
+
 # Set working directory 
 setwd("C:/Users/sjurriaa/Australian Institute of Marine Science/Carly Randall - Randall Lab/CAD/CAD Field Data/2022_Deployment_Saskia_YEAR1/Survival data")  
 
@@ -237,17 +54,41 @@ data_survival <- read_excel("2022_Deployment_Saskia_MasterData.xlsx",
         "text", "text", "text", "numeric", 
         "skip", "numeric"),
     na = "NA")
+
+colnames(data_survival)
 ```
 
-### \-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\--
+# Size
 
-# Data summary
+Data tidying
 
-### First HERON: summary using species at device level
+**Create new column for size and remove empty rows with no size data**
 
 ```{r}
-#data_survival <- survival |>
-#  select(-c(Observer, CensusT, DeploymentDate, CensusDate, Device_ID, NoRecruits))
+#| label: mutate survival
+df_size <- df_size |>
+  mutate(Size = (LinLength_mm * PerpLenght_mm * Height_mm)/1000,
+         Size_log = log(Size + 1)) # Adding 1 to avoid log(0) 
+
+# Remove rows with missing values
+df_size$SurvDev <- as.numeric(df_size$SurvDev)
+df_size <- df_size[complete.cases(df_size$Size),  ]
+```
+
+# Survival
+
+### Heron - restructure
+
+For each species:
+
+1\. Identify if there was any survival at the device level (i.e., if any tab survived, mark device as a 'survivor').
+
+2\. Summarise the data so that each row represents one device per census (removing duplicate rows for tabs).
+
+3\. Retain relevant metadata (site, reef, wave energy, etc.) and bind both species together into one dataset.
+
+```{r}
+# Subset Heron data
 heron_surv <- data_survival |> filter (Reef == "Heron")
 
 # first for A tenuis: filter dataset for  A_tenuis, and then add survival and total count at group level
@@ -290,73 +131,82 @@ heron_Ahya2 <- heron_Ahya |>
   ungroup()
 
 #bind them together to create one dataframe
-heron_Spp <- rbind(heron_Ahya2, heron_Aten2)
-heron_Spp <- heron_Spp |>
+heron_device <- rbind(heron_Ahya2, heron_Aten2)
+heron_device <- heron_device |>
   arrange(Census, Site, Spp, ReefDev)
 
 #free up space
 remove(heron_Aten, heron_Aten2, heron_Ahya, heron_Ahya2)
+
+colnames(heron_device)
 ```
 
-### Create dataset with % survival Devices
+### Summary: Percent Device Survival 
 
 ```{r}
-summary_heron <- heron_Spp |>
+summary_heron_device <- heron_device |>
   filter(!is.na(SurvDev_Spp)) |>
   group_by(Reef, Site, WaveEnergyLevel, Spp, Census, ExpDay) |>
   summarise(SurvivalNDevices = sum(SurvDev_Spp, na.rm=T),
             DevTot =25,
             Perc_SurvDev = sum(SurvDev_Spp, na.rm =T)/25)
-```
 
-### Create dataset for final timepoint Heron Spp
+colnames(summary_heron_device)
 
-```{r}
-heron_Spp_t3 <- summary_heron |> filter(Census =="t3")
-kenti_t3 <- heron_Spp_t3 |> filter(Spp =="A. kenti")
-hya_t3 <- heron_Spp_t3 |> filter(Spp =="A. hyacinthus")
-
-mean(kenti_t3$Perc_SurvDev)
-sd(kenti_t3$Perc_SurvDev)
-mean(hya_t3$Perc_SurvDev)
-sd(hya_t3$Perc_SurvDev)
-```
-
-### Create dataset for timepoint 1 Heron Spp
-
-```{r}
-heron_Spp_t1 <- summary_heron |> filter(Census =="t1")
-kenti_t1 <- heron_Spp_t1 |> filter(Spp =="A. kenti")
-hya_t1 <- heron_Spp_t1 |> filter(Spp =="A. hyacinthus")
-
-mean(kenti_t1$Perc_SurvDev)
-sd(kenti_t1$Perc_SurvDev)
-mean(hya_t1$Perc_SurvDev)
-sd(hya_t1$Perc_SurvDev)
-```
-
-### Summary % survival - dataframes LONG
-
-Create a summary survival dataframe with a new column that sums up the survival score of all the tabs for each site for each census. Then create an additional dataframe with a new column that sums up the survival score of the devices for each site for each census. Last, combine both dataframes so that there it shows for each site and per census a column with the total number of tabs with survivorship, and the total number of devices with at least one survivor.
-
-```{r}
-summary_survival_Dev <- data_survival |>
-  filter(!is.na(SurvDev)) |>
+summary_daviesmoore_device <- data_survival |>
+  filter(!is.na(SurvDev),
+         !Reef == "Heron") |>
   group_by(Reef, Site, WaveEnergyLevel, Census, ExpDay, Spp) |>
   summarise(SurvivalNDevices = sum(SurvDev, na.rm=T),
             DevTot =25,
-            Perc_SurvDev = sum(SurvivalNDevices, na.rm =T)/25)
+            Perc_SurvDev = sum(SurvDev, na.rm =T)/25)
 
+colnames(summary_daviesmoore_device)
 
-summary_survival_Tab <- data_survival |>
+#bind dataframes together
+summary_survival_device <- rbind(summary_heron_device, summary_daviesmoore_device)
+colnames(summary_survival_device)
+
+remove(summary_daviesmoore_device, summary_heron_device, heron_device)
+```
+
+### Summary: Percent Tab Survival 
+
+```{r}
+summary_daviesmoore_tab <- data_survival |>
+   filter(!Reef == "Heron") |>
   group_by(Reef, Site, WaveEnergyLevel, Census, ExpDay, Spp) |>
   summarise(SurvivalNTab = sum(SurvTab, na.rm=T),
             TabTot =75,
-            Perc_SurvTab = (SurvivalNTab/75))
+            Perc_SurvTab = sum(SurvDev, na.rm =T)/75)
+colnames(summary_daviesmoore_tab)
+
+summary_heron_tab <- data_survival |>
+  filter(Reef == "Heron") |>
+   group_by(Reef, Site, WaveEnergyLevel, Census, ExpDay, Spp) |>
+   summarise(SurvivalNTabs = (sum(SurvTab, na.rm = TRUE))) 
+
+summary_heron37 <- summary_heron_tab |>
+  filter(Site %in% c("H1A", "H2B", "H3A", "H4B", "H5A"))|>
+    mutate(TabTot = rep(c(37,38)),
+         Perc_SurvTab = SurvivalNTabs/TabTot)
+
+summary_heron38 <- summary_heron_tab |>
+  filter(Reef == "Heron") |>
+  filter(Site %in% c("H1B", "H2A", "H3B", "H4A", "H5B")) |>
+    mutate(TabTot = rep(c(38, 37)),
+         Perc_SurvTab = SurvivalNTabs/TabTot)
+
+summary_heron_tab <- rbind(summary_heron37,summary_heron38)
+colnames(summary_heron_tab)
+
+summary_survival_tab <- rbind(summary_daviesmoore_tab, summary_heron_tab)
+
+remove(summary_heron37, summary_heron38, summary_daviesmoore_tab, summary_heron_tab)
 ```
 
 ```{r}
-moore_final_dev <- summary_survival_Dev |> filter(Reef == "Moore", Census =="t6")
+moore_final_dev <- summary_survival_device |> filter(Reef == "Moore", Census =="t6")
 mean(moore_final_dev$Perc_SurvDev)
 sd(moore_final_dev$Perc_SurvDev)
 min(moore_final_dev$Perc_SurvDev)
@@ -364,7 +214,7 @@ max(moore_final_dev$Perc_SurvDev)
 ```
 
 ```{r}
-moore_final_tab <- summary_survival_Tab |> filter(Reef == "Moore", Census =="t6")
+moore_final_tab <- summary_survival_tab |> filter(Reef == "Moore", Census =="t6")
 mean(moore_final_tab$Perc_SurvTab)
 sd(moore_final_tab$Perc_SurvTab)
 min(moore_final_tab$Perc_SurvTab)
@@ -372,7 +222,7 @@ max(moore_final_tab$Perc_SurvTab)
 ```
 
 ```{r}
-davies_final_dev <- summary_survival_Dev |> filter(Reef == "Davies", Census =="t6")
+davies_final_dev <- summary_survival_device |> filter(Reef == "Davies", Census =="t6")
 mean(davies_final_dev$Perc_SurvDev)
 sd(davies_final_dev$Perc_SurvDev)
 min(davies_final_dev$Perc_SurvDev)
@@ -380,70 +230,20 @@ max(davies_final_dev$Perc_SurvDev)
 ```
 
 ```{r}
-davies_final_tab <- summary_survival_Tab |> filter(Reef == "Davies", Census =="t6")
+davies_final_tab <- summary_survival_tab |> filter(Reef == "Davies", Census =="t6")
 mean(davies_final_tab$Perc_SurvTab)
 sd(davies_final_tab$Perc_SurvTab)
 min(davies_final_tab$Perc_SurvTab)
 max(davies_final_tab$Perc_SurvTab)
 ```
 
-### Combine Heron (yield calculated by Spp) with Moore and Davies (Spp)
+# Figures
 
-```{r}
-summary_daviesmoore <- summary_survival_Dev |>
-  filter(!Reef == "Heron")
-
-#heron dataframe: summary_heron
-#moore davies dataframe: summary_survival_Dev
-
-#bind dataframes together
-summary_survival <- rbind(summary_heron, summary_daviesmoore)
-```
-
-Create summary dataframe that includes species.
-
-```{r}
-summary_survival_Spp <- data_survival |>
-  group_by(Reef, Site, WaveEnergyLevel, Census, ExpDay, Spp) |>
-  summarise(SurvivalNTabs = (sum(SurvTab, na.rm = TRUE))) 
-
-summary_survival_Spp_DavMoore <- summary_survival_Spp |>
-  filter(!Reef == "Heron") |>
-  mutate(TabTot = 75,
-         Perc_SurvTab = SurvivalNTabs/TabTot)
-
-summary_survival_Spp_Heron37 <- summary_survival_Spp |>
-  filter(Reef == "Heron") |>
-  filter(Site %in% c("H1A", "H2B", "H3A", "H4B", "H5A"))|>
-    mutate(TabTot = rep(c(37,38)),
-         Perc_SurvTab = SurvivalNTabs/TabTot)
-
-summary_survival_Spp_Heron38 <- summary_survival_Spp |>
-  filter(Reef == "Heron") |>
-  filter(Site %in% c("H1B", "H2A", "H3B", "H4A", "H5B")) |>
-    mutate(TabTot = rep(c(38, 37)),
-         Perc_SurvTab = SurvivalNTabs/TabTot)
-
-summary_survival_Spp_Heron <- rbind(summary_survival_Spp_Heron37,summary_survival_Spp_Heron38)
-
-summary_survival_Spp <- rbind(summary_survival_Spp_DavMoore, summary_survival_Spp_Heron)
-
-remove(summary_survival_Spp_Heron, summary_survival_Spp_DavMoore, summary_survival_Spp_Heron37, summary_survival_Spp_Heron38)
-```
-
-```{r}
-summary_survival <- summary_survival_Dev |>
-  left_join(
-    summary_survival_Spp)
-
-remove(summary_survival_Dev, summary_survival_Spp)
-```
-
-# Descriptive figures
+### Figure survival
 
 ```{r}
 # Calculate average survival and standard error for each species within each reef at each time point
-summary_survival_stats <- summary_survival |>
+summary_survival_stats <- summary_survival_device |>
   group_by(Reef, Census, Spp) |>
   summarise(Avg_Survival = mean(Perc_SurvDev, na.rm = TRUE),
             SE = sd(Perc_SurvDev, na.rm = TRUE) / sqrt(n())) |>
@@ -477,19 +277,19 @@ plot_survival_time
 
 ```
 
-### Boxplot - growth by site for each reef
+### Boxplot size
 
 ```{r}
 # Reorder the levels of the Reef variable
-size_allreef$Reef <- factor(size_allreef$Reef, levels = c("Moore", "Davies", "Heron"))
+df_size$Reef <- factor(df_size$Reef, levels = c("Moore", "Davies", "Heron"))
 
 # Update the Site column in the size_allreef dataset
-size_allreef$Site <- gsub("A$", "a", size_allreef$Site)
-size_allreef$Site <- gsub("B$", "b", size_allreef$Site)
-unique(size_allreef$Site)
+df_size$Site <- gsub("A$", "a", df_size$Site)
+df_size$Site <- gsub("B$", "b", df_size$Site)
+unique(df_size$Site)
 
 # Plot the average growth for each reef and species - BOXPLOT
-plot_size_site <- ggplot(size_allreef, aes(x= Site, y = Size, color = Spp)) +
+plot_size_site <- ggplot(df_size, aes(x= Site, y = Size, color = Spp)) +
    geom_boxplot() +
   scale_color_manual(values = c("A. millepora" = "green", "A. hyacinthus" = "orange", "A. kenti" = "purple")) +
   facet_wrap(~Reef, scales = "free") +
@@ -507,13 +307,6 @@ plot_size_site <- ggplot(size_allreef, aes(x= Site, y = Size, color = Spp)) +
 
 plot_size_site
 
-```
-
-Save figures
-
-```{r}
-#ggsave("Fig3a - Mean survival Spp over time - tab.png", plot=plot_survival_time, width = 14, height = 6, dpi = 300)
-#ggsave("Fig3b - Coral Size by site.jpeg", plot=plot_size_site, width = 14, height = 6, dpi = 300)
 ```
 
 # Multiplot
