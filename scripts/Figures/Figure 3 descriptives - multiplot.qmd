@@ -75,6 +75,32 @@ df_size$SurvDev <- as.numeric(df_size$SurvDev)
 df_size <- df_size[complete.cases(df_size$Size),  ]
 ```
 
+Summary data size
+
+```{r}
+summary_size <- df_size |>
+  group_by(Reef, Spp, Site) |>
+  summarise(
+    Mean_Size = mean(Size, na.rm = TRUE),
+    SD_Size = sd(Size, na.rm = TRUE),
+    N = n(),
+    max_Size = max(Size, na.rm = TRUE)
+  ) |>
+  ungroup()
+
+print(summary_size)
+
+summary_by_species <- summary_size |> 
+  group_by(Reef, Spp) |>
+  summarise(
+    Mean_Size_across_sites = mean(Mean_Size, na.rm = TRUE),
+    SD_Size_across_sites = sd(Mean_Size, na.rm = TRUE),
+    N_Sites = n()
+  )
+
+print(summary_by_species)
+```
+
 # Survival
 
 ### Heron - restructure
@@ -237,6 +263,38 @@ min(davies_final_tab$Perc_SurvTab)
 max(davies_final_tab$Perc_SurvTab)
 ```
 
+```{r}
+heron_final_dev_kenti <- summary_survival_device |> filter(Reef == "Heron", Census == "t3", Spp == "A. kenti")
+mean(heron_final_dev_kenti$Perc_SurvDev)
+sd(heron_final_dev_kenti$Perc_SurvDev)
+min(heron_final_dev_kenti$Perc_SurvDev)
+max(heron_final_dev_kenti$Perc_SurvDev)
+```
+
+```{r}
+heron_final_dev_hya <- summary_survival_device |> filter(Reef == "Heron", Census == "t3", Spp == "A. hyacinthus")
+mean(heron_final_dev_hya$Perc_SurvDev)
+sd(heron_final_dev_hya$Perc_SurvDev)
+min(heron_final_dev_hya$Perc_SurvDev)
+max(heron_final_dev_hya$Perc_SurvDev)
+```
+
+```{r}
+heron_final_tab_kenti <- summary_survival_tab |> filter(Reef == "Heron", Census =="t3", Spp == "A. kenti")
+mean(heron_final_tab_kenti$Perc_SurvTab)
+sd(heron_final_tab_kenti$Perc_SurvTab)
+min(heron_final_tab_kenti$Perc_SurvTab)
+max(heron_final_tab_kenti$Perc_SurvTab)
+```
+
+```{r}
+heron_final_tab_hya <- summary_survival_tab |> filter(Reef == "Heron", Census =="t3", Spp == "A. hyacinthus")
+mean(heron_final_tab_hya$Perc_SurvTab)
+sd(heron_final_tab_hya$Perc_SurvTab)
+min(heron_final_tab_hya$Perc_SurvTab)
+max(heron_final_tab_hya$Perc_SurvTab)
+```
+
 # Figures
 
 ### Figure survival
@@ -288,8 +346,13 @@ df_size$Site <- gsub("A$", "a", df_size$Site)
 df_size$Site <- gsub("B$", "b", df_size$Site)
 unique(df_size$Site)
 
+# Cap the y-values for Heron only. This keeps the data but limits extreme values visually.
+df_size <- df_size |>
+  mutate(Size_capped = ifelse(Reef == "Heron" & Size > 200, 200, Size))
+
+
 # Plot the average growth for each reef and species - BOXPLOT
-plot_size_site <- ggplot(df_size, aes(x= Site, y = Size, color = Spp)) +
+plot_size_site <- ggplot(df_size, aes(x= Site, y = Size_capped, color = Spp)) +
    geom_boxplot() +
   scale_color_manual(values = c("A. millepora" = "green", "A. hyacinthus" = "orange", "A. kenti" = "purple")) +
   facet_wrap(~Reef, scales = "free") +
@@ -297,8 +360,7 @@ plot_size_site <- ggplot(df_size, aes(x= Site, y = Size, color = Spp)) +
        y = "Coral Size (cm3)",
        color = "Species") +
   theme_bw() +
-  ylim(0,150) +
-   theme(panel.border = element_rect(color = "black", fill = NA),
+  theme(panel.border = element_rect(color = "black", fill = NA),
         axis.line = element_line(color = "black"),
         axis.text = element_text(size = 13),
         axis.title = element_text(size = 14), 
@@ -306,7 +368,6 @@ plot_size_site <- ggplot(df_size, aes(x= Site, y = Size, color = Spp)) +
         strip.text = element_blank())
 
 plot_size_site
-
 ```
 
 # Multiplot
@@ -374,6 +435,6 @@ capture_plot()
 ```{r}
 
 # Save the plot using ggsave
-ggsave("Figure descriptives.jpeg", plot = capture_plot(), width = 13, height = 6)
+ggsave("Figure descriptives_heron_capped.jpeg", plot = capture_plot(), width = 13, height = 6)
 
 ```
