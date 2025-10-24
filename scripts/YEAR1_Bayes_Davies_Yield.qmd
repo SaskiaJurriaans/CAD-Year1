@@ -27,7 +27,7 @@ library(tidyverse)  #for data wrangling etc
 library(rstanarm)   #for fitting models in STAN
 #library(cmdstanr)   #for cmdstan --> does not work on AIMS computers
 library(brms)       #for fitting models in STAN
-library(standist)   #for exploring distributions
+# library(standist)   #for exploring distributions
 library(coda)       #for diagnostics
 library(bayesplot)  #for diagnostics
 library(ggmcmc)     #for MCMC diagnostics
@@ -50,7 +50,7 @@ library(easystats)     #framework for stats, modelling and visualisation
 library(openxlsx)    # to write excel documents
 #library(INLAutils)  #for additional INLA outputs
 theme_set(theme_grey()) #put the default ggplot theme back
-source('helperFunctions.R')
+# source('helperFunctions.R')
 library(lme4)
 
 remove(plot0)
@@ -60,9 +60,11 @@ remove(plot0.1)
 # Read in the data
 
 ```{r}
-survival <- read_excel("data/YEAR1_Survival.xlsx", na ="")
 
-environment <- read_excel ("data/YEAR1 Benthic Environment ReefDev.xlsx", na="")
+library(here)
+
+survival <- read_excel(here("data", "YEAR1_Survival.xlsx"), na ="")
+environment <- read_excel (here("data", "YEAR1 Benthic Environment ReefDev.xlsx"), na="")
 ```
 
 # Exploratory data
@@ -489,28 +491,10 @@ priors_turf_refined <-
   prior(normal(0, 0.3), class = "b", coef = "turf:Censust6") +  
   prior(student_t(3, 0, 1), class = 'sd')  # Regularizing prior for random intercept
 
-priors_turf_refined <- 
-  prior(normal(0.5, 0.3), class = "b", coef = "turf") +
-  prior(normal(0, 0.2), class = "b", coef = "turf:Censust2") +
-  prior(normal(0, 0.2), class = "b", coef = "turf:Censust3") +
-  prior(normal(0, 0.2), class = "b", coef = "turf:Censust4") +
-  prior(normal(0, 0.2), class = "b", coef = "turf:Censust6") +
-  prior(normal(0, 1), class = "Intercept") +
-  prior(student_t(3, 0, 1), class = "sd", group = "Site")
-
-priors_turf_refined_v2 <- 
-  prior(normal(0.5, 0.2), class = "b", coef = "turf") +
-  prior(normal(0, 0.1), class = "b", coef = "turf:Censust2") +
-  prior(normal(0, 0.1), class = "b", coef = "turf:Censust3") +
-  prior(normal(0, 0.1), class = "b", coef = "turf:Censust4") +
-  prior(normal(0, 0.1), class = "b", coef = "turf:Censust6") +
-  prior(normal(0, 1), class = "Intercept") +
-  prior(student_t(3, 0, 1), class = "sd", group = "Site")
-
 
 davies_brm_turf_interaction <- brm(davies_form_turf_interaction,
                  data=davies_subset,
-                 prior = priors_turf_refined_v2,
+                 prior = priors_turf_refined,
                  sample_prior = 'yes',
                  iter = 5000,
                  warmup = 1000,
@@ -1173,15 +1157,27 @@ plot_davies_ub <- ggplot() +
                "t6" = "17 months",
                "t3" = "28 months")
   ) +
-  labs(x = "Bottom stress\n(m s-1)", y = NULL, color = "Census time") + 
-  theme_minimal() +
-  theme( axis.text.x = element_text(size = 12),  # Increase x-axis tick label size
-  axis.text.y = element_text(size = 12),  # Increase y-axis tick label size.
-  axis.title.x = element_text(size = 13),  # Increase x-axis title size
+  labs(
+    x = expression("Bottom stress (m s"^{-1}*")"),
+  y = NULL,
+  color = NULL,
+) + 
+ scale_color_manual(
+    values = c("t1" = "orange", "t4" = "#009E73", "t6" = "#0072B2", "t3" = "#F0E442"),  
+    labels = c("t1" = "3 months", 
+               "t4" = "10-14 months", 
+               "t6" = "17 months",
+               "t3" = "28 months")
+  ) + theme_minimal() +
+  theme(
+    axis.text.x = element_text(size = 12),
+    axis.text.y = element_text(size = 12),
+    axis.title.x = element_text(size = 13),
     panel.border = element_rect(color = "black", fill = NA, linewidth = 0.5),
     axis.ticks = element_line(color = "black", linewidth = 0.5),
     axis.ticks.length = unit(0.25, "cm"),
-    axis.title.y = element_blank()
+    axis.title.y = element_blank(),
+    legend.position = "none"  
   )
 
 print(plot_davies_ub)
@@ -1215,22 +1211,27 @@ plot_davies_wave <- ggplot() +
   geom_jitter(data = davies_combined, 
               aes(x = WaveEnergyLevel, y = SurvDev, color = Census), 
               alpha = 0.5, width = 0.05, height = 0) +
- labs(x = "Nom. Wave Energy Level\n", y = NULL, color = "Census time") + # Add x-axis label here
+ labs(
+     x = "Nominal Wave Energy Level",
+  y = NULL,
+  color = NULL,
+) + 
  scale_color_manual(
     values = c("t1" = "orange", "t4" = "#009E73", "t6" = "#0072B2", "t3" = "#F0E442"),  
     labels = c("t1" = "3 months", 
                "t4" = "10-14 months", 
                "t6" = "17 months",
                "t3" = "28 months")
-  ) +
-  theme_minimal() +
-  theme( axis.text.x = element_text(size = 12),  # Increase x-axis tick label size
-  axis.text.y = element_text(size = 12),  # Increase y-axis tick label size.
-  axis.title.x = element_text(size = 13),  # Increase x-axis title size
+  ) + theme_minimal() +
+  theme(
+    axis.text.x = element_text(size = 12),
+    axis.text.y = element_text(size = 12),
+    axis.title.x = element_text(size = 13),
     panel.border = element_rect(color = "black", fill = NA, linewidth = 0.5),
     axis.ticks = element_line(color = "black", linewidth = 0.5),
     axis.ticks.length = unit(0.25, "cm"),
-    axis.title.y = element_blank()
+    axis.title.y = element_blank(),
+    legend.position = "none"  
   )
 
 print(plot_davies_wave)
@@ -1264,22 +1265,27 @@ plot_davies_speed <- ggplot() +
   geom_jitter(data = davies_combined, 
               aes(x = median_speed, y = SurvDev, color = Census), 
               alpha = 0.5, width = 0.01, height = 0) +
-  labs(x = "Median flow velocity\n(m s-1)", y = NULL, color = "Census time") + 
-  scale_color_manual(
+  labs(
+      x = expression("Median flow velocity (m s"^{-1}*")"),
+  y = NULL,
+  color = NULL,
+) + 
+ scale_color_manual(
     values = c("t1" = "orange", "t4" = "#009E73", "t6" = "#0072B2", "t3" = "#F0E442"),  
     labels = c("t1" = "3 months", 
                "t4" = "10-14 months", 
                "t6" = "17 months",
                "t3" = "28 months")
-  ) +
-  theme_minimal() +
-  theme( axis.text.x = element_text(size = 12),  # Increase x-axis tick label size
-  axis.text.y = element_text(size = 12),  # Increase y-axis tick label size.
-  axis.title.x = element_text(size = 13),  # Increase x-axis title size
+  ) + theme_minimal() +
+  theme(
+    axis.text.x = element_text(size = 12),
+    axis.text.y = element_text(size = 12),
+    axis.title.x = element_text(size = 13),
     panel.border = element_rect(color = "black", fill = NA, linewidth = 0.5),
     axis.ticks = element_line(color = "black", linewidth = 0.5),
     axis.ticks.length = unit(0.25, "cm"),
-    axis.title.y = element_blank()
+    axis.title.y = element_blank(),
+    legend.position = "none"  
   )
 
 print(plot_davies_speed)
@@ -1309,22 +1315,27 @@ plot_davies_turf <- ggplot() +
   geom_jitter(data = davies_combined, 
               aes(x = turf, y = SurvDev, color = Census), 
               alpha = 0.5, width = 0.05, height = 0) +
-   labs(x = "Sedimentation on turf\n(mg cm-2 day-1)", y = NULL, color = "Census time") + 
+   labs(
+x = expression("Sediment on turf (mg cm"^{-2} * " day"^{-1} * ")"),
+  y = NULL,
+  color = NULL,
+) + 
  scale_color_manual(
     values = c("t1" = "orange", "t4" = "#009E73", "t6" = "#0072B2", "t3" = "#F0E442"),  
     labels = c("t1" = "3 months", 
                "t4" = "10-14 months", 
                "t6" = "17 months",
                "t3" = "28 months")
-  ) +
-  theme_minimal() +
-  theme( axis.text.x = element_text(size = 12),  # Increase x-axis tick label size
-  axis.text.y = element_text(size = 12),  # Increase y-axis tick label size.
-  axis.title.x = element_text(size = 13),  # Increase x-axis title size
+  ) + theme_minimal() +
+  theme(
+    axis.text.x = element_text(size = 12),
+    axis.text.y = element_text(size = 12),
+    axis.title.x = element_text(size = 13),
     panel.border = element_rect(color = "black", fill = NA, linewidth = 0.5),
     axis.ticks = element_line(color = "black", linewidth = 0.5),
     axis.ticks.length = unit(0.25, "cm"),
-    axis.title.y = element_blank()
+    axis.title.y = element_blank(),
+    legend.position = "none"  
   )
 
 print(plot_davies_turf)
@@ -1354,22 +1365,27 @@ plot_davies_concrete <- ggplot() +
   geom_jitter(data = davies_combined, 
               aes(x = concrete, y = SurvDev, color = Census), 
               alpha = 0.5, width = 0.05, height = 0) +
-   labs(x = "Sedimentation on concrete\n(mg cm-2 day-1)", y = NULL, color = "Census time") + 
-  scale_color_manual(
+   labs(
+x = expression("Sediment on concrete (mg cm"^{-2} * " day"^{-1} * ")"),
+  y = NULL,
+  color = NULL,
+) + 
+ scale_color_manual(
     values = c("t1" = "orange", "t4" = "#009E73", "t6" = "#0072B2", "t3" = "#F0E442"),  
     labels = c("t1" = "3 months", 
                "t4" = "10-14 months", 
                "t6" = "17 months",
                "t3" = "28 months")
-  ) +
-  theme_minimal() +
- theme( axis.text.x = element_text(size = 12),  # Increase x-axis tick label size
-  axis.text.y = element_text(size = 12),  # Increase y-axis tick label size.
-  axis.title.x = element_text(size = 13),  # Increase x-axis title size
+  ) + theme_minimal() +
+  theme(
+    axis.text.x = element_text(size = 12),
+    axis.text.y = element_text(size = 12),
+    axis.title.x = element_text(size = 13),
     panel.border = element_rect(color = "black", fill = NA, linewidth = 0.5),
     axis.ticks = element_line(color = "black", linewidth = 0.5),
     axis.ticks.length = unit(0.25, "cm"),
-    axis.title.y = element_blank()
+    axis.title.y = element_blank(),
+    legend.position = "none"  
   )
 
 print(plot_davies_concrete)

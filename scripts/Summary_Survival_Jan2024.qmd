@@ -113,7 +113,7 @@ remove(heron_Aten, heron_Aten2, heron_Ahya, heron_Ahya2)
 colnames(heron_device)
 ```
 
-### Summary: Percent Device Survival 
+### Summary: Percent Device Survival
 
 ```{r}
 summary_heron_device <- heron_device |>
@@ -142,7 +142,23 @@ colnames(summary_survival_device)
 remove(summary_daviesmoore_device, summary_heron_device, heron_device)
 ```
 
-### Summary: Percent Tab Survival 
+What was the average survival at Moore and DAvies Reef after 1 yr (census 4) and what was the average survival at Heron Reef after 1 yr (census 2?
+
+```{r}
+summary_survival_device %>%
+  filter(
+    (Reef %in% c("Moore", "Davies") & Census == "t4") |
+    (Reef == "Heron" & Census == "t2")
+  ) %>%
+  group_by(Reef, Spp) %>%
+  summarise(
+    avg_percent_survival = mean(Perc_SurvDev, na.rm = TRUE),
+    n = n()
+  )
+
+```
+
+### Summary: Percent Tab Survival
 
 Create summary dataframe that includes species.
 
@@ -201,7 +217,7 @@ plot1a <- ggplot(summary_survival, aes(x = Reef, y = Perc_SurvTab, color = Reef)
 
 plot1a
 
-ggsave("Fig1a - Mean survival Reef-tabs.png", plot=plot1a, width = 8, height = 6, dpi = 300)
+# ggsave("Fig1a - Mean survival Reef-tabs.png", plot=plot1a, width = 8, height = 6, dpi = 300)
 ```
 
 ### Fig1b - Boxplot - Mean survival Reef-yield
@@ -220,7 +236,7 @@ plot1b <- ggplot(summary_survival, aes(x = Reef, y = Perc_SurvDev, color = Reef)
         legend.text = element_text(size = 12))
 plot1b 
 
-ggsave("Fig1b - Mean survival Reef-yield.png", plot=plot1b, width = 8, height = 6, dpi = 300) 
+# ggsave("Fig1b - Mean survival Reef-yield.png", plot=plot1b, width = 8, height = 6, dpi = 300) 
 ```
 
 ### 
@@ -245,7 +261,7 @@ plot2a <- ggplot(summary_survival_finalcensus, aes(x = Reef, y = Perc_SurvTab, c
 
 plot2a
 
-ggsave("Fig2a - Mean survival final census Reef-tabs.png", plot=plot2a, width = 8, height = 6, dpi = 300)
+# ggsave("Fig2a - Mean survival final census Reef-tabs.png", plot=plot2a, width = 8, height = 6, dpi = 300)
 ```
 
 ### Fig2b - Boxplot - Mean survival final census Reef-yield
@@ -475,7 +491,7 @@ plot7a <- ggplot(summary_survival_stats, aes(x = ExpDay, y = Avg_Survival, color
         legend.text = element_text(size = 12))
 
 plot7a
-ggsave("Fig7a - Mean survival Spp over time - tab.png", plot=plot7a, width = 14, height = 6, dpi = 300)
+# ggsave("Fig7a - Mean survival Spp over time - tab.png", plot=plot7a, width = 14, height = 6, dpi = 300)
 
 ```
 

@@ -63,8 +63,9 @@ Y1Benthic <- read_excel("C:/Users/sjurriaa/Australian Institute of Marine Scienc
            na = "na")
 
 #survival dataset
-survival_master <- read_excel("C:/Users/sjurriaa/Australian Institute of Marine Science/Carly Randall - Randall Lab/CAD/CAD Field Data/2022_Deployment_Saskia_YEAR1/Survival data/2022_Deployment_Saskia_MasterData.xlsx", 
+survival_master <- read_excel("C:/Users/sjurriaa/Australian Institute of Marine Science/Carly Randall - Randall Lab/CAD/CAD Year1/data/YEAR1_Survival.xlsx", 
                               sheet = "Survival", na = "NA")
+
 
 #environmental dataset
 Y1Environment <- read_excel("C:/Users/sjurriaa/Australian Institute of Marine Science/Carly Randall - Randall Lab/CAD/CAD Year1/data/YEAR1 Benthic Environment ReefDev.xlsx", 
@@ -432,21 +433,21 @@ What is driving this community??
 ### VIF - multicollinearity
 
 ```{r, message=FALSE, warning=FALSE}
-lm(1:nrow(davies.env) ~ Ub + FlowVel + SedTurf2 + SedCon2  +SedTurf5      + SedCon5, data=davies.env) |> 
+lm(1:nrow(davies.env) ~ Ub + FlowVel + Turf + Concrete, data=davies.env) |> 
   vif()
 ```
 
 Values above 5 on a variance inflation scale are indicative of correlation. Thus only **FlowVelocity**, **Ub** and **SedTurf2** can go in a model with each other. The other variables have a value greater than 5 so we cannot put them in a model together because they are too highly correlated and we would not be able to distinguish them.
 
 ```{r}
-lm(1:nrow(davies.env) ~ FlowVel + Ub + SedTurf2 , data=davies.env) |> 
+lm(1:nrow(davies.env) ~ FlowVel + Ub + Turf , data=davies.env) |> 
   vif()
 ```
 
 Is there any evidence that the community is influenced by any of the environmental variables?
 
 ```{r}
-lm(davies_site_df$PC1 ~ FlowVel + Ub + SedTurf2, data=davies.env) |>
+lm(davies_site_df$PC1 ~ FlowVel + Ub + Turf, data=davies.env) |>
   summary()
 ```
 
@@ -455,7 +456,7 @@ Yes for FlowVelocity and Ub, but not for sedimentation.
 And now for PC2:
 
 ```{r}
-lm(davies_site_df$PC2 ~ FlowVel + Ub + SedTurf2, data=davies.env) |>
+lm(davies_site_df$PC2 ~ FlowVel + Ub + Turf, data=davies.env) |>
   summary()
 ```
 

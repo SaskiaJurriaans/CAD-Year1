@@ -27,7 +27,7 @@ library(tidyverse)  #for data wrangling etc
 library(rstanarm)   #for fitting models in STAN
 #library(cmdstanr)   #for cmdstan --> does not work on AIMS computers
 library(brms)       #for fitting models in STAN
-library(standist)   #for exploring distributions
+# library(standist)   #for exploring distributions
 library(coda)       #for diagnostics
 library(bayesplot)  #for diagnostics
 library(ggmcmc)     #for MCMC diagnostics
@@ -2038,25 +2038,27 @@ plot_heron_Ub <- ggplot() +
   geom_jitter(data = heron_combined, 
               aes(x = Ub_avrg, y = SurvDev_Spp, color = Census), 
               alpha = 0.5, width = 0.05, height = 0) +
-  
-  labs(x = "Bottom stress\n(m s-1)", y = NULL, color = "Census time") + # Add x-axis label here
-  
- # Modify the plot legend to use months-based labels
-scale_color_manual(
-    values = c("t1" = "orange", "t2" = "#009E73", "t6" = "#0072B2", "t3" = "#F0E442"),  
+     labs(
+    x = expression("Bottom stress (m s"^{-1}*")"),
+  y = NULL,
+  color = NULL,
+) + 
+ scale_color_manual(
+    values = c("t1" = "orange", "t4" = "#009E73", "t6" = "#0072B2", "t3" = "#F0E442"),  
     labels = c("t1" = "3 months", 
-               "t2" = "10-14 months", 
+               "t4" = "10-14 months", 
                "t6" = "17 months",
                "t3" = "28 months")
-  ) +
-  theme_minimal() +
+  ) + theme_minimal() +
   theme(
-     axis.text.x = element_text(size = 12),  # Increase x-axis tick label size
-  axis.text.y = element_text(size = 12),  # Increase y-axis tick label size
-   axis.title.x = element_text(size = 13),  # Increase x-axis title size
+    axis.text.x = element_text(size = 12),
+    axis.text.y = element_text(size = 12),
+    axis.title.x = element_text(size = 13),
     panel.border = element_rect(color = "black", fill = NA, linewidth = 0.5),
     axis.ticks = element_line(color = "black", linewidth = 0.5),
-    axis.ticks.length = unit(0.25, "cm")
+    axis.ticks.length = unit(0.25, "cm"),
+    axis.title.y = element_blank(),
+    legend.position = "none"  
   )
 
 print(plot_heron_Ub)
@@ -2087,24 +2089,27 @@ plot_heron_wave <- ggplot() +
   geom_jitter(data = heron_combined, 
               aes(x = WaveEnergyLevel, y = SurvDev_Spp, color = Census), 
               alpha = 0.5, width = 0.2, height = 0) +
-  labs(x = "Nom. Wave Energy Level\n", y = NULL, color = "Census time") + # Add x-axis label here
-  
-  # Modify the plot legend to use months-based labels
-scale_color_manual(
-    values = c("t1" = "orange", "t2" = "#009E73", "t6" = "#0072B2", "t3" = "#F0E442"),  
+    labs(
+  x = "Nominal Wave Energy Level",
+  y = NULL,
+  color = NULL,
+) + 
+ scale_color_manual(
+    values = c("t1" = "orange", "t4" = "#009E73", "t6" = "#0072B2", "t3" = "#F0E442"),  
     labels = c("t1" = "3 months", 
-               "t2" = "10-14 months", 
+               "t4" = "10-14 months", 
                "t6" = "17 months",
                "t3" = "28 months")
-  ) +
-  theme_minimal() +
+  ) + theme_minimal() +
   theme(
-     axis.text.x = element_text(size = 12),  # Increase x-axis tick label size
-  axis.text.y = element_text(size = 12),  # Increase y-axis tick label size
-   axis.title.x = element_text(size = 13),  # Increase x-axis title size
+    axis.text.x = element_text(size = 12),
+    axis.text.y = element_text(size = 12),
+    axis.title.x = element_text(size = 13),
     panel.border = element_rect(color = "black", fill = NA, linewidth = 0.5),
     axis.ticks = element_line(color = "black", linewidth = 0.5),
-    axis.ticks.length = unit(0.25, "cm")
+    axis.ticks.length = unit(0.25, "cm"),
+    axis.title.y = element_blank(),
+    legend.position = "none"  
   )
 
 print(plot_heron_wave)
@@ -2136,24 +2141,28 @@ plot_heron_speed <- ggplot() +
   geom_jitter(data = heron_combined, 
               aes(x = median_speed, y = SurvDev_Spp, color = Census), 
               alpha = 0.5, width = 0.01, height = 0)   +
-  labs(x = "Median flow velocity\n(m s-1)", y = NULL, color = "Census time") + # Add x-axis label here
-  
- # Modify the plot legend to use months-based labels
-scale_color_manual(
-    values = c("t1" = "orange", "t2" = "#009E73", "t6" = "#0072B2", "t3" = "#F0E442"),  
+     labs(
+  x = expression("Median flow velocity (m s"^{-1}*")"),
+  y = NULL,
+  color = NULL,
+) + 
+ scale_color_manual(
+    values = c("t1" = "orange", "t4" = "#009E73", "t6" = "#0072B2", "t3" = "#F0E442"),  
     labels = c("t1" = "3 months", 
-               "t2" = "10-14 months", 
+               "t4" = "10-14 months", 
                "t6" = "17 months",
                "t3" = "28 months")
-  ) +
-  theme_minimal() +
+  ) + theme_minimal() +
   theme(
-     axis.text.x = element_text(size = 12),  # Increase x-axis tick label size
-  axis.text.y = element_text(size = 12),  # Increase y-axis tick label size
-   axis.title.x = element_text(size = 13),  # Increase x-axis title size
+    axis.text.x = element_text(size = 12),
+    axis.text.y = element_text(size = 12),
+    axis.title.x = element_text(size = 13),
     panel.border = element_rect(color = "black", fill = NA, linewidth = 0.5),
     axis.ticks = element_line(color = "black", linewidth = 0.5),
-    axis.ticks.length = unit(0.25, "cm"))
+    axis.ticks.length = unit(0.25, "cm"),
+    axis.title.y = element_blank(),
+    legend.position = "none"  
+  )
 
 print(plot_heron_speed)
 
@@ -2182,23 +2191,28 @@ plot_heron_turf <- ggplot() +
   geom_jitter(data = heron_combined, 
               aes(x = turf, y = SurvDev_Spp, color = Census), 
               alpha = 0.5, width = 0.05, height = 0) +
-    labs(x = "Sedimentation on turf\n(mg cm-2 day-1)", y = NULL, color = "Census time") + 
- # Modify the plot legend to use months-based labels
-scale_color_manual(
-    values = c("t1" = "orange", "t2" = "#009E73", "t6" = "#0072B2", "t3" = "#F0E442"),  
+       labs(
+x = expression("Sediment on turf (mg cm"^{-2} * " day"^{-1} * ")"),
+  y = NULL,
+  color = NULL,
+) + 
+ scale_color_manual(
+    values = c("t1" = "orange", "t4" = "#009E73", "t6" = "#0072B2", "t3" = "#F0E442"),  
     labels = c("t1" = "3 months", 
-               "t2" = "10-14 months", 
+               "t4" = "10-14 months", 
                "t6" = "17 months",
                "t3" = "28 months")
-  ) +
-  theme_minimal() +
+  ) + theme_minimal() +
   theme(
-     axis.text.x = element_text(size = 12),  # Increase x-axis tick label size
-  axis.text.y = element_text(size = 12),  # Increase y-axis tick label size
-   axis.title.x = element_text(size = 13),  # Increase x-axis title size
+    axis.text.x = element_text(size = 12),
+    axis.text.y = element_text(size = 12),
+    axis.title.x = element_text(size = 13),
     panel.border = element_rect(color = "black", fill = NA, linewidth = 0.5),
     axis.ticks = element_line(color = "black", linewidth = 0.5),
-    axis.ticks.length = unit(0.25, "cm"))
+    axis.ticks.length = unit(0.25, "cm"),
+    axis.title.y = element_blank(),
+    legend.position = "none"  
+  )
 
 print(plot_heron_turf)
 
@@ -2227,25 +2241,28 @@ plot_heron_concrete <- ggplot() +
   geom_jitter(data = heron_combined, 
               aes(x = concrete, y = SurvDev_Spp, color = Census), 
               alpha = 0.5, width = 0.05, height = 0) +
-  
-  labs(x = "Sedimentation on concrete\n(mg cm-2 day-1)", y = NULL, color = "Census time") + # Line break in x-axis label
-   # Modify the plot legend to use months-based labels
-scale_color_manual(
-    values = c("t1" = "orange", "t2" = "#009E73", "t6" = "#0072B2", "t3" = "#F0E442"),  
+   labs(
+x = expression("Sediment on concrete (mg cm"^{-2} * " day"^{-1} * ")"),
+  y = NULL,
+  color = NULL,
+) + 
+ scale_color_manual(
+    values = c("t1" = "orange", "t4" = "#009E73", "t6" = "#0072B2", "t3" = "#F0E442"),  
     labels = c("t1" = "3 months", 
-               "t2" = "10-14 months", 
+               "t4" = "10-14 months", 
                "t6" = "17 months",
                "t3" = "28 months")
-  ) +
-  theme_minimal() +
+  ) + theme_minimal() +
   theme(
-   axis.text.x = element_text(size = 12),  # Increase x-axis tick label size
-  axis.text.y = element_text(size = 12),  # Increase y-axis tick label size
-   axis.title.x = element_text(size = 13),  # Increase x-axis title size
-  panel.border = element_rect(color = "black", fill = NA, linewidth = 0.5),
-  axis.ticks = element_line(color = "black", linewidth = 0.5),
-  axis.ticks.length = unit(0.25, "cm")
-    )
+    axis.text.x = element_text(size = 12),
+    axis.text.y = element_text(size = 12),
+    axis.title.x = element_text(size = 13),
+    panel.border = element_rect(color = "black", fill = NA, linewidth = 0.5),
+    axis.ticks = element_line(color = "black", linewidth = 0.5),
+    axis.ticks.length = unit(0.25, "cm"),
+    axis.title.y = element_blank(),
+    legend.position = "none"  
+  )
 
 print(plot_heron_concrete)
 

@@ -280,19 +280,19 @@ remove(summary_survival_t2, summary_survival_t6)
 #NOT RELEVANT, only % at t6 is relevant!! - Get the overall mean percentage survival per site across timepoints.
 
 ```{r}
-survival_mean_Tab <- survival_perc_Tab |>
-  rowwise() |>
-  mutate(MeanPerc = mean(c_across(starts_with("Perc")), na.rm = TRUE),
-         SDPerc = sd(c_across(starts_with("Perc")), na.rm = TRUE),
-         SEPerc = SDPerc/sqrt((NTabs)))
+# survival_mean_Tab <- survival_perc_Tab |>
+  # rowwise() |>
+  # mutate(MeanPerc = mean(c_across(starts_with("Perc")), na.rm = TRUE),
+         # SDPerc = sd(c_across(starts_with("Perc")), na.rm = TRUE),
+         # SEPerc = SDPerc/sqrt((NTabs)))
 ```
 
 ```{r}
-survival_mean_dev <- survival_perc_dev |>
-  rowwise() |>
-  mutate(MeanPerc = mean(c_across(starts_with("Perc")), na.rm = TRUE),
-         SDPerc = sd(c_across(starts_with("Perc")), na.rm = TRUE),
-         SEPerc = SDPerc/sqrt((NDev)))
+# survival_mean_dev <- survival_perc_dev |>
+  # rowwise() |>
+  # mutate(MeanPerc = mean(c_across(starts_with("Perc")), na.rm = TRUE),
+         # SDPerc = sd(c_across(starts_with("Perc")), na.rm = TRUE),
+         # SEPerc = SDPerc/sqrt((NDev)))
 ```
 
 Merge summary_heron (with device level percentage survival for species) with summary moore and davies with device level percentage survival
@@ -469,16 +469,15 @@ plot_moore
 plot_davies
 plot_heron
 
-ggsave("Fig2c_moore - Moore final census - yield.png", plot=plot_moore, width = 4, height = 6, dpi = 300)
-ggsave("Fig2c_davies - Davies final census - yield.png", plot=plot_davies, width = 4, height = 6, dpi = 300)
-ggsave("Fig2c_heron - Heron final census - yield.png", plot=plot_heron, width = 4, height = 6, dpi = 300)
+# ggsave("Fig2c_moore - Moore final census - yield.png", plot=plot_moore, width = 4, height = 6, dpi = 300)
+# ggsave("Fig2c_davies - Davies final census - yield.png", plot=plot_davies, width = 4, height = 6, dpi = 300)
+# ggsave("Fig2c_heron - Heron final census - yield.png", plot=plot_heron, width = 4, height = 6, dpi = 300)
 
 ```
 
 ### Fig3 - Point - % survival final census yield over sites
 
 ```{r}
-# Create the plot
 plot3 <- ggplot(summary_survival_finalcensus, aes(x = Site, y = Perc_SurvDev, color = Reef)) +
   geom_point(size=3) +
   labs(title = "Survival by sites (final census)",
@@ -494,7 +493,7 @@ plot3 <- ggplot(summary_survival_finalcensus, aes(x = Site, y = Perc_SurvDev, co
   facet_wrap(~Reef, scales = "free")
 
 plot3
-ggsave("Fig3 - Survival final census - yield.png", plot=plot3, width = 14, height = 6, dpi = 300)
+# ggsave("Fig3 - Survival final census - yield.png", plot=plot3, width = 14, height = 6, dpi = 300)
 
 ```
 
@@ -517,7 +516,7 @@ plot4<- ggplot(summary_survival_finalcensus, aes(x = Site, y = Perc_SurvTab, col
   facet_wrap(~Spp, scales = "free")
 plot4
 
-ggsave("Fig4 - Survival by species - tabs.png", plot=plot4, width = 14, height = 6, dpi = 300)
+# ggsave("Fig4 - Survival by species - tabs.png", plot=plot4, width = 14, height = 6, dpi = 300)
 
 ```
 
@@ -541,7 +540,7 @@ plot5 <- ggplot(summary_survival, aes(x = ExpDay, y = Perc_SurvDev, color = Reef
   facet_wrap(~Reef, scales = "free")
 
 plot5
-ggsave("Fig5 - Survival over time - yield.png", plot=plot5, width = 14, height = 6, dpi = 300)
+# ggsave("Fig5 - Survival over time - yield.png", plot=plot5, width = 14, height = 6, dpi = 300)
 
 ```
 
@@ -564,7 +563,7 @@ plot6 <- ggplot(summary_survival, aes(x = ExpDay, y = Perc_SurvTab, color = Reef
   facet_wrap(~Spp, scales = "free")
 
 plot6
-ggsave("Fig6 - Survival Spp over time - tab.png", plot=plot6, width = 14, height = 6, dpi = 300)
+# ggsave("Fig6 - Survival Spp over time - tab.png", plot=plot6, width = 14, height = 6, dpi = 300)
 
 ```
 
@@ -602,7 +601,7 @@ plot7a <- ggplot(summary_survival_stats, aes(x = ExpDay, y = Avg_Survival, color
         strip.text = element_blank())
 
 plot7a
-ggsave("Fig7a - Mean survival Spp over time - tab.png", plot=plot7a, width = 14, height = 6, dpi = 300)
+# ggsave("Fig7a - Mean survival Spp over time - tab.png", plot=plot7a, width = 14, height = 6, dpi = 300)
 
 ```
 
